@@ -41,6 +41,11 @@ func LookupModifier(key uint32) (Modifiers, bool) {
 	return m, ok
 }
 
+func LookupModifierCode(code uint16) bool {
+	_, ok := modifierKeys[uint32(code)]
+	return ok
+}
+
 func IsMappedKey(key uint32) bool {
 	_, ok := usKeyMap[key]
 	return ok

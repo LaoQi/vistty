@@ -160,48 +160,6 @@ func TestBufferClear(t *testing.T) {
 	}
 }
 
-func TestBufferDirtyRegions(t *testing.T) {
-	b := NewBuffer(10, 5)
-	b.ClearDirty()
-	b.Cell(1, 2).MarkDirty()
-	b.Cell(1, 3).MarkDirty()
-	b.Cell(1, 4).MarkDirty()
-	b.Cell(3, 0).MarkDirty()
-	regions := b.DirtyRegions()
-	if len(regions) < 2 {
-		t.Fatalf("expected at least 2 dirty regions, got %d", len(regions))
-	}
-	found1 := false
-	found3 := false
-	for _, r := range regions {
-		if r.Y == 1 && r.X == 2 && r.W == 3 {
-			found1 = true
-		}
-		if r.Y == 3 && r.X == 0 && r.W == 1 {
-			found3 = true
-		}
-	}
-	if !found1 {
-		t.Error("expected dirty region at row 1, cols 2-4")
-	}
-	if !found3 {
-		t.Error("expected dirty region at row 3, col 0")
-	}
-}
-
-func TestBufferClearDirty(t *testing.T) {
-	b := NewBuffer(10, 5)
-	b.Cell(0, 0).MarkDirty()
-	b.ClearDirty()
-	if b.Cell(0, 0).IsDirty() {
-		t.Error("cell should not be dirty after ClearDirty")
-	}
-	regions := b.DirtyRegions()
-	if len(regions) != 0 {
-		t.Errorf("expected 0 dirty regions, got %d", len(regions))
-	}
-}
-
 func TestBufferClearRect(t *testing.T) {
 	b := NewBuffer(10, 5)
 	for i := 0; i < 5; i++ {
@@ -237,38 +195,6 @@ func TestBufferScrollDownZero(t *testing.T) {
 	b.ScrollDown(0)
 	if b.Cell(0, 0).Rune != 'A' {
 		t.Error("ScrollDown(0) should not change buffer")
-	}
-}
-
-func TestDirtyRegionsLineLevelDirty(t *testing.T) {
-	buf := NewBuffer(10, 5)
-	buf.ScrollUp(1)
-	regions := buf.DirtyRegions()
-	if len(regions) == 0 {
-		t.Fatal("expected dirty regions after scroll")
-	}
-	totalHeight := 0
-	for _, r := range regions {
-		totalHeight += r.H
-	}
-	if totalHeight != 5 {
-		t.Errorf("expected all 5 rows dirty, got %d", totalHeight)
-	}
-}
-
-func TestDirtyRegionsScrollDown(t *testing.T) {
-	buf := NewBuffer(10, 5)
-	buf.ScrollDown(1)
-	regions := buf.DirtyRegions()
-	if len(regions) == 0 {
-		t.Fatal("expected dirty regions after scroll down")
-	}
-	totalHeight := 0
-	for _, r := range regions {
-		totalHeight += r.H
-	}
-	if totalHeight != 5 {
-		t.Errorf("expected all 5 rows dirty, got %d", totalHeight)
 	}
 }
 
@@ -364,11 +290,8 @@ func TestBufferConcurrentIndependentInstances(t *testing.T) {
 				cell := b.Cell(i%10, i%20)
 				if cell != nil {
 					cell.Rune = 'x'
-					cell.MarkDirty()
 				}
 				b.ScrollUp(1)
-				_ = b.DirtyRegions()
-				b.ClearDirty()
 			}
 		}()
 	}

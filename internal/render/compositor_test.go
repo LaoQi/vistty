@@ -57,28 +57,6 @@ func TestCompositorRenderNoDirty(t *testing.T) {
 	}
 }
 
-func TestCompositorRenderWithDirty(t *testing.T) {
-	surf := &testSurface{
-		data:   make([]byte, 800*600*4),
-		stride: 800 * 4,
-		width:  800,
-		height: 600,
-	}
-	face := &testFace{}
-	c := NewCompositor(surf, face)
-
-	buf := screen.NewBuffer(10, 5)
-	cell := buf.Cell(0, 0)
-	if cell != nil {
-		cell.Rune = 'A'
-		cell.MarkDirty()
-	}
-	err := c.Render(buf, 0)
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-}
-
 func TestCompositorRenderWithScrollOffset(t *testing.T) {
 	surf := &testSurface{
 		data:   make([]byte, 800*600*4),

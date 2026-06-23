@@ -62,11 +62,12 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 		return nil, fmt.Errorf("create input source: %w", err)
 	}
 
-	fontPath := opts.FontPath
-	if fontPath == "" {
-		fontPath = defaultFontPath()
+	var face *font.OpenTypeFace
+	if opts.FontPath != "" {
+		face, err = font.NewOpenTypeFaceFromFile(opts.FontPath, opts.FontSize, 72)
+	} else {
+		face, err = font.NewEmbeddedFace(opts.FontSize, 72)
 	}
-	face, err := font.NewOpenTypeFaceFromFile(fontPath, opts.FontSize, 72)
 	if err != nil {
 		input.Close()
 		surface.Close()
@@ -359,19 +360,36 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 }
 
 func (t *Terminal) execPrint(seq vte.Sequence) {
+	w := runeWidth(seq.Rune)
+
+	if w == 2 && t.cursor.Col+1 >= t.screen.Cols() {
+		t.cursor.Col = 0
+		t.cursor.Row++
+		if t.cursor.Row > t.screen.Rows()-1 {
+			t.screen.ScrollUp(1)
+			t.cursor.Row = t.screen.Rows() - 1
+		}
+	}
+
 	cell := t.screen.Cell(t.cursor.Row, t.cursor.Col)
 	if cell != nil {
 		cell.Rune = seq.Rune
 		cell.Fg = t.curFg
 		cell.Bg = t.curBg
 		cell.Attr = t.curAttr
-		cell.MarkDirty()
+		cell.Width = uint8(w)
 	}
-	cell.Width = 1
-	if seq.Rune > 0x1100 {
-		cell.Width = 2
+	if w == 2 {
+		next := t.screen.Cell(t.cursor.Row, t.cursor.Col+1)
+		if next != nil {
+			next.Rune = 0
+			next.Width = 0
+			next.Fg = t.curFg
+			next.Bg = t.curBg
+			next.Attr = t.curAttr
+		}
 	}
-	t.cursor.Col += int(cell.Width)
+	t.cursor.Col += w
 	if t.cursor.Col >= t.screen.Cols() {
 		t.cursor.Col = 0
 		t.cursor.Row++
@@ -716,13 +734,11 @@ func (t *Terminal) deleteChars(n int) {
 			dstCell := row.Cell(dst)
 			if srcCell != nil && dstCell != nil {
 				*dstCell = *srcCell
-				dstCell.MarkDirty()
 			}
 		} else {
 			dstCell := row.Cell(dst)
 			if dstCell != nil {
 				dstCell.Clear()
-				dstCell.MarkDirty()
 			}
 		}
 	}
@@ -742,13 +758,11 @@ func (t *Terminal) insertChars(n int) {
 			dstCell := row.Cell(dst)
 			if srcCell != nil && dstCell != nil {
 				*dstCell = *srcCell
-				dstCell.MarkDirty()
 			}
 		} else {
 			dstCell := row.Cell(dst)
 			if dstCell != nil {
 				dstCell.Clear()
-				dstCell.MarkDirty()
 			}
 		}
 	}
@@ -812,28 +826,51 @@ func (t *Terminal) applySGR(params []int) {
 
 func (t *Terminal) inputLoop() {
 	defer t.wg.Done()
-	defer func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+	if debugLog {
+		defer fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+	}
+
+	var repeatEv platform.KeyEvent
+	var delayTimer *time.Timer
+	var rateTicker *time.Ticker
+	var delayCh <-chan time.Time
+	var rateCh <-chan time.Time
+
+	stopRepeat := func() {
+		if delayTimer != nil {
+			delayTimer.Stop()
+			delayTimer = nil
+			delayCh = nil
 		}
-	}()
-	defer func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+		if rateTicker != nil {
+			rateTicker.Stop()
+			rateTicker = nil
+			rateCh = nil
 		}
-	}()
-	defer func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
-		}
-	}()
+	}
+	defer stopRepeat()
+
 	for {
 		select {
 		case ev := <-t.input.KeyEvents():
+			stopRepeat()
 			if ev.State != platform.KeyPress {
 				continue
 			}
 			t.handleKey(ev)
+			if !platform.LookupModifierCode(ev.Code) {
+				repeatEv = ev
+				delayTimer = time.NewTimer(t.opts.RepeatDelay)
+				delayCh = delayTimer.C
+			}
+		case <-delayCh:
+			delayTimer = nil
+			delayCh = nil
+			rateTicker = time.NewTicker(t.opts.RepeatRate)
+			rateCh = rateTicker.C
+			t.handleKey(repeatEv)
+		case <-rateCh:
+			t.handleKey(repeatEv)
 		case <-t.done:
 			return
 		}
@@ -841,6 +878,11 @@ func (t *Terminal) inputLoop() {
 }
 
 func (t *Terminal) handleKey(ev platform.KeyEvent) {
+	if t.scrollOffset > 0 && !platform.LookupModifierCode(ev.Code) {
+		if !(ev.Mods&platform.ModShift != 0 && (ev.Code == 104 || ev.Code == 109)) {
+			t.scrollOffset = 0
+		}
+	}
 	if ev.Code != 0 && ev.Rune == 0 {
 		if ev.Mods&platform.ModShift != 0 {
 			switch ev.Code {
@@ -966,22 +1008,6 @@ func startPty(shell string, rows, cols int) (*os.File, *os.Process, error) {
 		return nil, nil, err
 	}
 	return ptmx, cmd.Process, nil
-}
-
-func defaultFontPath() string {
-	candidates := []string{
-		"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-		"/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-		"/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-		"/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
 }
 
 func csiParam(csi vte.CSISequence, idx, def int) int {

@@ -1,5 +1,7 @@
 package render
 
+import "github.com/LaoQi/vistty/internal/font"
+
 type cursorStyle int
 
 const (
@@ -8,15 +10,13 @@ const (
 	cursorBar
 )
 
-func drawCursor(data []byte, stride int, x, y int, cellW, cellH int, style cursorStyle, r, g, b uint8, cellRune rune, glyph []byte, glyphW int) {
+func drawCursor(data []byte, stride int, x, y int, cellW, cellH int, style cursorStyle, r, g, b uint8, cellRune rune, glyph *font.Glyph, ascent int) {
 	switch style {
 	case cursorBlock:
-		if cellRune != 0 && len(glyph) > 0 && glyphW > 0 {
-			glyphH := len(glyph) / glyphW
-			fillRect(data, stride, x, y, cellW, cellH, r, g, b)
-			blendGlyph(data, stride, x, y, glyph, glyphW, glyphH, 255-r, 255-g, 255-b)
-		} else {
-			fillRect(data, stride, x, y, cellW, cellH, r, g, b)
+		fillRect(data, stride, x, y, cellW, cellH, r, g, b)
+		if cellRune != 0 && glyph != nil && glyph.Width > 0 && len(glyph.Bitmap) > 0 {
+			gy := y + ascent + glyph.YOffset
+			blendGlyph(data, stride, x+glyph.XOffset, gy, glyph.Bitmap, glyph.Width, glyph.Height, 255-r, 255-g, 255-b)
 		}
 	case cursorUnderline:
 		fillRect(data, stride, x, y+cellH-2, cellW, 2, r, g, b)

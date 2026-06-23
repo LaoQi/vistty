@@ -285,3 +285,12 @@ func (b *WaylandBackend) close() error {
 }
 
 var _ platform.Backend = (*WaylandBackend)(nil)
+
+func Probe() bool {
+	display, err := client.Connect("")
+	if err != nil {
+		return false
+	}
+	display.Destroy()
+	return true
+}

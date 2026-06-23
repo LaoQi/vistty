@@ -76,9 +76,6 @@ func (b *Buffer) ScrollUp(n int) {
 	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
 		b.lines[i] = NewLine(b.cols)
 	}
-	for i := b.scrollTop; i <= b.scrollBot; i++ {
-		b.lines[i].dirty = true
-	}
 }
 
 func (b *Buffer) ScrollDown(n int) {
@@ -91,9 +88,6 @@ func (b *Buffer) ScrollDown(n int) {
 	copy(b.lines[b.scrollTop+n:b.scrollBot+1], b.lines[b.scrollTop:b.scrollBot-n+1])
 	for i := b.scrollTop; i < b.scrollTop+n; i++ {
 		b.lines[i] = NewLine(b.cols)
-	}
-	for i := b.scrollTop; i <= b.scrollBot; i++ {
-		b.lines[i].dirty = true
 	}
 }
 
@@ -132,7 +126,6 @@ func (b *Buffer) Resize(cols, rows int) {
 	}
 	for i := copyLen; i < rows; i++ {
 		newLines[i] = NewLine(cols)
-		newLines[i].dirty = true
 	}
 	b.lines = newLines
 	b.cols = cols
@@ -144,45 +137,6 @@ func (b *Buffer) Resize(cols, rows int) {
 func (b *Buffer) Clear() {
 	for i := range b.lines {
 		b.lines[i].Clear()
-	}
-}
-
-func (b *Buffer) DirtyRegions() []Rect {
-	var regions []Rect
-	for y := 0; y < b.rows; y++ {
-		line := b.lines[y]
-		if line == nil {
-			continue
-		}
-		if !line.IsDirty() {
-			continue
-		}
-		if line.dirty {
-			regions = append(regions, Rect{X: 0, Y: y, W: b.cols, H: 1})
-			continue
-		}
-		startX := -1
-		for x := 0; x < b.cols; x++ {
-			cell := line.Cell(x)
-			if cell != nil && cell.Dirty {
-				if startX == -1 {
-					startX = x
-				}
-			} else if startX != -1 {
-				regions = append(regions, Rect{X: startX, Y: y, W: x - startX, H: 1})
-				startX = -1
-			}
-		}
-		if startX != -1 {
-			regions = append(regions, Rect{X: startX, Y: y, W: b.cols - startX, H: 1})
-		}
-	}
-	return mergeRects(regions)
-}
-
-func (b *Buffer) ClearDirty() {
-	for _, l := range b.lines {
-		l.ClearDirty()
 	}
 }
 
@@ -198,25 +152,7 @@ func (b *Buffer) ClearRect(r Rect) {
 			cell := b.Cell(y, x)
 			if cell != nil {
 				cell.Clear()
-				cell.MarkDirty()
 			}
 		}
 	}
-}
-
-func mergeRects(rects []Rect) []Rect {
-	if len(rects) <= 1 {
-		return rects
-	}
-	merged := []Rect{rects[0]}
-	for i := 1; i < len(rects); i++ {
-		last := &merged[len(merged)-1]
-		curr := rects[i]
-		if curr.X == last.X && curr.W == last.W && curr.Y == last.Y+last.H {
-			last.H++
-		} else {
-			merged = append(merged, curr)
-		}
-	}
-	return merged
 }

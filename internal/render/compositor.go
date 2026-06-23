@@ -23,15 +23,7 @@ type Compositor struct {
 	backStride int
 	backWidth  int
 	backHeight int
-	prevCursor cursorState
 	frameCount uint64
-}
-
-type cursorState struct {
-	row     int
-	col     int
-	visible bool
-	style   cursorStyle
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -84,31 +76,9 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		offset = histLen
 	}
 
-	regions := buf.DirtyRegions()
 	cursor := buf.Cursor()
 
-	cursorMoved := false
-	if cursor != nil {
-		cursorMoved = cursor.Row != c.prevCursor.row ||
-			cursor.Col != c.prevCursor.col ||
-			cursor.Visible != c.prevCursor.visible ||
-			toCursorStyle(cursor.Style) != c.prevCursor.style
-	}
-
-	hasDirty := len(regions) > 0 || cursorMoved || offset > 0
-
-	if !hasDirty {
-		return nil
-	}
-
 	c.frameCount++
-
-	if cursorMoved && c.prevCursor.visible {
-		regions = append(regions, screen.Rect{
-			X: c.prevCursor.col, Y: c.prevCursor.row,
-			W: 1, H: 1,
-		})
-	}
 
 	if offset > 0 {
 		bg := c.defColor.bg
@@ -131,11 +101,12 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			if cell == nil {
 				continue
 			}
-			if !isHistory && !cell.Dirty {
+			if cell.Width == 0 {
 				continue
 			}
 			px := col * c.metrics.Width
 			py := row * c.metrics.Height
+			cellW := int(cell.Width) * c.metrics.Width
 
 			fg := c.resolveFg(cell.Fg)
 			bg := c.resolveBg(cell.Bg)
@@ -151,18 +122,18 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				fgB = fgB / 2
 			}
 
-			fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, bgR, bgG, bgB)
+			fillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
 
 			if cell.Rune != 0 {
 				glyph, err := c.getGlyph(cell.Rune)
 				if err != nil || glyph == nil {
 					continue
 				}
-			if cell.Attr&screen.AttrBold != 0 {
-				blendGlyph(c.backBuf, c.backStride, px+1, py, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
-			}
 			gx := px + glyph.XOffset
 			gy := py + c.metrics.Ascent + glyph.YOffset
+			if cell.Attr&screen.AttrBold != 0 {
+				blendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+			}
 			if cell.Attr&screen.AttrItalic != 0 {
 				blendGlyphItalic(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 			} else {
@@ -172,7 +143,7 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				if cell.Attr&screen.AttrUnderline != 0 {
 					underlineY := py + c.metrics.Ascent + 1
 					if underlineY < py+c.metrics.Height {
-						for x := px; x < px+c.metrics.Width; x++ {
+						for x := px; x < px+cellW; x++ {
 							off := underlineY*c.backStride + x*4
 							if off+3 < len(c.backBuf) {
 								c.backBuf[off] = fgB
@@ -186,7 +157,7 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 
 				if cell.Attr&screen.AttrCrossedOut != 0 {
 					midY := py + c.metrics.Height/2
-					for x := px; x < px+c.metrics.Width; x++ {
+					for x := px; x < px+cellW; x++ {
 						off := midY*c.backStride + x*4
 						if off+3 < len(c.backBuf) {
 							c.backBuf[off] = fgB
@@ -210,16 +181,17 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			cy := cursor.Row * c.metrics.Height
 			cursorCell := buf.Cell(cursor.Row, cursor.Col)
 			var cursorRune rune
-			var cursorGlyph []byte
+			var cursorGlyph *font.Glyph
+			cursorW := c.metrics.Width
 			if cursorCell != nil {
 				cursorRune = cursorCell.Rune
-				g, _ := c.getGlyph(cursorRune)
-				if g != nil {
-					cursorGlyph = g.Bitmap
+				if cursorCell.Width == 2 {
+					cursorW *= 2
 				}
+				cursorGlyph, _ = c.getGlyph(cursorRune)
 			}
 			fg := c.resolveFg(screen.Color{IsDefault: true})
-			drawCursor(c.backBuf, c.backStride, cx, cy, c.metrics.Width, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B, cursorRune, cursorGlyph, c.metrics.Width)
+			drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B, cursorRune, cursorGlyph, c.metrics.Ascent)
 		}
 	}
 
@@ -229,15 +201,6 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		return err
 	}
 
-	if cursor != nil {
-		c.prevCursor = cursorState{
-			row:     cursor.Row,
-			col:     cursor.Col,
-			visible: cursor.Visible,
-			style:   toCursorStyle(cursor.Style),
-		}
-	}
-	buf.ClearDirty()
 	return nil
 }
 
@@ -252,7 +215,6 @@ func (c *Compositor) Resize(cols, rows int) {
 	c.backHeight = h
 	bg := c.defColor.bg
 	fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
-	c.prevCursor = cursorState{}
 }
 
 func (c *Compositor) copyAllToSurface() {

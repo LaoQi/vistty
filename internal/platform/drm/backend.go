@@ -178,3 +178,25 @@ func (b *DRMBackend) Done() <-chan struct{} {
 }
 
 var _ platform.Backend = (*DRMBackend)(nil)
+
+func Probe() bool {
+	cards := drminternal.ListDevices()
+	if len(cards) == 0 {
+		return false
+	}
+	for _, card := range cards {
+		fd, err := os.OpenFile(card, os.O_RDWR, 0)
+		if err != nil {
+			continue
+		}
+		if drminternal.SetMaster(int(fd.Fd())) != nil {
+			fd.Close()
+			continue
+		}
+		dumbOK := drminternal.HasDumbBuffer(int(fd.Fd()))
+		drminternal.DropMaster(int(fd.Fd()))
+		fd.Close()
+		return dumbOK
+	}
+	return false
+}

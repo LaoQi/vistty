@@ -19,13 +19,15 @@ func main() {
 }
 
 func run() error {
-	backendFlag := flag.String("backend", "drm", "display backend: drm or wayland")
+	backendFlag := flag.String("backend", "auto", "display backend: auto, drm, or wayland")
 	shellFlag := flag.String("shell", "/bin/bash", "shell to run")
 	fontFlag := flag.String("font", "", "font file path")
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
 	widthFlag := flag.Int("width", 800, "window width")
 	heightFlag := flag.Int("height", 600, "window height")
 	flag.Parse()
+
+	debugLog := os.Getenv("VISTTY_DEBUG") != ""
 
 	opts := terminal.DefaultOptions()
 	opts.Shell = *shellFlag
@@ -37,6 +39,20 @@ func run() error {
 	var backend platform.Backend
 	var err error
 	switch *backendFlag {
+	case "auto":
+		if drm.Probe() {
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "auto: DRM probe succeeded, using DRM backend\n")
+			}
+			backend, err = drm.NewDRMBackend()
+		} else if wayland.Probe() {
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
+			}
+			backend, err = wayland.NewWaylandBackend()
+		} else {
+			return fmt.Errorf("no suitable display backend found (tried DRM and Wayland)")
+		}
 	case "drm":
 		backend, err = drm.NewDRMBackend()
 	case "wayland":

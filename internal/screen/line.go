@@ -2,7 +2,6 @@ package screen
 
 type Line struct {
 	cells []Cell
-	dirty bool
 }
 
 func NewLine(width int) *Line {
@@ -39,39 +38,17 @@ func (l *Line) Resize(width int) {
 		}
 		l.cells = append(l.cells, tail...)
 	}
-	l.dirty = true
 }
 
 func (l *Line) Clear() {
 	for i := range l.cells {
 		l.cells[i] = NewCell()
 	}
-	l.dirty = true
-}
-
-func (l *Line) IsDirty() bool {
-	if l.dirty {
-		return true
-	}
-	for i := range l.cells {
-		if l.cells[i].Dirty {
-			return true
-		}
-	}
-	return false
-}
-
-func (l *Line) ClearDirty() {
-	l.dirty = false
-	for i := range l.cells {
-		l.cells[i].Dirty = false
-	}
 }
 
 func (l *Line) Clone() *Line {
 	c := &Line{
 		cells: make([]Cell, len(l.cells)),
-		dirty: l.dirty,
 	}
 	copy(c.cells, l.cells)
 	return c

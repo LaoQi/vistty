@@ -62,15 +62,6 @@ func TestLineResizeShrink(t *testing.T) {
 	}
 }
 
-func TestLineResizeSame(t *testing.T) {
-	l := NewLine(5)
-	l.ClearDirty()
-	l.Resize(5)
-	if l.IsDirty() {
-		t.Error("resize to same width should not mark dirty")
-	}
-}
-
 func TestLineClear(t *testing.T) {
 	l := NewLine(3)
 	l.Cell(0).Rune = 'X'
@@ -81,43 +72,12 @@ func TestLineClear(t *testing.T) {
 			t.Errorf("cell %d not cleared", i)
 		}
 	}
-	if !l.IsDirty() {
-		t.Error("Clear should mark line dirty")
-	}
-}
-
-func TestLineDirty(t *testing.T) {
-	l := NewLine(3)
-	if l.IsDirty() {
-		t.Error("new line should not be dirty")
-	}
-	l.Cell(0).MarkDirty()
-	if !l.IsDirty() {
-		t.Error("line with dirty cell should be dirty")
-	}
-	l.ClearDirty()
-	if l.IsDirty() {
-		t.Error("line should not be dirty after ClearDirty")
-	}
-}
-
-func TestLineDirtyFlag(t *testing.T) {
-	l := NewLine(3)
-	l.dirty = true
-	if !l.IsDirty() {
-		t.Error("line with dirty flag should be dirty")
-	}
-	l.ClearDirty()
-	if l.dirty {
-		t.Error("ClearDirty should clear line-level dirty flag")
-	}
 }
 
 func TestLineClone(t *testing.T) {
 	l := NewLine(3)
 	l.Cell(0).Rune = 'A'
 	l.Cell(1).Rune = 'B'
-	l.dirty = true
 	c := l.Clone()
 	if c.Width() != l.Width() {
 		t.Error("clone width mismatch")
@@ -128,8 +88,5 @@ func TestLineClone(t *testing.T) {
 	c.Cell(0).Rune = 'Z'
 	if l.Cell(0).Rune != 'A' {
 		t.Error("clone should be deep copy")
-	}
-	if c.dirty != l.dirty {
-		t.Error("clone dirty flag mismatch")
 	}
 }

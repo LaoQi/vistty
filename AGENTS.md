@@ -18,9 +18,9 @@
 | 4 | PTY 管理 | `creack/pty` | Go 生态标准方案，纯 Go，★2046 |
 | 5 | 转义序列解析 | 自研 | 参考 danielgatis/go-vte 状态机 + liamg/darktile termutil 的 CSI/OSC/Sixel 实现 |
 | 6 | 终端缓冲区 | 自研 | 参考 liamg/darktile termutil 的 Cell/Line/Buffer 架构 |
-| 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | Go 官方扩展库，等宽字体够用 |
+| 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | Go 官方扩展库，内置 Sarasa Fixed SC 子集（等宽+CJK） |
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 `go-text/typesetting/harfbuzz`（HarfBuzz 完整移植） |
-| 9 | 渲染合成 | 自研渲染管线 | glyph cache + dirty tracking + double buffer |
+| 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer |
 | 10 | Wayland 窗口后端 | `rajveermalviya/go-wayland` | 纯 Go 无 CGO，30+ 协议，XDG Shell 完整 |
 
 ## 架构
@@ -33,7 +33,7 @@ cmd/vistty (入口，选择后端)
             ├── vte (转义解析)
             ├── screen (缓冲区)
             ├── font (opentype + glyph cache)
-            └── render (合成+脏区域+光标)
+            └── render (合成+光标)
                     └── 依赖 platform.Surface 接口
                             ├── platform/drm (DRM 直出)
                             └── platform/wayland (Wayland 窗口)
@@ -83,13 +83,13 @@ type Backend interface {
 ### 数据流
 
 ```
-PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作 → 标记脏区域
+PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
                                                               ↓
 输入事件 ← InputSource.KeyEvents() → terminal 处理 → PTY stdin   render.Compositor
                                                                     ↓
                                                     font.Atlas → alpha混合 → backBuf（离屏缓冲区）
                                                                         ↓
-                                                        脏区域拷贝 backBuf → Surface.Data()
+                                                        backBuf 全量拷贝 → Surface.Data()
                                                                         ↓
                                                                  Surface.Swap()
 ```
@@ -132,7 +132,8 @@ github.com/LaoQi/vistty/
 │   ├── screen/                 # 终端屏幕缓冲区
 │   │   ├── cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
 │   ├── font/                   # 字体管理
-│   │   ├── face.go / atlas.go / metrics.go
+│   │   ├── face.go / atlas.go / metrics.go / embedded.go
+│   │   └── assets/             # 内置字体资源（Sarasa Fixed SC 子集 + LICENSE）
 │   ├── render/                 # 渲染合成
 │   │   ├── compositor.go / draw.go / cursor.go
 │   └── platform/               # 平台抽象层
@@ -208,8 +209,9 @@ go test ./...        # 运行测试
 
 运行：
 ```bash
-go run ./cmd/vistty -backend drm       # DRM/KMS 直出
-go run ./cmd/vistty -backend wayland   # Wayland 窗口（开发调试）
+go run ./cmd/vistty                         # 自动探测后端（DRM优先，回退Wayland）
+go run ./cmd/vistty -backend drm            # 强制 DRM/KMS 直出
+go run ./cmd/vistty -backend wayland        # 强制 Wayland 窗口（开发调试）
 ```
 
 ## 实施状态
@@ -221,12 +223,19 @@ go run ./cmd/vistty -backend wayland   # Wayland 窗口（开发调试）
 - ✅ 阶段3：上层模块（wayland后端, terminal胶水层, cmd/vistty入口）
 - ✅ 阶段1审计与修复完成
 - ✅ 外部关闭信号处理完善（Close幂等化、PTY回收、Wayland窗口关闭、信号扩展、统一退出路径）
-- ✅ 渲染双缓冲（Compositor离屏backBuf + 脏区域拷贝到Surface + 光标位置变化检测）
+- ✅ 渲染双缓冲（Compositor离屏backBuf + 全量拷贝到Surface）
 - ✅ Wayland 线格式修复（wire.go: 修正 PutString 字符串长度 bug + ShmFormat 枚举值协商）
 - ✅ 两阶段关闭流程（signalClose 不触碰 Wayland 对象 → backend.Stop 解锁 Run → 安全销毁）
 - ✅ ptyReadLoop 非阻塞读（goroutine + channel 模式，避免 Close 后 Read 卡死）
 - ✅ 强制初始渲染（Run() 启动前 Render 一次，确保 Wayland surface 被映射）
 - ✅ VISTTY_DEBUG 环境变量调试日志
+- ✅ 自动后端探测（DRM优先轻量探测 → 回退Wayland，-backend auto 默认）
+- ✅ 内置 Sarasa Fixed SC 字体（子集化 6.7MB，等宽+CJK，无需系统字体）
+- ✅ 按键长按支持（terminal 层 delay timer + rate ticker，DRM 过滤内核 autorepeat）
+- ✅ 滚动状态下按键自动回到底部（非滚动键重置 scrollOffset 并发送到 PTY）
+- ✅ CJK 双宽字符支持（x/text/width 判断 + 占位符机制 + 渲染双宽 + 光标双宽）
+- ✅ 移除脏矩阵裁剪（每帧全量重绘，删除 dirty tracking 基础设施）
+- ✅ 渲染坐标修复（Bold 阴影 Y 坐标 + 光标内字形基线对齐）
 
 Wayland 后端实现细节：
 - 5个文件：backend.go（连接+全局绑定+事件循环+错误处理）、surface.go（双缓冲wl_shm+XDG toplevel）、input.go（wl_keyboard/wl_pointer+修饰键跟踪）、keymap.go（简化XKB keymap解析+US布局回退）、wire.go（修正的Wayland线格式编码）

@@ -19,9 +19,6 @@ func TestNewCell(t *testing.T) {
 	if c.Attr != 0 {
 		t.Errorf("expected Attr 0, got %d", c.Attr)
 	}
-	if c.Dirty {
-		t.Error("expected Dirty false")
-	}
 }
 
 func TestCellClear(t *testing.T) {
@@ -29,21 +26,6 @@ func TestCellClear(t *testing.T) {
 	c.Clear()
 	if c.Rune != ' ' || c.Width != 1 || !c.Fg.IsDefault || c.Attr != 0 {
 		t.Error("Clear did not reset cell to defaults")
-	}
-}
-
-func TestCellDirty(t *testing.T) {
-	c := NewCell()
-	if c.IsDirty() {
-		t.Error("new cell should not be dirty")
-	}
-	c.MarkDirty()
-	if !c.IsDirty() {
-		t.Error("cell should be dirty after MarkDirty")
-	}
-	c.ClearDirty()
-	if c.IsDirty() {
-		t.Error("cell should not be dirty after ClearDirty")
 	}
 }
 

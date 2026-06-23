@@ -2,16 +2,19 @@ package render
 
 import (
 	"testing"
+
+	"github.com/LaoQi/vistty/internal/font"
 )
 
 func TestDrawCursorBlock(t *testing.T) {
 	data := make([]byte, 100*40*4)
 	stride := 100 * 4
-	glyph := make([]byte, 8*16)
-	for i := range glyph {
-		glyph[i] = 255
+	bitmap := make([]byte, 8*16)
+	for i := range bitmap {
+		bitmap[i] = 255
 	}
-	drawCursor(data, stride, 10, 10, 8, 16, cursorBlock, 255, 255, 255, 'A', glyph, 8)
+	glyph := &font.Glyph{Bitmap: bitmap, Width: 8, Height: 16}
+	drawCursor(data, stride, 10, 10, 8, 16, cursorBlock, 255, 255, 255, 'A', glyph, 12)
 }
 
 func TestDrawCursorUnderline(t *testing.T) {

@@ -23,7 +23,6 @@ type Cell struct {
 	Fg    Color
 	Bg    Color
 	Attr  Attributes
-	Dirty bool
 }
 
 func NewCell() Cell {
@@ -37,18 +36,6 @@ func NewCell() Cell {
 
 func (c *Cell) Clear() {
 	*c = NewCell()
-}
-
-func (c *Cell) IsDirty() bool {
-	return c.Dirty
-}
-
-func (c *Cell) MarkDirty() {
-	c.Dirty = true
-}
-
-func (c *Cell) ClearDirty() {
-	c.Dirty = false
 }
 
 func (c *Cell) Equal(other Cell) bool {

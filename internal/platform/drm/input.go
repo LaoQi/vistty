@@ -74,6 +74,9 @@ func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
 		if ev.Type != evdev.EV_KEY {
 			continue
 		}
+		if ev.Value == 2 {
+			continue
+		}
 
 		code := uint16(ev.Code)
 
