@@ -95,10 +95,8 @@ func NewDRMBackend() (*DRMBackend, error) {
 }
 
 func (b *DRMBackend) CreateSurface(width, height int) (platform.Surface, error) {
-	if width <= 0 || height <= 0 {
-		width = int(b.display.Mode.HDisplay)
-		height = int(b.display.Mode.VDisplay)
-	}
+	width = int(b.display.Mode.HDisplay)
+	height = int(b.display.Mode.VDisplay)
 
 	surf, err := newDRMSurface(int(b.fd.Fd()), width, height, b.display.CrtcID)
 	if err != nil {
