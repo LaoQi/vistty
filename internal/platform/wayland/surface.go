@@ -1,0 +1,273 @@
+package wayland
+
+import (
+	"fmt"
+
+	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/rajveermalviya/go-wayland/wayland/client"
+	"github.com/rajveermalviya/go-wayland/wayland/stable/xdg-shell"
+	"golang.org/x/sys/unix"
+)
+
+type shmBuf struct {
+	fd     int
+	data   []byte
+	size   int
+	pool   *client.ShmPool
+	buffer *client.Buffer
+}
+
+type WaylandSurface struct {
+	ctx        *client.Context
+	compositor *client.Compositor
+	shm        *client.Shm
+	wmBase     *xdg_shell.WmBase
+
+	wlSurface  *client.Surface
+	xdgSurface *xdg_shell.Surface
+	toplevel   *xdg_shell.Toplevel
+
+	width  int
+	height int
+	stride int
+	bufs   [2]shmBuf
+	front  int
+}
+
+func newWaylandSurface(ctx *client.Context, compositor *client.Compositor, shm *client.Shm, wmBase *xdg_shell.WmBase, width, height int) (*WaylandSurface, error) {
+	s := &WaylandSurface{
+		ctx:        ctx,
+		compositor: compositor,
+		shm:        shm,
+		wmBase:     wmBase,
+		width:      width,
+		height:     height,
+		stride:     width * 4,
+	}
+
+	wlSurface, err := compositor.CreateSurface()
+	if err != nil {
+		return nil, fmt.Errorf("create surface: %w", err)
+	}
+	s.wlSurface = wlSurface
+
+	xdgSurface, err := wmBase.GetXdgSurface(wlSurface)
+	if err != nil {
+		wlSurface.Destroy()
+		return nil, fmt.Errorf("get xdg surface: %w", err)
+	}
+	s.xdgSurface = xdgSurface
+
+	toplevel, err := xdgSurface.GetToplevel()
+	if err != nil {
+		xdgSurface.Destroy()
+		wlSurface.Destroy()
+		return nil, fmt.Errorf("get toplevel: %w", err)
+	}
+	s.toplevel = toplevel
+
+	_ = toplevel.SetTitle("vistty")
+	_ = toplevel.SetAppId("github.com.LaoQi.vistty")
+
+	bufSize := s.stride * height
+
+	for i := 0; i < 2; i++ {
+		buf, err := createShmBuf(shm, bufSize, width, height, s.stride)
+		if err != nil {
+			s.closeBufs(i)
+			s.toplevel.Destroy()
+			s.xdgSurface.Destroy()
+			s.wlSurface.Destroy()
+			return nil, fmt.Errorf("create shm buffer %d: %w", i, err)
+		}
+		s.bufs[i] = buf
+	}
+
+	configureCh := make(chan uint32, 1)
+
+	xdgSurface.SetConfigureHandler(func(e xdg_shell.SurfaceConfigureEvent) {
+		select {
+		case configureCh <- e.Serial:
+		default:
+		}
+	})
+
+	toplevel.SetConfigureHandler(func(e xdg_shell.ToplevelConfigureEvent) {
+		if e.Width > 0 && e.Height > 0 && (int(e.Width) != s.width || int(e.Height) != s.height) {
+			s.resize(int(e.Width), int(e.Height))
+		}
+	})
+
+	_ = wlSurface.Commit()
+
+	for {
+		if err := ctx.Dispatch(); err != nil {
+			s.closeBufs(2)
+			s.toplevel.Destroy()
+			s.xdgSurface.Destroy()
+			s.wlSurface.Destroy()
+			return nil, fmt.Errorf("dispatch waiting for configure: %w", err)
+		}
+		select {
+		case serial := <-configureCh:
+			_ = xdgSurface.AckConfigure(serial)
+			goto configured
+		default:
+		}
+	}
+configured:
+
+	_ = xdgSurface.SetWindowGeometry(0, 0, int32(width), int32(height))
+
+	return s, nil
+}
+
+func (s *WaylandSurface) Size() (int, int) {
+	return s.width, s.height
+}
+
+func (s *WaylandSurface) Data() []byte {
+	backIdx := s.front ^ 1
+	return s.bufs[backIdx].data
+}
+
+func (s *WaylandSurface) Stride() int {
+	backIdx := s.front ^ 1
+	return s.bufs[backIdx].size / s.height
+}
+
+func (s *WaylandSurface) Swap() error {
+	backIdx := s.front ^ 1
+	buf := &s.bufs[backIdx]
+
+	if err := s.wlSurface.Attach(buf.buffer, 0, 0); err != nil {
+		return fmt.Errorf("attach buffer: %w", err)
+	}
+	if err := s.wlSurface.Damage(0, 0, int32(s.width), int32(s.height)); err != nil {
+		return fmt.Errorf("damage: %w", err)
+	}
+	if err := s.wlSurface.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	s.front = backIdx
+	return nil
+}
+
+func (s *WaylandSurface) Close() error {
+	s.closeBufs(2)
+	if s.toplevel != nil {
+		s.toplevel.Destroy()
+	}
+	if s.xdgSurface != nil {
+		s.xdgSurface.Destroy()
+	}
+	if s.wlSurface != nil {
+		s.wlSurface.Destroy()
+	}
+	return nil
+}
+
+func (s *WaylandSurface) closeBufs(upTo int) {
+	for i := 0; i < upTo; i++ {
+		b := &s.bufs[i]
+		if b.data != nil {
+			unix.Munmap(b.data)
+			b.data = nil
+		}
+		if b.buffer != nil {
+			b.buffer.Destroy()
+			b.buffer = nil
+		}
+		if b.pool != nil {
+			b.pool.Destroy()
+			b.pool = nil
+		}
+		if b.fd >= 0 {
+			unix.Close(b.fd)
+			b.fd = -1
+		}
+	}
+}
+
+func (s *WaylandSurface) resize(newWidth, newHeight int) {
+	if newWidth <= 0 || newHeight <= 0 {
+		return
+	}
+
+	oldBufs := s.bufs
+	s.width = newWidth
+	s.height = newHeight
+	s.stride = newWidth * 4
+
+	bufSize := s.stride * newHeight
+
+	for i := 0; i < 2; i++ {
+		buf, err := createShmBuf(s.shm, bufSize, newWidth, newHeight, s.stride)
+		if err != nil {
+			s.bufs = oldBufs
+			return
+		}
+		s.bufs[i] = buf
+	}
+
+	for i := 0; i < 2; i++ {
+		if oldBufs[i].data != nil {
+			unix.Munmap(oldBufs[i].data)
+		}
+		if oldBufs[i].buffer != nil {
+			oldBufs[i].buffer.Destroy()
+		}
+		if oldBufs[i].pool != nil {
+			oldBufs[i].pool.Destroy()
+		}
+		if oldBufs[i].fd >= 0 {
+			unix.Close(oldBufs[i].fd)
+		}
+	}
+
+	_ = s.xdgSurface.SetWindowGeometry(0, 0, int32(newWidth), int32(newHeight))
+}
+
+func createShmBuf(shm *client.Shm, size, width, height, stride int) (shmBuf, error) {
+	fd, err := unix.MemfdCreate("vistty-wl-shm", unix.MFD_CLOEXEC)
+	if err != nil {
+		return shmBuf{}, fmt.Errorf("memfd_create: %w", err)
+	}
+
+	if err := unix.Ftruncate(fd, int64(size)); err != nil {
+		unix.Close(fd)
+		return shmBuf{}, fmt.Errorf("ftruncate: %w", err)
+	}
+
+	data, err := unix.Mmap(fd, 0, size, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if err != nil {
+		unix.Close(fd)
+		return shmBuf{}, fmt.Errorf("mmap: %w", err)
+	}
+
+	pool, err := shm.CreatePool(fd, int32(size))
+	if err != nil {
+		unix.Munmap(data)
+		unix.Close(fd)
+		return shmBuf{}, fmt.Errorf("create pool: %w", err)
+	}
+
+	buffer, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), uint32(client.ShmFormatXrgb8888))
+	if err != nil {
+		pool.Destroy()
+		unix.Munmap(data)
+		unix.Close(fd)
+		return shmBuf{}, fmt.Errorf("create buffer: %w", err)
+	}
+
+	return shmBuf{
+		fd:     fd,
+		data:   data,
+		size:   size,
+		pool:   pool,
+		buffer: buffer,
+	}, nil
+}
+
+var _ platform.Surface = (*WaylandSurface)(nil)
