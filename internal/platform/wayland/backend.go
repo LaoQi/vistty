@@ -18,8 +18,10 @@ type WaylandBackend struct {
 	wmBase     *xdg_shell.WmBase
 	seat       *client.Seat
 
-	mu     sync.Mutex
-	closed bool
+	mu      sync.Mutex
+	closed  bool
+	doneCh  chan struct{}
+	onClose func()
 }
 
 func NewWaylandBackend() (*WaylandBackend, error) {
@@ -29,8 +31,9 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 	}
 
 	b := &WaylandBackend{
-		ctx:     display.Context(),
+		ctx:    display.Context(),
 		display: display,
+		doneCh: make(chan struct{}),
 	}
 
 	registry, err := display.GetRegistry()
@@ -134,7 +137,7 @@ func (b *WaylandBackend) CreateSurface(width, height int) (platform.Surface, err
 		width = 800
 		height = 600
 	}
-	return newWaylandSurface(b.ctx, b.compositor, b.shm, b.wmBase, width, height)
+	return newWaylandSurface(b, b.ctx, b.compositor, b.shm, b.wmBase, width, height)
 }
 
 func (b *WaylandBackend) CreateInputSource() (platform.InputSource, error) {
@@ -160,8 +163,40 @@ func (b *WaylandBackend) Run(fn func()) {
 func (b *WaylandBackend) Close() error {
 	b.mu.Lock()
 	b.closed = true
+	b.onClose = nil
 	b.mu.Unlock()
+
+	select {
+	case <-b.doneCh:
+	default:
+		close(b.doneCh)
+	}
 	return b.close()
+}
+
+func (b *WaylandBackend) Done() <-chan struct{} {
+	return b.doneCh
+}
+
+func (b *WaylandBackend) notifyClose() {
+	b.mu.Lock()
+	fn := b.onClose
+	b.onClose = nil
+	b.mu.Unlock()
+
+	if fn != nil {
+		fn()
+	}
+
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+
+	select {
+	case <-b.doneCh:
+	default:
+		close(b.doneCh)
+	}
 }
 
 func (b *WaylandBackend) close() error {

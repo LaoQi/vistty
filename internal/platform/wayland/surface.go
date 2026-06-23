@@ -22,6 +22,7 @@ type WaylandSurface struct {
 	compositor *client.Compositor
 	shm        *client.Shm
 	wmBase     *xdg_shell.WmBase
+	backend    *WaylandBackend
 
 	wlSurface  *client.Surface
 	xdgSurface *xdg_shell.Surface
@@ -34,12 +35,13 @@ type WaylandSurface struct {
 	front  int
 }
 
-func newWaylandSurface(ctx *client.Context, compositor *client.Compositor, shm *client.Shm, wmBase *xdg_shell.WmBase, width, height int) (*WaylandSurface, error) {
+func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor *client.Compositor, shm *client.Shm, wmBase *xdg_shell.WmBase, width, height int) (*WaylandSurface, error) {
 	s := &WaylandSurface{
 		ctx:        ctx,
 		compositor: compositor,
 		shm:        shm,
 		wmBase:     wmBase,
+		backend:    backend,
 		width:      width,
 		height:     height,
 		stride:     width * 4,
@@ -65,6 +67,10 @@ func newWaylandSurface(ctx *client.Context, compositor *client.Compositor, shm *
 		return nil, fmt.Errorf("get toplevel: %w", err)
 	}
 	s.toplevel = toplevel
+
+	toplevel.SetCloseHandler(func(xdg_shell.ToplevelCloseEvent) {
+		s.backend.notifyClose()
+	})
 
 	_ = toplevel.SetTitle("vistty")
 	_ = toplevel.SetAppId("github.com.LaoQi.vistty")

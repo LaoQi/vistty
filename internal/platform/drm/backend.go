@@ -12,6 +12,7 @@ type DRMBackend struct {
 	fd      *os.File
 	display *DisplayInfo
 	vt      *VTManager
+	doneCh  chan struct{}
 }
 
 func NewDRMBackend() (*DRMBackend, error) {
@@ -71,6 +72,7 @@ func NewDRMBackend() (*DRMBackend, error) {
 		fd:      fd,
 		display: display,
 		vt:      vt,
+		doneCh:  make(chan struct{}),
 	}, nil
 }
 
@@ -103,6 +105,8 @@ func (b *DRMBackend) Run(fn func()) {
 }
 
 func (b *DRMBackend) Close() error {
+	close(b.doneCh)
+
 	if b.display != nil && b.display.SavedCrtc != nil {
 		saved := b.display.SavedCrtc
 		var mode *drminternal.ModeInfoPublic
@@ -118,6 +122,10 @@ func (b *DRMBackend) Close() error {
 
 	drminternal.DropMaster(int(b.fd.Fd()))
 	return b.fd.Close()
+}
+
+func (b *DRMBackend) Done() <-chan struct{} {
+	return b.doneCh
 }
 
 var _ platform.Backend = (*DRMBackend)(nil)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ type Terminal struct {
 	backend    platform.Backend
 	face       font.Face
 	done       chan struct{}
+	closeOnce  sync.Once
 	opts       Options
 	curFg      screen.Color
 	curBg      screen.Color
@@ -109,29 +111,48 @@ func (t *Terminal) Run() error {
 	go t.inputLoop()
 	go t.renderLoop()
 	go t.signalLoop()
+	go t.backend.Run(func() {})
 
-	t.backend.Run(func() {})
-
+	select {
+	case <-t.done:
+	case <-t.backend.Done():
+		t.Close()
+		<-t.done
+	}
 	return nil
 }
 
 func (t *Terminal) Close() error {
-	close(t.done)
-	if t.pty != nil {
-		t.pty.Close()
-	}
-	if t.ptyCmd != nil {
-		t.ptyCmd.Signal(syscall.SIGTERM)
-	}
-	if t.input != nil {
-		t.input.Close()
-	}
-	if t.compositor != nil {
-		t.compositor.Close()
-	}
-	if t.face != nil {
-		t.face.Close()
-	}
+	t.closeOnce.Do(func() {
+		close(t.done)
+
+		if t.pty != nil {
+			t.pty.Close()
+		}
+		if t.ptyCmd != nil {
+			t.ptyCmd.Signal(syscall.SIGTERM)
+			ch := make(chan struct{})
+			go func() {
+				t.ptyCmd.Wait()
+				close(ch)
+			}()
+			select {
+			case <-ch:
+			case <-time.After(2 * time.Second):
+				t.ptyCmd.Signal(syscall.SIGKILL)
+				t.ptyCmd.Wait()
+			}
+		}
+		if t.input != nil {
+			t.input.Close()
+		}
+		if t.compositor != nil {
+			t.compositor.Close()
+		}
+		if t.face != nil {
+			t.face.Close()
+		}
+	})
 	return nil
 }
 
@@ -655,7 +676,7 @@ func (t *Terminal) renderLoop() {
 
 func (t *Terminal) signalLoop() {
 	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	select {
 	case <-ch:
 		t.Close()
