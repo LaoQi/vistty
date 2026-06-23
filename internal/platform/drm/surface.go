@@ -2,6 +2,8 @@ package drm
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -22,6 +24,9 @@ type DRMSurface struct {
 	crtcID  uint32
 	bufs    [2]drmbuf
 	current int
+	mu      sync.Mutex
+	active  bool
+	flipCh  chan struct{}
 }
 
 func newDRMSurface(fd int, width, height int, crtcID uint32) (*DRMSurface, error) {
@@ -30,6 +35,8 @@ func newDRMSurface(fd int, width, height int, crtcID uint32) (*DRMSurface, error
 		width:  width,
 		height: height,
 		crtcID: crtcID,
+		active: true,
+		flipCh: make(chan struct{}, 1),
 	}
 
 	for i := 0; i < 2; i++ {
@@ -89,18 +96,37 @@ func (s *DRMSurface) Stride() int {
 }
 
 func (s *DRMSurface) Swap() error {
+	s.mu.Lock()
+	if !s.active {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	backIdx := s.current ^ 1
 	if err := drminternal.DoPageFlip(s.fd, s.crtcID, s.bufs[backIdx].fbID, drminternal.FlipEvent, 0); err != nil {
 		return fmt.Errorf("page flip: %w", err)
 	}
-
-	_, err := drminternal.ReadEvent(s.fd)
-	if err != nil {
-		return fmt.Errorf("read flip event: %w", err)
-	}
-
 	s.current = backIdx
+
+	select {
+	case <-s.flipCh:
+	case <-time.After(100 * time.Millisecond):
+	}
 	return nil
+}
+
+func (s *DRMSurface) notifyFlip() {
+	select {
+	case s.flipCh <- struct{}{}:
+	default:
+	}
+}
+
+func (s *DRMSurface) SetActive(active bool) {
+	s.mu.Lock()
+	s.active = active
+	s.mu.Unlock()
 }
 
 func (s *DRMSurface) Close() error {
@@ -111,19 +137,23 @@ func (s *DRMSurface) Close() error {
 func (s *DRMSurface) closeBufs(upTo int) {
 	for i := 0; i < upTo; i++ {
 		b := &s.bufs[i]
-		if b.data != nil {
-			drminternal.Munmap(b.data)
-			b.data = nil
-		}
 		if b.fbID != 0 {
 			drminternal.RmFB(s.fd, b.fbID)
 			b.fbID = 0
+		}
+		if b.data != nil {
+			drminternal.Munmap(b.data)
+			b.data = nil
 		}
 		if b.handle != 0 {
 			drminternal.DestroyDumbBuffer(s.fd, b.handle)
 			b.handle = 0
 		}
 	}
+}
+
+func (s *DRMSurface) ResizeEvents() <-chan platform.ResizeEvent {
+	return nil
 }
 
 var _ platform.Surface = (*DRMSurface)(nil)

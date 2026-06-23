@@ -98,10 +98,15 @@ func ParseCSI(seq Sequence) CSISequence {
 	case '@':
 		return CSISequence{Command: CSIInsertChars, Params: []int{param(seq, 0, 1)}}
 	case 'r':
-		if len(seq.Params) >= 2 {
-			return CSISequence{Command: CSISetTopBottomMargin, Params: []int{seq.Params[0], seq.Params[1]}}
+		top := 1
+		bottom := 0
+		if len(seq.Params) > 0 && seq.Params[0] > 0 {
+			top = seq.Params[0]
 		}
-		return CSISequence{Command: CSISetTopBottomMargin, Params: nil}
+		if len(seq.Params) > 1 && seq.Params[1] > 0 {
+			bottom = seq.Params[1]
+		}
+		return CSISequence{Command: CSISetTopBottomMargin, Params: []int{top, bottom}}
 	case 'm':
 		return CSISequence{Command: CSISGR, Params: seq.Params}
 	case 'q':
@@ -112,6 +117,10 @@ func ParseCSI(seq Sequence) CSISequence {
 		return CSISequence{Command: CSICursorHorizontalTab, Params: []int{param(seq, 0, 1)}}
 	case 'Z':
 		return CSISequence{Command: CSICursorBackTab, Params: []int{param(seq, 0, 1)}}
+	case 's':
+		return CSISequence{Command: CSISaveCursor}
+	case 'u':
+		return CSISequence{Command: CSIRestoreCursor}
 	default:
 		return CSISequence{Command: CSIUnknown, Params: seq.Params}
 	}

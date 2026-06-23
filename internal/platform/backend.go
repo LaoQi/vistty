@@ -5,5 +5,6 @@ type Backend interface {
 	CreateInputSource() (InputSource, error)
 	Run(func())
 	Done() <-chan struct{}
+	Stop() error
 	Close() error
 }

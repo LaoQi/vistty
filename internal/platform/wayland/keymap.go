@@ -84,7 +84,7 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 
 func (km keymap) lookup(key uint32, mods platform.Modifiers) rune {
 	if int(key) >= len(km) {
-		return fallbackKeyRune(key, mods)
+		return platform.FallbackKeyRune(key, mods)
 	}
 	entry := km[key]
 	var r rune
@@ -94,7 +94,7 @@ func (km keymap) lookup(key uint32, mods platform.Modifiers) rune {
 		r = entry.level0
 	}
 	if r == 0 {
-		return fallbackKeyRune(key, mods)
+		return platform.FallbackKeyRune(key, mods)
 	}
 	if mods&platform.ModCtrl != 0 && r >= 'a' && r <= 'z' {
 		r = r - 'a' + 1
@@ -529,7 +529,7 @@ func shiftKeysym(ks xkbKeysym) xkbKeysym {
 	if r == 0 {
 		return 0
 	}
-	sr := shiftRune(r)
+	sr := platform.ShiftRune(r)
 	if sr == r {
 		return 0
 	}

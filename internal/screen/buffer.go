@@ -11,6 +11,7 @@ type Buffer struct {
 	scrollTop int
 	scrollBot int
 	cursor    *Cursor
+	history   *History
 }
 
 func NewBuffer(cols, rows int) *Buffer {
@@ -20,6 +21,7 @@ func NewBuffer(cols, rows int) *Buffer {
 		scrollTop: 0,
 		scrollBot: rows - 1,
 		cursor:    NewCursor(),
+		history:   NewHistory(1000),
 	}
 	b.lines = make([]*Line, rows)
 	for i := range b.lines {
@@ -54,6 +56,10 @@ func (b *Buffer) Cursor() *Cursor {
 	return b.cursor
 }
 
+func (b *Buffer) History() *History {
+	return b.history
+}
+
 func (b *Buffer) ScrollUp(n int) {
 	if n <= 0 {
 		return
@@ -62,7 +68,9 @@ func (b *Buffer) ScrollUp(n int) {
 		n = b.scrollBot - b.scrollTop + 1
 	}
 	for i := b.scrollTop; i < b.scrollTop+n; i++ {
-		b.lines[i] = nil
+		if b.lines[i] != nil {
+			b.history.Push(b.lines[i])
+		}
 	}
 	copy(b.lines[b.scrollTop:], b.lines[b.scrollTop+n:b.scrollBot+1])
 	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
@@ -103,6 +111,10 @@ func (b *Buffer) SetScrollRegion(top, bot int) {
 	b.scrollBot = bot
 }
 
+func (b *Buffer) ScrollTop() int {
+	return b.scrollTop
+}
+
 func (b *Buffer) Resize(cols, rows int) {
 	if cols == b.cols && rows == b.rows {
 		return
@@ -139,16 +151,24 @@ func (b *Buffer) DirtyRegions() []Rect {
 	var regions []Rect
 	for y := 0; y < b.rows; y++ {
 		line := b.lines[y]
+		if line == nil {
+			continue
+		}
 		if !line.IsDirty() {
+			continue
+		}
+		if line.dirty {
+			regions = append(regions, Rect{X: 0, Y: y, W: b.cols, H: 1})
 			continue
 		}
 		startX := -1
 		for x := 0; x < b.cols; x++ {
 			cell := line.Cell(x)
-			dirty := cell != nil && cell.Dirty
-			if dirty && startX == -1 {
-				startX = x
-			} else if !dirty && startX != -1 {
+			if cell != nil && cell.Dirty {
+				if startX == -1 {
+					startX = x
+				}
+			} else if startX != -1 {
 				regions = append(regions, Rect{X: startX, Y: y, W: x - startX, H: 1})
 				startX = -1
 			}
@@ -156,12 +176,8 @@ func (b *Buffer) DirtyRegions() []Rect {
 		if startX != -1 {
 			regions = append(regions, Rect{X: startX, Y: y, W: b.cols - startX, H: 1})
 		}
-		if line.dirty && len(regions) == 0 {
-			regions = append(regions, Rect{X: 0, Y: y, W: b.cols, H: 1})
-		}
 	}
-	merged := mergeRects(regions)
-	return merged
+	return mergeRects(regions)
 }
 
 func (b *Buffer) ClearDirty() {

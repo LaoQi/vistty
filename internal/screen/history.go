@@ -15,6 +15,9 @@ func NewHistory(maxLines int) *History {
 func (h *History) Push(line *Line) {
 	h.lines = append(h.lines, line.Clone())
 	if len(h.lines) > h.maxLines {
+		for i := 0; i < len(h.lines)-h.maxLines; i++ {
+			h.lines[i] = nil
+		}
 		h.lines = h.lines[len(h.lines)-h.maxLines:]
 	}
 }

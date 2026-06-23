@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/internal/vte"
 )
+
+var debugLog = os.Getenv("VISTTY_DEBUG") != ""
 
 type Terminal struct {
 	screen     *screen.Buffer
@@ -29,14 +32,22 @@ type Terminal struct {
 	input      platform.InputSource
 	backend    platform.Backend
 	face       font.Face
-	done       chan struct{}
+	scrollOffset int
+	mainBuf      *screen.Buffer
+	altBuf       *screen.Buffer
+	done         chan struct{}
 	closeOnce  sync.Once
+	seqCh      chan []vte.Sequence
+	eofCh      chan struct{}
+	wg         sync.WaitGroup
+	cleanupOnce sync.Once
 	opts       Options
 	curFg      screen.Color
 	curBg      screen.Color
 	curAttr    screen.Attributes
 	savedRow   int
 	savedCol   int
+	resizeCh   <-chan platform.ResizeEvent
 }
 
 func New(backend platform.Backend, opts Options) (*Terminal, error) {
@@ -77,6 +88,7 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 	}
 
 	buf := screen.NewBuffer(cols, rows)
+	altBuf := screen.NewBuffer(cols, rows)
 	compositor := render.NewCompositor(surface, face)
 	parser := vte.NewParser()
 
@@ -100,34 +112,111 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 		backend:    backend,
 		face:       face,
 		done:       make(chan struct{}),
+		seqCh:      make(chan []vte.Sequence, 64),
+		eofCh:      make(chan struct{}, 1),
 		opts:       opts,
+		mainBuf:    buf,
+		altBuf:     altBuf,
 		curFg:      screen.Color{IsDefault: true},
 		curBg:      screen.Color{IsDefault: true},
 	}, nil
 }
 
 func (t *Terminal) Run() error {
+	if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
+		return fmt.Errorf("initial render: %w", err)
+	}
+
+	t.wg.Add(4)
 	go t.ptyReadLoop()
 	go t.inputLoop()
-	go t.renderLoop()
+	go t.eventLoop()
 	go t.signalLoop()
-	go t.backend.Run(func() {})
+
+	backendDone := make(chan struct{})
+	go func() {
+		t.backend.Run(func() {})
+		close(backendDone)
+	}()
 
 	select {
 	case <-t.done:
 	case <-t.backend.Done():
-		t.Close()
-		<-t.done
+		t.signalClose()
+	}
+
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "Run: wg.Wait() starting\n")
+	}
+	t.wg.Wait()
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "Run: wg.Wait() done, calling backend.Stop()\n")
+	}
+	t.backend.Stop()
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "Run: backend.Stop() done, waiting for backendDone\n")
+	}
+	<-backendDone
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "Run: backendDone, closing input\n")
+	}
+	t.input.Close()
+	t.cleanup()
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "Run: cleanup done\n")
 	}
 	return nil
 }
 
 func (t *Terminal) Close() error {
-	t.closeOnce.Do(func() {
-		close(t.done)
+	t.signalClose()
+	t.wg.Wait()
+	t.backend.Stop()
+	if t.input != nil {
+		t.input.Close()
+	}
+	t.cleanup()
+	return nil
+}
 
+func (t *Terminal) signalClose() {
+	t.closeOnce.Do(func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "signalClose: closing done and pty\n")
+		}
+		close(t.done)
 		if t.pty != nil {
 			t.pty.Close()
+		}
+	})
+}
+
+func (t *Terminal) handleResize(ev platform.ResizeEvent) {
+	m := t.face.Metrics()
+	cols := ev.Width / m.Width
+	rows := ev.Height / m.Height
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+	t.mainBuf.Resize(cols, rows)
+	t.altBuf.Resize(cols, rows)
+	t.compositor.Resize(cols, rows)
+	if t.cursor.Row >= rows {
+		t.cursor.Row = rows - 1
+	}
+	if t.cursor.Col >= cols {
+		t.cursor.Col = cols - 1
+	}
+	t.scrollOffset = 0
+}
+
+func (t *Terminal) cleanup() {
+	t.cleanupOnce.Do(func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "cleanup: starting\n")
 		}
 		if t.ptyCmd != nil {
 			t.ptyCmd.Signal(syscall.SIGTERM)
@@ -139,38 +228,114 @@ func (t *Terminal) Close() error {
 			select {
 			case <-ch:
 			case <-time.After(2 * time.Second):
+				if debugLog {
+					fmt.Fprintf(os.Stderr, "cleanup: SIGTERM timeout, sending SIGKILL\n")
+				}
 				t.ptyCmd.Signal(syscall.SIGKILL)
-				t.ptyCmd.Wait()
+				<-ch
 			}
 		}
-		if t.input != nil {
-			t.input.Close()
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "cleanup: pty done, closing compositor\n")
 		}
 		if t.compositor != nil {
 			t.compositor.Close()
 		}
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "cleanup: compositor done, closing face\n")
+		}
 		if t.face != nil {
 			t.face.Close()
 		}
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "cleanup: done\n")
+		}
 	})
-	return nil
+}
+
+func (t *Terminal) eventLoop() {
+	defer t.wg.Done()
+	defer func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "eventLoop: exiting\n")
+		}
+	}()
+	ticker := time.NewTicker(time.Second / 60)
+	defer ticker.Stop()
+	resizeCh := t.surface.ResizeEvents()
+	for {
+		select {
+		case seqs := <-t.seqCh:
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "eventLoop: processing %d sequences\n", len(seqs))
+			}
+			t.executeSequences(seqs)
+		case <-ticker.C:
+			if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
+				if debugLog {
+					fmt.Fprintf(os.Stderr, "eventLoop: render error: %v\n", err)
+				}
+				t.signalClose()
+				return
+			}
+		case ev := <-resizeCh:
+			t.handleResize(ev)
+		case <-t.eofCh:
+			t.signalClose()
+			return
+		case <-t.done:
+			return
+		}
+	}
 }
 
 func (t *Terminal) ptyReadLoop() {
+	defer t.wg.Done()
+	defer func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "ptyReadLoop: exiting\n")
+		}
+	}()
 	buf := make([]byte, 4096)
+	type readResult struct {
+		n   int
+		err error
+	}
+	readCh := make(chan readResult, 1)
 	for {
+		go func() {
+			n, err := t.pty.Read(buf)
+			readCh <- readResult{n, err}
+		}()
 		select {
+		case r := <-readCh:
+			if r.err != nil {
+				if debugLog {
+					fmt.Fprintf(os.Stderr, "ptyReadLoop: read error: %v\n", r.err)
+				}
+				select {
+				case <-t.done:
+				case t.eofCh <- struct{}{}:
+				}
+				return
+			}
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "ptyReadLoop: read %d bytes: %q\n", r.n, string(buf[:r.n]))
+			}
+			seqs := t.parser.FeedAll(buf[:r.n])
+			if debugLog && len(seqs) > 0 {
+				fmt.Fprintf(os.Stderr, "ptyReadLoop: parsed %d sequences\n", len(seqs))
+			}
+			if len(seqs) > 0 {
+				select {
+				case t.seqCh <- seqs:
+				case <-t.done:
+					return
+				}
+			}
 		case <-t.done:
 			return
-		default:
 		}
-		n, err := t.pty.Read(buf)
-		if err != nil {
-			close(t.done)
-			return
-		}
-		seqs := t.parser.FeedAll(buf[:n])
-		t.executeSequences(seqs)
 	}
 }
 
@@ -202,7 +367,11 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 		cell.Attr = t.curAttr
 		cell.MarkDirty()
 	}
-	t.cursor.Col++
+	cell.Width = 1
+	if seq.Rune > 0x1100 {
+		cell.Width = 2
+	}
+	t.cursor.Col += int(cell.Width)
 	if t.cursor.Col >= t.screen.Cols() {
 		t.cursor.Col = 0
 		t.cursor.Row++
@@ -354,6 +523,8 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 		} else {
 			t.screen.SetScrollRegion(0, t.screen.Rows()-1)
 		}
+		t.cursor.Row = t.screen.ScrollTop()
+		t.cursor.Col = 0
 	case vte.CSICursorStyle:
 		style := csiParam(csi, 0, 0)
 		switch style {
@@ -398,6 +569,40 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 	case vte.CSISGR:
 		t.applySGR(csi.Params)
 	case vte.CSISetMode, vte.CSIResetMode, vte.CSIScreenMode:
+		t.handleMode(csi)
+	}
+}
+
+func (t *Terminal) handleMode(csi vte.CSISequence) {
+	isSet := csi.Command == vte.CSISetMode
+	for _, p := range csi.Params {
+		switch p {
+		case 25:
+			if isSet {
+				t.cursor.Show()
+			} else {
+				t.cursor.Hide()
+			}
+		case 1049:
+			if isSet {
+				t.savedRow = t.cursor.Row
+				t.savedCol = t.cursor.Col
+				t.screen = t.altBuf
+				t.cursor = t.altBuf.Cursor()
+				t.altBuf.Clear()
+				t.cursor.Row = 0
+				t.cursor.Col = 0
+				t.scrollOffset = 0
+			} else {
+				t.screen = t.mainBuf
+				t.cursor = t.mainBuf.Cursor()
+				t.cursor.Row = t.savedRow
+				t.cursor.Col = t.savedCol
+				t.scrollOffset = 0
+			}
+		case 2004:
+		case 1:
+		}
 	}
 }
 
@@ -405,6 +610,7 @@ func (t *Terminal) execOSC(seq vte.Sequence) {
 	osc := vte.ParseOSC(seq)
 	switch osc.Command {
 	case vte.OSCSetWindowTitle:
+		t.setTitle(osc.Data)
 	case vte.OSCSetIconTitle:
 	case vte.OSCSetClipboard:
 	case vte.OSCSetWorkingDir:
@@ -445,8 +651,27 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 	case vte.ESCTabSet:
 	case vte.ESCDeckpam:
 	case vte.ESCDeckpnm:
+	case vte.ESCFullReset:
+		t.fullReset()
 	case vte.ESCUnknown:
 	}
+}
+
+func (t *Terminal) setTitle(title string) {
+	_ = title
+}
+
+func (t *Terminal) fullReset() {
+	t.screen.Clear()
+	t.screen.SetScrollRegion(0, t.screen.Rows()-1)
+	t.cursor.Row = 0
+	t.cursor.Col = 0
+	t.curFg = screen.Color{IsDefault: true}
+	t.curBg = screen.Color{IsDefault: true}
+	t.curAttr = 0
+	t.savedRow = 0
+	t.savedCol = 0
+	t.scrollOffset = 0
 }
 
 func (t *Terminal) eraseDisplay(n int) {
@@ -586,6 +811,22 @@ func (t *Terminal) applySGR(params []int) {
 }
 
 func (t *Terminal) inputLoop() {
+	defer t.wg.Done()
+	defer func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+		}
+	}()
+	defer func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+		}
+	}()
+	defer func() {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
+		}
+	}()
 	for {
 		select {
 		case ev := <-t.input.KeyEvents():
@@ -600,31 +841,50 @@ func (t *Terminal) inputLoop() {
 }
 
 func (t *Terminal) handleKey(ev platform.KeyEvent) {
-	if ev.Mods&platform.ModCtrl != 0 {
-		switch ev.Rune {
-		case 'C', 'c':
-			if t.ptyCmd != nil {
-				t.ptyCmd.Signal(syscall.SIGINT)
-			}
-			return
-		case 'D', 'd':
-			t.pty.Write([]byte{0x04})
-			return
-		case 'Z', 'z':
-			if t.ptyCmd != nil {
-				t.ptyCmd.Signal(syscall.SIGTSTP)
-			}
-			return
-		}
-	}
-
 	if ev.Code != 0 && ev.Rune == 0 {
+		if ev.Mods&platform.ModShift != 0 {
+			switch ev.Code {
+			case 104:
+				histLen := t.screen.History().Len()
+				if t.scrollOffset < histLen {
+					t.scrollOffset++
+				}
+				return
+			case 109:
+				if t.scrollOffset > 0 {
+					t.scrollOffset--
+				}
+				return
+			}
+		}
 		t.writeKeyEscape(ev.Code, ev.Mods)
 		return
 	}
 
+	if ev.Mods&platform.ModCtrl != 0 {
+		switch ev.Rune {
+		case 'C', 'c':
+			t.ptyWrite([]byte{0x03})
+			return
+		case 'D', 'd':
+			t.ptyWrite([]byte{0x04})
+			return
+		case 'Z', 'z':
+			t.ptyWrite([]byte{0x1a})
+			return
+		}
+	}
+
 	if ev.Rune != 0 {
-		t.pty.Write([]byte{byte(ev.Rune)})
+		var buf [4]byte
+		n := utf8.EncodeRune(buf[:], ev.Rune)
+		t.ptyWrite(buf[:n])
+	}
+}
+
+func (t *Terminal) ptyWrite(b []byte) {
+	if _, err := t.pty.Write(b); err != nil {
+		t.signalClose()
 	}
 }
 
@@ -643,44 +903,57 @@ func (t *Terminal) writeKeyEscape(code uint16, mods platform.Modifiers) {
 		seq = "\x1b[B"
 	case 106:
 		seq = "\x1b[C"
-	case 107:
+	case 105:
 		seq = "\x1b[D"
+	case 102:
+		seq = "\x1b[H"
+	case 107:
+		seq = "\x1b[F"
 	case 104:
+		seq = "\x1b[5~"
+	case 109:
+		seq = "\x1b[6~"
+	case 110:
 		seq = "\x1b[2~"
+	case 111:
+		seq = "\x1b[3~"
+	case 14:
+		seq = "\x7f"
 	case 9:
 		seq = "\t"
 	case 36:
-		seq = "\n"
+		seq = "\r"
 	default:
 		return
 	}
 
 	if prefix != "" {
-		t.pty.Write([]byte(prefix))
+		t.ptyWrite([]byte(prefix))
 	}
-	t.pty.Write([]byte(seq))
-}
-
-func (t *Terminal) renderLoop() {
-	ticker := time.NewTicker(time.Second / 60)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			t.compositor.Render(t.screen)
-		case <-t.done:
-			return
-		}
-	}
+	t.ptyWrite([]byte(seq))
 }
 
 func (t *Terminal) signalLoop() {
+	defer t.wg.Done()
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	defer signal.Stop(ch)
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "signalLoop: started, waiting for signal\n")
+	}
 	select {
-	case <-ch:
-		t.Close()
+	case sig := <-ch:
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "signalLoop: received %v\n", sig)
+		}
+		t.signalClose()
 	case <-t.done:
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "signalLoop: done channel closed\n")
+		}
+	}
+	if debugLog {
+		fmt.Fprintf(os.Stderr, "signalLoop: exiting\n")
 	}
 }
 

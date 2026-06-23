@@ -81,10 +81,18 @@ func GetResources(fd int) (*ResourcesPublic, error) {
 	connIDs := make([]uint32, res.CountConnectors)
 	encIDs := make([]uint32, res.CountEncoders)
 
-	res.FbIDPtr = uint64(uintptr(unsafe.Pointer(&fbIDs[0])))
-	res.CrtcIDPtr = uint64(uintptr(unsafe.Pointer(&crtcIDs[0])))
-	res.ConnectorIDPtr = uint64(uintptr(unsafe.Pointer(&connIDs[0])))
-	res.EncoderIDPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
+	if res.CountFbs > 0 {
+		res.FbIDPtr = uint64(uintptr(unsafe.Pointer(&fbIDs[0])))
+	}
+	if res.CountCrtcs > 0 {
+		res.CrtcIDPtr = uint64(uintptr(unsafe.Pointer(&crtcIDs[0])))
+	}
+	if res.CountConnectors > 0 {
+		res.ConnectorIDPtr = uint64(uintptr(unsafe.Pointer(&connIDs[0])))
+	}
+	if res.CountEncoders > 0 {
+		res.EncoderIDPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
+	}
 
 	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, unsafe.Pointer(&res), "DRM_IOCTL_MODE_GETRESOURCES"); err != nil {
 		return nil, err
@@ -115,10 +123,16 @@ func GetConnector(fd int, id uint32) (*ConnectorResult, error) {
 	props := make([]uint32, c.CountProps)
 	propVals := make([]uint64, c.CountProps)
 
-	c.EncodersPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
-	c.ModesPtr = uint64(uintptr(unsafe.Pointer(&modes[0])))
-	c.PropsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
-	c.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propVals[0])))
+	if c.CountEncoders > 0 {
+		c.EncodersPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
+	}
+	if c.CountModes > 0 {
+		c.ModesPtr = uint64(uintptr(unsafe.Pointer(&modes[0])))
+	}
+	if c.CountProps > 0 {
+		c.PropsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
+		c.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propVals[0])))
+	}
 	c.CountProps = 0
 
 	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, unsafe.Pointer(&c), "DRM_IOCTL_MODE_GETCONNECTOR"); err != nil {

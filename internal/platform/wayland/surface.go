@@ -2,6 +2,7 @@ package wayland
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/rajveermalviya/go-wayland/wayland/client"
@@ -28,11 +29,14 @@ type WaylandSurface struct {
 	xdgSurface *xdg_shell.Surface
 	toplevel   *xdg_shell.Toplevel
 
+	mu     sync.Mutex
 	width  int
 	height int
 	stride int
 	bufs   [2]shmBuf
 	front  int
+
+	resizeCh chan platform.ResizeEvent
 }
 
 func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor *client.Compositor, shm *client.Shm, wmBase *xdg_shell.WmBase, width, height int) (*WaylandSurface, error) {
@@ -45,22 +49,23 @@ func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor 
 		width:      width,
 		height:     height,
 		stride:     width * 4,
+		resizeCh:   make(chan platform.ResizeEvent, 4),
 	}
 
-	wlSurface, err := compositor.CreateSurface()
+	wlSurface, err := compositorCreateSurface(ctx, compositor.ID())
 	if err != nil {
 		return nil, fmt.Errorf("create surface: %w", err)
 	}
 	s.wlSurface = wlSurface
 
-	xdgSurface, err := wmBase.GetXdgSurface(wlSurface)
+	xdgSurface, err := xdgWmBaseGetXdgSurface(ctx, wmBase.ID(), wlSurface.ID())
 	if err != nil {
 		wlSurface.Destroy()
 		return nil, fmt.Errorf("get xdg surface: %w", err)
 	}
 	s.xdgSurface = xdgSurface
 
-	toplevel, err := xdgSurface.GetToplevel()
+	toplevel, err := xdgSurfaceGetToplevel(ctx, xdgSurface.ID())
 	if err != nil {
 		xdgSurface.Destroy()
 		wlSurface.Destroy()
@@ -72,13 +77,13 @@ func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor 
 		s.backend.notifyClose()
 	})
 
-	_ = toplevel.SetTitle("vistty")
-	_ = toplevel.SetAppId("github.com.LaoQi.vistty")
+	_ = toplevelSetTitle(toplevel, "vistty")
+	_ = toplevelSetAppId(toplevel, "github.com.LaoQi.vistty")
 
 	bufSize := s.stride * height
 
 	for i := 0; i < 2; i++ {
-		buf, err := createShmBuf(shm, bufSize, width, height, s.stride)
+		buf, err := createShmBuf(shm, bufSize, width, height, s.stride, backend.shmFormat)
 		if err != nil {
 			s.closeBufs(i)
 			s.toplevel.Destroy()
@@ -112,7 +117,7 @@ func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor 
 			s.toplevel.Destroy()
 			s.xdgSurface.Destroy()
 			s.wlSurface.Destroy()
-			return nil, fmt.Errorf("dispatch waiting for configure: %w", err)
+			return nil, backend.wrapDispatchErr("dispatch waiting for configure", err)
 		}
 		select {
 		case serial := <-configureCh:
@@ -123,26 +128,38 @@ func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor 
 	}
 configured:
 
+	xdgSurface.SetConfigureHandler(func(e xdg_shell.SurfaceConfigureEvent) {
+		_ = xdgSurface.AckConfigure(e.Serial)
+	})
+
 	_ = xdgSurface.SetWindowGeometry(0, 0, int32(width), int32(height))
 
 	return s, nil
 }
 
 func (s *WaylandSurface) Size() (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.width, s.height
 }
 
 func (s *WaylandSurface) Data() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	backIdx := s.front ^ 1
 	return s.bufs[backIdx].data
 }
 
 func (s *WaylandSurface) Stride() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	backIdx := s.front ^ 1
 	return s.bufs[backIdx].size / s.height
 }
 
 func (s *WaylandSurface) Swap() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	backIdx := s.front ^ 1
 	buf := &s.bufs[backIdx]
 
@@ -196,7 +213,13 @@ func (s *WaylandSurface) closeBufs(upTo int) {
 	}
 }
 
+func (s *WaylandSurface) ResizeEvents() <-chan platform.ResizeEvent {
+	return s.resizeCh
+}
+
 func (s *WaylandSurface) resize(newWidth, newHeight int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if newWidth <= 0 || newHeight <= 0 {
 		return
 	}
@@ -209,7 +232,7 @@ func (s *WaylandSurface) resize(newWidth, newHeight int) {
 	bufSize := s.stride * newHeight
 
 	for i := 0; i < 2; i++ {
-		buf, err := createShmBuf(s.shm, bufSize, newWidth, newHeight, s.stride)
+		buf, err := createShmBuf(s.shm, bufSize, newWidth, newHeight, s.stride, s.backend.shmFormat)
 		if err != nil {
 			s.bufs = oldBufs
 			return
@@ -233,9 +256,14 @@ func (s *WaylandSurface) resize(newWidth, newHeight int) {
 	}
 
 	_ = s.xdgSurface.SetWindowGeometry(0, 0, int32(newWidth), int32(newHeight))
+
+	select {
+	case s.resizeCh <- platform.ResizeEvent{Width: newWidth, Height: newHeight}:
+	default:
+	}
 }
 
-func createShmBuf(shm *client.Shm, size, width, height, stride int) (shmBuf, error) {
+func createShmBuf(shm *client.Shm, size, width, height, stride int, format uint32) (shmBuf, error) {
 	fd, err := unix.MemfdCreate("vistty-wl-shm", unix.MFD_CLOEXEC)
 	if err != nil {
 		return shmBuf{}, fmt.Errorf("memfd_create: %w", err)
@@ -246,20 +274,22 @@ func createShmBuf(shm *client.Shm, size, width, height, stride int) (shmBuf, err
 		return shmBuf{}, fmt.Errorf("ftruncate: %w", err)
 	}
 
+	// No sealing - some compositors may have issues with sealed memfds
+
 	data, err := unix.Mmap(fd, 0, size, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
 		unix.Close(fd)
 		return shmBuf{}, fmt.Errorf("mmap: %w", err)
 	}
 
-	pool, err := shm.CreatePool(fd, int32(size))
+	pool, err := shmCreatePool(shm.Context(), shm.ID(), fd, int32(size))
 	if err != nil {
 		unix.Munmap(data)
 		unix.Close(fd)
 		return shmBuf{}, fmt.Errorf("create pool: %w", err)
 	}
 
-	buffer, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), uint32(client.ShmFormatXrgb8888))
+	buffer, err := shmPoolCreateBuffer(shm.Context(), pool.ID(), 0, int32(width), int32(height), int32(stride), format)
 	if err != nil {
 		pool.Destroy()
 		unix.Munmap(data)

@@ -11,6 +11,7 @@ const (
 	ESCTabSet
 	ESCDeckpam
 	ESCDeckpnm
+	ESCFullReset
 	ESCUnknown
 )
 
@@ -47,6 +48,8 @@ func ParseESC(seq Sequence) ESCSequence {
 		return ESCSequence{Command: ESCDeckpam}
 	case '>':
 		return ESCSequence{Command: ESCDeckpnm}
+	case 'c':
+		return ESCSequence{Command: ESCFullReset}
 	default:
 		return ESCSequence{Command: ESCUnknown, Intermed: seq.Command}
 	}

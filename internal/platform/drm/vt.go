@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -38,11 +39,13 @@ type VTCallbacks struct {
 }
 
 type VTManager struct {
-	ttyFd    int
+	ttyFd     int
 	savedMode int8
-	sigCh    chan os.Signal
-	done     chan struct{}
+	sigCh     chan os.Signal
+	done      chan struct{}
 	callbacks VTCallbacks
+	closeOnce sync.Once
+	wg        sync.WaitGroup
 }
 
 func newVTManager(callbacks VTCallbacks) (*VTManager, error) {
@@ -65,12 +68,14 @@ func newVTManager(callbacks VTCallbacks) (*VTManager, error) {
 
 	signal.Notify(v.sigCh, syscall.SIGUSR1, syscall.SIGUSR2)
 
+	v.wg.Add(1)
 	go v.signalLoop()
 
 	return v, nil
 }
 
 func (v *VTManager) signalLoop() {
+	defer v.wg.Done()
 	for {
 		select {
 		case <-v.done:
@@ -107,17 +112,23 @@ func (v *VTManager) SetGraphicsMode() error {
 
 func (v *VTManager) SetTextMode() error {
 	vm := vtMode{Mode: vtAuto}
-	vtIoctl(v.ttyFd, ioctlVtSetmode, uintptr(unsafe.Pointer(&vm)))
-
-	vtIoctl(v.ttyFd, ioctlKdSetmode, uintptr(kdText))
+	if err := vtIoctl(v.ttyFd, ioctlVtSetmode, uintptr(unsafe.Pointer(&vm))); err != nil {
+		return fmt.Errorf("set vt auto mode: %w", err)
+	}
+	if err := vtIoctl(v.ttyFd, ioctlKdSetmode, uintptr(kdText)); err != nil {
+		return fmt.Errorf("set kd text mode: %w", err)
+	}
 	return nil
 }
 
 func (v *VTManager) Close() error {
-	close(v.done)
-	signal.Stop(v.sigCh)
-	v.SetTextMode()
-	syscall.Close(v.ttyFd)
+	v.closeOnce.Do(func() {
+		close(v.done)
+		signal.Stop(v.sigCh)
+		v.wg.Wait()
+		v.SetTextMode()
+		syscall.Close(v.ttyFd)
+	})
 	return nil
 }
 
@@ -130,9 +141,14 @@ func syscallOpenTty() (int, error) {
 }
 
 func vtIoctl(fd int, req uintptr, arg uintptr) error {
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, arg)
-	if errno != 0 {
-		return errno
+	for {
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, arg)
+		if errno == syscall.EINTR {
+			continue
+		}
+		if errno != 0 {
+			return errno
+		}
+		return nil
 	}
-	return nil
 }

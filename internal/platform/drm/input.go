@@ -8,42 +8,6 @@ import (
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
-var usKeyMap = map[uint16]rune{
-	2: '1', 3: '2', 4: '3', 5: '4', 6: '5', 7: '6', 8: '7', 9: '8', 10: '9', 11: '0',
-	12: '-', 13: '=', 14: 0x08,
-	15: '\t',
-	16: 'q', 17: 'w', 18: 'e', 19: 'r', 20: 't', 21: 'y', 22: 'u', 23: 'i', 24: 'o', 25: 'p',
-	26: '[', 27: ']', 28: '\r',
-	30: 'a', 31: 's', 32: 'd', 33: 'f', 34: 'g', 35: 'h', 36: 'j', 37: 'k', 38: 'l',
-	39: ';', 40: '\'', 41: '`',
-	42: 0,
-	43: '\\', 44: 'z', 45: 'x', 46: 'c', 47: 'v', 48: 'b', 49: 'n', 50: 'm',
-	51: ',', 52: '.', 53: '/',
-	54: 0,
-	56: 0,
-	57: ' ',
-	58: 0,
-	59: 0, 60: 0, 61: 0, 62: 0, 63: 0, 64: 0, 65: 0, 66: 0, 67: 0, 68: 0,
-	97: 0,
-	100: 0,
-	103: 0,
-	105: 0,
-	106: 0,
-	108: 0,
-	125: 0,
-	29: 0,
-}
-
-var modifierKeys = map[uint16]platform.Modifiers{
-	42:  platform.ModShift,
-	54:  platform.ModShift,
-	29:  platform.ModCtrl,
-	97:  platform.ModCtrl,
-	56:  platform.ModAlt,
-	100: platform.ModAlt,
-	125: platform.ModSuper,
-}
-
 type DRMInput struct {
 	keyCh   chan platform.KeyEvent
 	mouseCh chan platform.MouseEvent
@@ -114,95 +78,46 @@ func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
 		code := uint16(ev.Code)
 
 		i.mu.Lock()
-		if mod, ok := modifierKeys[code]; ok {
+		if mod, ok := platform.LookupModifier(uint32(code)); ok {
 			if ev.Value != 0 {
 				i.mods |= mod
 			} else {
 				i.mods &^= mod
 			}
+			mods := i.mods
 			i.mu.Unlock()
 
-			i.keyCh <- platform.KeyEvent{
+			select {
+			case i.keyCh <- platform.KeyEvent{
 				Rune:  0,
 				Code:  code,
-				Mods:  i.mods,
+				Mods:  mods,
 				State: platform.KeyState(ev.Value != 0),
+			}:
+			case <-i.done:
+				return
 			}
 			continue
 		}
 		mods := i.mods
 		i.mu.Unlock()
 
-		r, ok := usKeyMap[code]
-		if !ok {
+		r := platform.FallbackKeyRune(uint32(code), mods)
+		if r == 0 {
 			continue
 		}
 
-		if mods&platform.ModShift != 0 && r != 0 {
-			r = shiftRune(r)
-		}
-		if mods&platform.ModCtrl != 0 && r >= 'a' && r <= 'z' {
-			r = r - 'a' + 1
-		}
-
-		i.keyCh <- platform.KeyEvent{
+		select {
+		case i.keyCh <- platform.KeyEvent{
 			Rune:  r,
 			Code:  code,
 			Mods:  mods,
 			State: platform.KeyState(ev.Value != 0),
+		}:
+		case <-i.done:
+			return
 		}
 	}
-}
-
-func shiftRune(r rune) rune {
-	if r >= 'a' && r <= 'z' {
-		return r - 32
-	}
-	switch r {
-	case '1':
-		return '!'
-	case '2':
-		return '@'
-	case '3':
-		return '#'
-	case '4':
-		return '$'
-	case '5':
-		return '%'
-	case '6':
-		return '^'
-	case '7':
-		return '&'
-	case '8':
-		return '*'
-	case '9':
-		return '('
-	case '0':
-		return ')'
-	case '-':
-		return '_'
-	case '=':
-		return '+'
-	case '[':
-		return '{'
-	case ']':
-		return '}'
-	case '\\':
-		return '|'
-	case ';':
-		return ':'
-	case '\'':
-		return '"'
-	case ',':
-		return '<'
-	case '.':
-		return '>'
-	case '/':
-		return '?'
-	case '`':
-		return '~'
-	}
-	return r
 }
 
 func (i *DRMInput) KeyEvents() <-chan platform.KeyEvent {

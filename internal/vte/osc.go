@@ -34,6 +34,10 @@ func ParseOSC(seq Sequence) OSCSequence {
 	cmdStr := data[:idx]
 	payload := data[idx+1:]
 
+	if cmdStr == "" {
+		return OSCSequence{Command: OSCUnknown, Data: data}
+	}
+
 	var cmd int
 	for _, ch := range cmdStr {
 		if ch >= '0' && ch <= '9' {

@@ -209,3 +209,47 @@ func TestESCIntermediate(t *testing.T) {
 		t.Errorf("expected command 'F', got %c", seqs[0].Command)
 	}
 }
+
+func TestFeedUTF8TwoByte(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xC3, 0xA9})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if seqs[0].Action != ActionPrint {
+		t.Error("expected ActionPrint")
+	}
+	if seqs[0].Rune != 0xE9 {
+		t.Errorf("expected U+00E9, got U+%04X", seqs[0].Rune)
+	}
+}
+
+func TestFeedUTF8ThreeByte(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xE4, 0xBD, 0xA0})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if seqs[0].Rune != 0x4F60 {
+		t.Errorf("expected U+4F60, got U+%04X", seqs[0].Rune)
+	}
+}
+
+func TestFeedUTF8InvalidByte(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xFF})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if seqs[0].Rune != 0xFFFD {
+		t.Errorf("expected U+FFFD, got U+%04X", seqs[0].Rune)
+	}
+}
+
+func TestFeedUTF8Truncated(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xE4, 0xBD})
+	if len(seqs) != 0 {
+		t.Fatalf("expected 0 sequences (buffered), got %d", len(seqs))
+	}
+}

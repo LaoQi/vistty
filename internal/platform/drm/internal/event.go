@@ -41,11 +41,11 @@ func ReadEvent(fd int) (*Event, error) {
 	}
 
 	if evType == EventVBlank || evType == EventFlipComplete {
-		if evLen >= 24 {
-			ev.Sequence = binary.LittleEndian.Uint32(buf[8:12])
-			ev.TVSec = binary.LittleEndian.Uint32(buf[12:16])
-			ev.TVUsec = binary.LittleEndian.Uint32(buf[16:20])
-			ev.CrtcID = binary.LittleEndian.Uint32(buf[20:24])
+		if evLen >= 32 {
+			ev.Sequence = binary.LittleEndian.Uint32(buf[24:28])
+			ev.TVSec = binary.LittleEndian.Uint32(buf[16:20])
+			ev.TVUsec = binary.LittleEndian.Uint32(buf[20:24])
+			ev.CrtcID = binary.LittleEndian.Uint32(buf[28:32])
 		}
 	}
 
@@ -53,6 +53,11 @@ func ReadEvent(fd int) (*Event, error) {
 }
 
 func readFromFd(fd int, buf []byte) (int, error) {
-	n, err := syscall.Read(fd, buf)
-	return n, err
+	for {
+		n, err := syscall.Read(fd, buf)
+		if err == syscall.EINTR {
+			continue
+		}
+		return n, err
+	}
 }

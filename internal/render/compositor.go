@@ -24,12 +24,14 @@ type Compositor struct {
 	backWidth  int
 	backHeight int
 	prevCursor cursorState
+	frameCount uint64
 }
 
 type cursorState struct {
 	row     int
 	col     int
 	visible bool
+	style   cursorStyle
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -74,7 +76,14 @@ func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
 	return g, nil
 }
 
-func (c *Compositor) Render(buf *screen.Buffer) error {
+func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
+	history := buf.History()
+	histLen := history.Len()
+	offset := scrollOffset
+	if offset > histLen {
+		offset = histLen
+	}
+
 	regions := buf.DirtyRegions()
 	cursor := buf.Cursor()
 
@@ -82,12 +91,17 @@ func (c *Compositor) Render(buf *screen.Buffer) error {
 	if cursor != nil {
 		cursorMoved = cursor.Row != c.prevCursor.row ||
 			cursor.Col != c.prevCursor.col ||
-			cursor.Visible != c.prevCursor.visible
+			cursor.Visible != c.prevCursor.visible ||
+			toCursorStyle(cursor.Style) != c.prevCursor.style
 	}
 
-	if len(regions) == 0 && !cursorMoved {
+	hasDirty := len(regions) > 0 || cursorMoved || offset > 0
+
+	if !hasDirty {
 		return nil
 	}
+
+	c.frameCount++
 
 	if cursorMoved && c.prevCursor.visible {
 		regions = append(regions, screen.Rect{
@@ -96,112 +110,117 @@ func (c *Compositor) Render(buf *screen.Buffer) error {
 		})
 	}
 
-	for _, r := range regions {
-		for row := r.Y; row < r.Y+r.H && row < buf.Rows(); row++ {
-			for col := r.X; col < r.X+r.W && col < buf.Cols(); col++ {
-				cell := buf.Cell(row, col)
-				if cell == nil {
-					continue
-				}
-				px := col * c.metrics.Width
-				py := row * c.metrics.Height
+	if offset > 0 {
+		bg := c.defColor.bg
+		fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, bg.R, bg.G, bg.B)
+	}
 
-				bg := c.resolveBg(cell.Bg)
-				fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, bg.R, bg.G, bg.B)
-
-				if cell.Rune != 0 && cell.Rune != ' ' {
-					glyph, err := c.getGlyph(cell.Rune)
-					if err != nil || glyph == nil {
-						continue
-					}
-					fg := c.resolveFg(cell.Fg)
-					if cell.Attr&screen.AttrReverse != 0 {
-						fg, bg = bg, fg
-						fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, bg.R, bg.G, bg.B)
-					}
-					gx := px + glyph.XOffset
-					gy := py + c.metrics.Ascent + glyph.YOffset
-					blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fg.R, fg.G, fg.B)
-				} else if cell.Attr&screen.AttrReverse != 0 {
-					fg := c.resolveFg(cell.Fg)
-					cellBg := c.resolveBg(cell.Bg)
-					fg, cellBg = cellBg, fg
-					fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, cellBg.R, cellBg.G, cellBg.B)
-				}
-			}
+	for row := 0; row < c.rows; row++ {
+		var line *screen.Line
+		isHistory := row < offset
+		if isHistory {
+			line = history.Line(histLen - offset + row)
+		} else {
+			line = buf.Line(row - offset)
 		}
-	}
-
-	if cursor != nil && cursor.Visible {
-		cx := cursor.Col * c.metrics.Width
-		cy := cursor.Row * c.metrics.Height
-		fg := c.resolveFg(screen.Color{IsDefault: true})
-		drawCursor(c.backBuf, c.backStride, cx, cy, c.metrics.Width, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B)
-	}
-
-	c.copyDirtyToSurface(regions, cursor)
-
-	if err := c.surface.Swap(); err != nil {
-		return err
-	}
-
-	if cursor != nil {
-		c.prevCursor = cursorState{
-			row:     cursor.Row,
-			col:     cursor.Col,
-			visible: cursor.Visible,
+		if line == nil {
+			continue
 		}
-	}
-	buf.ClearDirty()
-	return nil
-}
-
-func (c *Compositor) RenderAll(buf *screen.Buffer) error {
-	bg := c.defColor.bg
-	fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, bg.R, bg.G, bg.B)
-
-	for row := 0; row < buf.Rows() && row < c.rows; row++ {
-		for col := 0; col < buf.Cols() && col < c.cols; col++ {
-			cell := buf.Cell(row, col)
+		for col := 0; col < c.cols; col++ {
+			cell := line.Cell(col)
 			if cell == nil {
+				continue
+			}
+			if !isHistory && !cell.Dirty {
 				continue
 			}
 			px := col * c.metrics.Width
 			py := row * c.metrics.Height
 
-			cellBg := c.resolveBg(cell.Bg)
-			if cellBg != bg {
-				fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, cellBg.R, cellBg.G, cellBg.B)
+			fg := c.resolveFg(cell.Fg)
+			bg := c.resolveBg(cell.Bg)
+			fgR, fgG, fgB := fg.R, fg.G, fg.B
+			bgR, bgG, bgB := bg.R, bg.G, bg.B
+
+			if cell.Attr&screen.AttrReverse != 0 {
+				fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
+			}
+			if cell.Attr&screen.AttrDim != 0 {
+				fgR = fgR / 2
+				fgG = fgG / 2
+				fgB = fgB / 2
 			}
 
-			if cell.Rune != 0 && cell.Rune != ' ' {
+			fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, bgR, bgG, bgB)
+
+			if cell.Rune != 0 {
 				glyph, err := c.getGlyph(cell.Rune)
 				if err != nil || glyph == nil {
 					continue
 				}
-				fg := c.resolveFg(cell.Fg)
-				if cell.Attr&screen.AttrReverse != 0 {
-					fg, cellBg = cellBg, fg
-					fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, cellBg.R, cellBg.G, cellBg.B)
+			if cell.Attr&screen.AttrBold != 0 {
+				blendGlyph(c.backBuf, c.backStride, px+1, py, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+			}
+			gx := px + glyph.XOffset
+			gy := py + c.metrics.Ascent + glyph.YOffset
+			if cell.Attr&screen.AttrItalic != 0 {
+				blendGlyphItalic(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+			} else {
+				blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+			}
+
+				if cell.Attr&screen.AttrUnderline != 0 {
+					underlineY := py + c.metrics.Ascent + 1
+					if underlineY < py+c.metrics.Height {
+						for x := px; x < px+c.metrics.Width; x++ {
+							off := underlineY*c.backStride + x*4
+							if off+3 < len(c.backBuf) {
+								c.backBuf[off] = fgB
+								c.backBuf[off+1] = fgG
+								c.backBuf[off+2] = fgR
+								c.backBuf[off+3] = 255
+							}
+						}
+					}
 				}
-				gx := px + glyph.XOffset
-				gy := py + c.metrics.Ascent + glyph.YOffset
-				blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fg.R, fg.G, fg.B)
-			} else if cell.Attr&screen.AttrReverse != 0 {
-				fg := c.resolveFg(cell.Fg)
-				cellBg := c.resolveBg(cell.Bg)
-				fg, cellBg = cellBg, fg
-				fillRect(c.backBuf, c.backStride, px, py, c.metrics.Width, c.metrics.Height, cellBg.R, cellBg.G, cellBg.B)
+
+				if cell.Attr&screen.AttrCrossedOut != 0 {
+					midY := py + c.metrics.Height/2
+					for x := px; x < px+c.metrics.Width; x++ {
+						off := midY*c.backStride + x*4
+						if off+3 < len(c.backBuf) {
+							c.backBuf[off] = fgB
+							c.backBuf[off+1] = fgG
+							c.backBuf[off+2] = fgR
+							c.backBuf[off+3] = 255
+						}
+					}
+				}
 			}
 		}
 	}
 
-	cursor := buf.Cursor()
-	if cursor != nil && cursor.Visible {
-		cx := cursor.Col * c.metrics.Width
-		cy := cursor.Row * c.metrics.Height
-		fg := c.resolveFg(screen.Color{IsDefault: true})
-		drawCursor(c.backBuf, c.backStride, cx, cy, c.metrics.Width, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B)
+	if cursor != nil && offset == 0 {
+		visible := cursor.Visible
+		if cursor.Blinking && c.frameCount%30 < 15 {
+			visible = false
+		}
+		if visible {
+			cx := cursor.Col * c.metrics.Width
+			cy := cursor.Row * c.metrics.Height
+			cursorCell := buf.Cell(cursor.Row, cursor.Col)
+			var cursorRune rune
+			var cursorGlyph []byte
+			if cursorCell != nil {
+				cursorRune = cursorCell.Rune
+				g, _ := c.getGlyph(cursorRune)
+				if g != nil {
+					cursorGlyph = g.Bitmap
+				}
+			}
+			fg := c.resolveFg(screen.Color{IsDefault: true})
+			drawCursor(c.backBuf, c.backStride, cx, cy, c.metrics.Width, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B, cursorRune, cursorGlyph, c.metrics.Width)
+		}
 	}
 
 	c.copyAllToSurface()
@@ -215,6 +234,7 @@ func (c *Compositor) RenderAll(buf *screen.Buffer) error {
 			row:     cursor.Row,
 			col:     cursor.Col,
 			visible: cursor.Visible,
+			style:   toCursorStyle(cursor.Style),
 		}
 	}
 	buf.ClearDirty()
@@ -235,57 +255,18 @@ func (c *Compositor) Resize(cols, rows int) {
 	c.prevCursor = cursorState{}
 }
 
-func (c *Compositor) copyDirtyToSurface(regions []screen.Rect, cursor *screen.Cursor) {
-	surfData := c.surface.Data()
-	surfStride := c.surface.Stride()
-
-	if cursor != nil && cursor.Visible {
-		regions = append(regions, screen.Rect{
-			X: cursor.Col, Y: cursor.Row,
-			W: 1, H: 1,
-		})
-	}
-
-	for _, r := range regions {
-		px := r.X * c.metrics.Width
-		py := r.Y * c.metrics.Height
-		pw := r.W * c.metrics.Width
-		ph := r.H * c.metrics.Height
-
-		if px+pw > c.backWidth {
-			pw = c.backWidth - px
-		}
-		if py+ph > c.backHeight {
-			ph = c.backHeight - py
-		}
-		if px < 0 {
-			pw += px
-			px = 0
-		}
-		if py < 0 {
-			ph += py
-			py = 0
-		}
-		if pw <= 0 || ph <= 0 {
-			continue
-		}
-
-		for row := py; row < py+ph; row++ {
-			srcOff := row*c.backStride + px*4
-			dstOff := row*surfStride + px*4
-			copy(surfData[dstOff:dstOff+pw*4], c.backBuf[srcOff:srcOff+pw*4])
-		}
-	}
-}
-
 func (c *Compositor) copyAllToSurface() {
 	surfData := c.surface.Data()
 	surfStride := c.surface.Stride()
-	rowLen := c.backWidth * 4
-	for row := 0; row < c.backHeight; row++ {
-		srcOff := row * c.backStride
-		dstOff := row * surfStride
-		copy(surfData[dstOff:dstOff+rowLen], c.backBuf[srcOff:srcOff+rowLen])
+	backStride := c.backStride
+	minStride := backStride
+	if surfStride < minStride {
+		minStride = surfStride
+	}
+	for y := 0; y < c.backHeight; y++ {
+		srcOff := y * backStride
+		dstOff := y * surfStride
+		copy(surfData[dstOff:dstOff+minStride], c.backBuf[srcOff:srcOff+minStride])
 	}
 }
 

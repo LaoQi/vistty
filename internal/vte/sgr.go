@@ -11,6 +11,10 @@ const (
 	SGRBlink
 	SGRReverse
 	SGRCrossedOut
+	SGRConceal
+	SGRReveal
+	SGROverline
+	SGROverlineOff
 	SGRForegroundColor8
 	SGRBackgroundColor8
 	SGRForegroundColor256
@@ -58,6 +62,8 @@ func ParseSGR(params []int) []SGR {
 			result = append(result, SGR{Attr: SGRBlink})
 		case 7:
 			result = append(result, SGR{Attr: SGRReverse})
+		case 8:
+			result = append(result, SGR{Attr: SGRConceal})
 		case 9:
 			result = append(result, SGR{Attr: SGRCrossedOut})
 		case 22:
@@ -70,6 +76,8 @@ func ParseSGR(params []int) []SGR {
 			result = append(result, SGR{Attr: SGRBlinkOff})
 		case 27:
 			result = append(result, SGR{Attr: SGRReverseOff})
+		case 28:
+			result = append(result, SGR{Attr: SGRReveal})
 		case 29:
 			result = append(result, SGR{Attr: SGRCrossedOutOff})
 		case 30, 31, 32, 33, 34, 35, 36, 37:
@@ -90,6 +98,10 @@ func ParseSGR(params []int) []SGR {
 			result = append(result, sgr)
 			i += adv
 			continue
+		case 53:
+			result = append(result, SGR{Attr: SGROverline})
+		case 55:
+			result = append(result, SGR{Attr: SGROverlineOff})
 		case 90, 91, 92, 93, 94, 95, 96, 97:
 			result = append(result, SGR{Attr: SGRForegroundColor8, ColorIdx: p - 90 + 8})
 		case 100, 101, 102, 103, 104, 105, 106, 107:
@@ -127,11 +139,32 @@ func parseSGRColor(params []int, idx int, fg bool) (SGR, int) {
 		return SGR{Attr: baseAttr}, 2
 	case 2:
 		if idx+4 < len(params) {
+			r := params[idx+2]
+			g := params[idx+3]
+			b := params[idx+4]
+			if r < 0 {
+				r = 0
+			}
+			if r > 255 {
+				r = 255
+			}
+			if g < 0 {
+				g = 0
+			}
+			if g > 255 {
+				g = 255
+			}
+			if b < 0 {
+				b = 0
+			}
+			if b > 255 {
+				b = 255
+			}
 			return SGR{
 				Attr: rgbAttr,
-				R:    uint8(params[idx+2]),
-				G:    uint8(params[idx+3]),
-				B:    uint8(params[idx+4]),
+				R:    uint8(r),
+				G:    uint8(g),
+				B:    uint8(b),
 			}, 5
 		}
 		return SGR{Attr: rgbAttr}, 2

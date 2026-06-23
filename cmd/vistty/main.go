@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	backendFlag := flag.String("backend", "drm", "display backend: drm or wayland")
 	shellFlag := flag.String("shell", "/bin/bash", "shell to run")
 	fontFlag := flag.String("font", "", "font file path")
@@ -35,24 +42,21 @@ func main() {
 	case "wayland":
 		backend, err = wayland.NewWaylandBackend()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown backend: %s\n", *backendFlag)
-		os.Exit(1)
+		return fmt.Errorf("unknown backend: %s", *backendFlag)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create backend: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create backend: %w", err)
 	}
 	defer backend.Close()
 
 	term, err := terminal.New(backend, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create terminal: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create terminal: %w", err)
 	}
 	defer term.Close()
 
 	if err := term.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "terminal error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("terminal error: %w", err)
 	}
+	return nil
 }

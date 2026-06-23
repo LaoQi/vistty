@@ -1,6 +1,9 @@
 package screen
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestNewBuffer(t *testing.T) {
 	b := NewBuffer(80, 24)
@@ -234,5 +237,164 @@ func TestBufferScrollDownZero(t *testing.T) {
 	b.ScrollDown(0)
 	if b.Cell(0, 0).Rune != 'A' {
 		t.Error("ScrollDown(0) should not change buffer")
+	}
+}
+
+func TestDirtyRegionsLineLevelDirty(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.ScrollUp(1)
+	regions := buf.DirtyRegions()
+	if len(regions) == 0 {
+		t.Fatal("expected dirty regions after scroll")
+	}
+	totalHeight := 0
+	for _, r := range regions {
+		totalHeight += r.H
+	}
+	if totalHeight != 5 {
+		t.Errorf("expected all 5 rows dirty, got %d", totalHeight)
+	}
+}
+
+func TestDirtyRegionsScrollDown(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.ScrollDown(1)
+	regions := buf.DirtyRegions()
+	if len(regions) == 0 {
+		t.Fatal("expected dirty regions after scroll down")
+	}
+	totalHeight := 0
+	for _, r := range regions {
+		totalHeight += r.H
+	}
+	if totalHeight != 5 {
+		t.Errorf("expected all 5 rows dirty, got %d", totalHeight)
+	}
+}
+
+func TestScrollUpPushesToHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	for col := 0; col < 10; col++ {
+		cell := buf.Cell(0, col)
+		if cell != nil {
+			cell.Rune = 'A'
+		}
+	}
+	buf.ScrollUp(1)
+	hist := buf.History()
+	if hist.Len() != 1 {
+		t.Fatalf("expected history length 1, got %d", hist.Len())
+	}
+	histLine := hist.Line(0)
+	if histLine == nil {
+		t.Fatal("expected history line not nil")
+	}
+	if histLine.Cell(0).Rune != 'A' {
+		t.Error("expected 'A' in history")
+	}
+}
+
+func TestScrollUpMultipleLines(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	for row := 0; row < 5; row++ {
+		for col := 0; col < 10; col++ {
+			cell := buf.Cell(row, col)
+			if cell != nil {
+				cell.Rune = rune('0' + row)
+			}
+		}
+	}
+	buf.ScrollUp(3)
+	hist := buf.History()
+	if hist.Len() != 3 {
+		t.Fatalf("expected history length 3, got %d", hist.Len())
+	}
+}
+
+func TestHistoryPushTruncate(t *testing.T) {
+	h := NewHistory(3)
+	for i := 0; i < 5; i++ {
+		line := NewLine(10)
+		line.Cell(0).Rune = rune('0' + i)
+		h.Push(line)
+	}
+	if h.Len() != 3 {
+		t.Fatalf("expected len 3, got %d", h.Len())
+	}
+	if h.Line(0).Cell(0).Rune != '2' {
+		t.Errorf("expected '2', got %c", h.Line(0).Cell(0).Rune)
+	}
+	if h.Line(2).Cell(0).Rune != '4' {
+		t.Errorf("expected '4', got %c", h.Line(2).Cell(0).Rune)
+	}
+}
+
+func TestScrollTop(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	if buf.ScrollTop() != 0 {
+		t.Errorf("expected scrollTop 0, got %d", buf.ScrollTop())
+	}
+	buf.SetScrollRegion(3, 20)
+	if buf.ScrollTop() != 3 {
+		t.Errorf("expected scrollTop 3, got %d", buf.ScrollTop())
+	}
+}
+
+func TestBufferCellNilLine(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	cell := buf.Cell(100, 100)
+	if cell != nil {
+		t.Error("expected nil for out-of-bounds")
+	}
+	cell = buf.Cell(-1, 0)
+	if cell != nil {
+		t.Error("expected nil for negative row")
+	}
+}
+
+func TestBufferConcurrentIndependentInstances(t *testing.T) {
+	const goroutines = 8
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			b := NewBuffer(20, 10)
+			for i := 0; i < 100; i++ {
+				cell := b.Cell(i%10, i%20)
+				if cell != nil {
+					cell.Rune = 'x'
+					cell.MarkDirty()
+				}
+				b.ScrollUp(1)
+				_ = b.DirtyRegions()
+				b.ClearDirty()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestBufferScrollUpHistoryConsistency(t *testing.T) {
+	buf := NewBuffer(5, 3)
+	for r := 0; r < 3; r++ {
+		for c := 0; c < 5; c++ {
+			cell := buf.Cell(r, c)
+			if cell != nil {
+				cell.Rune = rune('a' + r*5 + c)
+			}
+		}
+	}
+	buf.ScrollUp(1)
+	if buf.History().Len() != 1 {
+		t.Errorf("expected history len 1, got %d", buf.History().Len())
+	}
+	histLine := buf.History().Line(0)
+	if histLine == nil {
+		t.Fatal("expected non-nil history line")
+	}
+	first := histLine.Cell(0)
+	if first == nil || first.Rune != 'a' {
+		t.Errorf("expected history line first rune 'a', got %v", first)
 	}
 }

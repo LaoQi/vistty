@@ -112,3 +112,44 @@ func TestSGRResetAttributes(t *testing.T) {
 		t.Errorf("expected SGRUnderlineOff, got %d", sgrs[2].Attr)
 	}
 }
+
+func TestParseSGRRGBOverflow(t *testing.T) {
+	sgrs := ParseSGR([]int{38, 2, 300, 128, 0})
+	if len(sgrs) != 1 {
+		t.Fatalf("expected 1 SGR, got %d", len(sgrs))
+	}
+	if sgrs[0].R != 255 {
+		t.Errorf("expected R=255, got %d", sgrs[0].R)
+	}
+}
+
+func TestParseSGRRGBUnderflow(t *testing.T) {
+	sgrs := ParseSGR([]int{38, 2, -10, 128, 0})
+	if len(sgrs) != 1 {
+		t.Fatalf("expected 1 SGR, got %d", len(sgrs))
+	}
+	if sgrs[0].R != 0 {
+		t.Errorf("expected R=0, got %d", sgrs[0].R)
+	}
+}
+
+func TestParseSGRConceal(t *testing.T) {
+	sgrs := ParseSGR([]int{8})
+	if len(sgrs) != 1 || sgrs[0].Attr != SGRConceal {
+		t.Error("expected SGRConceal")
+	}
+}
+
+func TestParseSGROverline(t *testing.T) {
+	sgrs := ParseSGR([]int{53})
+	if len(sgrs) != 1 || sgrs[0].Attr != SGROverline {
+		t.Error("expected SGROverline")
+	}
+}
+
+func TestParseSGREmpty(t *testing.T) {
+	sgrs := ParseSGR([]int{})
+	if len(sgrs) != 1 || sgrs[0].Attr != SGRReset {
+		t.Error("expected SGRReset for empty params")
+	}
+}
