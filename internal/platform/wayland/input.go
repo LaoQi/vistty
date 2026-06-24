@@ -5,6 +5,7 @@ import (
 
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/rajveermalviya/go-wayland/wayland/client"
+	"golang.org/x/sys/unix"
 )
 
 type WaylandInput struct {
@@ -48,6 +49,14 @@ func newWaylandInput(ctx *client.Context, seat *client.Seat) (*WaylandInput, err
 	i.pointer = pointer
 
 	keyboard.SetKeymapHandler(func(e client.KeyboardKeymapEvent) {
+		if e.Format == 1 && e.Size > 0 {
+			if km, err := parseKeymap(e.Fd, e.Size); err == nil {
+				i.mu.Lock()
+				i.keymap = km
+				i.mu.Unlock()
+			}
+		}
+		unix.Close(e.Fd)
 	})
 
 	keyboard.SetModifiersHandler(func(e client.KeyboardModifiersEvent) {

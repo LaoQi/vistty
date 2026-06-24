@@ -106,9 +106,6 @@ func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
 		i.mu.Unlock()
 
 		r := platform.FallbackKeyRune(uint32(code), mods)
-		if r == 0 {
-			continue
-		}
 
 		select {
 		case i.keyCh <- platform.KeyEvent{

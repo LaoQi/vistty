@@ -41,9 +41,10 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 				state = kmStateTypes
 			} else {
 				kc, ks := parseKeycodeLine(line)
-				if kc > 0 && int(kc) < len(km) {
-					km[kc].level0 = xkbKeysymToRune(ks)
-					km[kc].level1 = xkbKeysymToRune(shiftKeysym(ks))
+				idx := xkbToEvdev(kc)
+				if idx >= 0 && idx < len(km) {
+					km[idx].level0 = xkbKeysymToRune(ks)
+					km[idx].level1 = xkbKeysymToRune(shiftKeysym(ks))
 				}
 			}
 		case kmStateTypes:
@@ -66,12 +67,13 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 				break
 			}
 			kc, l0, l1 := parseSymbolLine(line)
-			if kc > 0 && int(kc) < len(km) {
+			idx := xkbToEvdev(kc)
+			if idx >= 0 && idx < len(km) {
 				if l0 != 0 {
-					km[kc].level0 = xkbKeysymToRune(l0)
+					km[idx].level0 = xkbKeysymToRune(l0)
 				}
 				if l1 != 0 {
-					km[kc].level1 = xkbKeysymToRune(l1)
+					km[idx].level1 = xkbKeysymToRune(l1)
 				}
 			}
 			_ = currentKeycode
@@ -80,6 +82,13 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 	}
 
 	return km, nil
+}
+
+func xkbToEvdev(kc uint32) int {
+	if kc < 8 {
+		return -1
+	}
+	return int(kc - 8)
 }
 
 func (km keymap) lookup(key uint32, mods platform.Modifiers) rune {
@@ -552,22 +561,8 @@ func xkbKeysymToRune(ks xkbKeysym) rune {
 		return '\r'
 	case 0xff1b:
 		return 0x1b
-	case 0xff50:
-		return 0x1b
-	case 0xff51:
-		return 0x1b
-	case 0xff52:
-		return 0x1b
-	case 0xff53:
-		return 0x1b
-	case 0xff55:
-		return 0x1b
-	case 0xff56:
-		return 0x1b
-	case 0xff57:
-		return 0x1b
-	case 0xff63:
-		return 0x1b
+	case 0xff50, 0xff51, 0xff52, 0xff53, 0xff55, 0xff56, 0xff57, 0xff63:
+		return 0
 	case 0xffff:
 		return 0x7f
 	}
