@@ -106,6 +106,7 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 
 	buf := screen.NewBuffer(cols, rows)
 	altBuf := screen.NewBuffer(cols, rows)
+	altBuf.SetAltScreen(true)
 	compositor := render.NewCompositor(surface, face)
 	parser := vte.NewParser()
 
@@ -388,11 +389,7 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 	if w == 2 && t.cursor.Col+1 >= t.screen.Cols() {
 		if t.autoWrap {
 			t.cursor.Col = 0
-			t.cursor.Row++
-			if t.cursor.Row > t.screen.Rows()-1 {
-				t.screen.ScrollUp(1)
-				t.cursor.Row = t.screen.Rows() - 1
-			}
+			t.screen.LineFeed()
 		} else {
 			return
 		}
@@ -420,11 +417,7 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 	if t.cursor.Col >= t.screen.Cols() {
 		if t.autoWrap {
 			t.cursor.Col = 0
-			t.cursor.Row++
-			if t.cursor.Row > t.screen.Rows()-1 {
-				t.screen.ScrollUp(1)
-				t.cursor.Row = t.screen.Rows() - 1
-			}
+			t.screen.LineFeed()
 		} else {
 			t.cursor.Col = t.screen.Cols() - 1
 		}
@@ -438,11 +431,7 @@ func (t *Terminal) execControl(seq vte.Sequence) {
 	}
 	switch cc {
 	case vte.ControlLF, vte.ControlVT, vte.ControlFF:
-		t.cursor.Row++
-		if t.cursor.Row > t.screen.Rows()-1 {
-			t.screen.ScrollUp(1)
-			t.cursor.Row = t.screen.Rows() - 1
-		}
+		t.screen.LineFeed()
 	case vte.ControlCR:
 		t.cursor.Col = 0
 	case vte.ControlBS:
@@ -657,13 +646,13 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 		case 47, 1047:
 			if isSet {
 				if p == 1047 {
-					t.altBuf.Clear()
+					t.altBuf.ClearAll()
 				}
 				t.screen = t.altBuf
 				t.cursor = t.altBuf.Cursor()
 			} else {
 				if p == 1047 {
-					t.altBuf.Clear()
+					t.altBuf.ClearAll()
 				}
 				t.screen = t.mainBuf
 				t.cursor = t.mainBuf.Cursor()
@@ -679,7 +668,7 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				t.saveCursor()
 				t.screen = t.altBuf
 				t.cursor = t.altBuf.Cursor()
-				t.altBuf.Clear()
+				t.altBuf.ClearAll()
 				t.cursor.Row = 0
 				t.cursor.Col = 0
 				t.scrollOffset = 0
@@ -719,24 +708,12 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 	case vte.ESCRestoreState:
 		t.restoreCursor()
 	case vte.ESCIndex:
-		t.cursor.Row++
-		if t.cursor.Row > t.screen.Rows()-1 {
-			t.screen.ScrollUp(1)
-			t.cursor.Row = t.screen.Rows() - 1
-		}
+		t.screen.LineFeed()
 	case vte.ESCNextLine:
-		t.cursor.Row++
-		if t.cursor.Row > t.screen.Rows()-1 {
-			t.screen.ScrollUp(1)
-			t.cursor.Row = t.screen.Rows() - 1
-		}
+		t.screen.LineFeed()
 		t.cursor.Col = 0
 	case vte.ESCReverseIndex:
-		if t.cursor.Row == 0 {
-			t.screen.ScrollDown(1)
-		} else {
-			t.cursor.Row--
-		}
+		t.screen.ReverseIndex()
 	case vte.ESCTabSet:
 		t.setTabStop()
 	case vte.ESCDeckpam:
@@ -778,7 +755,7 @@ func (t *Terminal) restoreCursor() {
 }
 
 func (t *Terminal) fullReset() {
-	t.screen.Clear()
+	t.screen.ClearAll()
 	t.screen.SetScrollRegion(0, t.screen.Rows()-1)
 	t.cursor.Row = 0
 	t.cursor.Col = 0

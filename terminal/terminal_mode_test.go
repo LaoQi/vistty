@@ -130,4 +130,57 @@ func TestDECSCUSRDoesNotBreakMode1049(t *testing.T) {
 	}
 }
 
+func TestScrollRegionLineFeedScrolls(t *testing.T) {
+	term, _ := newTerminalForTest(10, 4)
+	term.feedBytes([]byte("\x1b[?1049h"))
+	term.feedBytes([]byte("\x1b[1;3r"))
+	term.feedBytes([]byte("AAA\r\nBBB\r\nCCC"))
+	term.feedBytes([]byte("\r\n"))
+	if term.screen.Cell(0, 0).Rune != 'B' {
+		t.Errorf("row0: expected 'B' after scroll, got %c", term.screen.Cell(0, 0).Rune)
+	}
+	if term.screen.Cell(1, 0).Rune != 'C' {
+		t.Errorf("row1: expected 'C' after scroll, got %c", term.screen.Cell(1, 0).Rune)
+	}
+	if term.screen.Cell(2, 0).Rune != ' ' {
+		t.Errorf("row2: expected blank after scroll, got %c", term.screen.Cell(2, 0).Rune)
+	}
+	if term.cursor.Row != 2 {
+		t.Errorf("cursor: expected at scrollBot row 2, got %d", term.cursor.Row)
+	}
+	if term.screen.Cell(3, 0).Rune != ' ' {
+		t.Errorf("status row 3 should be untouched, got %c", term.screen.Cell(3, 0).Rune)
+	}
+}
+
+func TestScrollRegionAutoWrapScrolls(t *testing.T) {
+	term, _ := newTerminalForTest(3, 4)
+	term.feedBytes([]byte("\x1b[?1049h"))
+	term.feedBytes([]byte("\x1b[1;3r"))
+	term.feedBytes([]byte("ABC"))
+	term.feedBytes([]byte("DEF"))
+	term.feedBytes([]byte("GHI"))
+	if term.screen.Cell(0, 0).Rune != 'D' {
+		t.Errorf("row0: expected 'D' after scroll, got %c", term.screen.Cell(0, 0).Rune)
+	}
+	if term.screen.Cell(1, 0).Rune != 'G' {
+		t.Errorf("row1: expected 'G' after scroll, got %c", term.screen.Cell(1, 0).Rune)
+	}
+	if term.screen.Cell(2, 0).Rune != ' ' {
+		t.Errorf("row2: expected blank after scroll, got %c", term.screen.Cell(2, 0).Rune)
+	}
+	if term.cursor.Row != 2 {
+		t.Errorf("cursor: expected row 2, got %d", term.cursor.Row)
+	}
+}
+
+func TestAltScreenNoScrollback(t *testing.T) {
+	term, _ := newTerminalForTest(10, 5)
+	term.feedBytes([]byte("\x1b[?1049h"))
+	term.feedBytes([]byte("AAAAA\r\nBBBBB\r\nCCCCC\r\nDDDD\r\n"))
+	if term.altBuf.History().Len() != 0 {
+		t.Errorf("alt screen should have no scrollback, got %d", term.altBuf.History().Len())
+	}
+}
+
 var _ screen.Attributes = 0

@@ -170,6 +170,7 @@ var _ io.Closer = (*fakeSurface)(nil)
 func newTerminalForTest(cols, rows int) (*Terminal, *bytes.Buffer) {
 	buf := screen.NewBuffer(cols, rows)
 	altBuf := screen.NewBuffer(cols, rows)
+	altBuf.SetAltScreen(true)
 	resp := &bytes.Buffer{}
 	t := &Terminal{
 		screen:     buf,

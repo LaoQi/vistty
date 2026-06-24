@@ -321,3 +321,147 @@ func TestBufferScrollUpHistoryConsistency(t *testing.T) {
 		t.Errorf("expected history line first rune 'a', got %v", first)
 	}
 }
+
+func TestBufferScrollBot(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	if buf.ScrollBot() != 23 {
+		t.Errorf("expected scrollBot 23, got %d", buf.ScrollBot())
+	}
+	buf.SetScrollRegion(0, 20)
+	if buf.ScrollBot() != 20 {
+		t.Errorf("expected scrollBot 20, got %d", buf.ScrollBot())
+	}
+}
+
+func TestLineFeedScrollsInRegion(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(0, 22)
+	for i := 0; i < 23; i++ {
+		buf.Cell(i, 0).Rune = rune('a' + i%26)
+	}
+	buf.Cell(23, 0).Rune = 'S'
+	buf.cursor.Row = 22
+	buf.cursor.Col = 0
+	buf.LineFeed()
+	if buf.cursor.Row != 22 {
+		t.Errorf("expected cursor row 22 (scrollBot), got %d", buf.cursor.Row)
+	}
+	if buf.Cell(0, 0).Rune != 'b' {
+		t.Errorf("expected row 0 = 'b' after scroll, got %c", buf.Cell(0, 0).Rune)
+	}
+	if buf.Cell(22, 0).Rune != ' ' {
+		t.Errorf("expected row 22 blank after scroll, got %c", buf.Cell(22, 0).Rune)
+	}
+	if buf.Cell(23, 0).Rune != 'S' {
+		t.Errorf("status row 23 changed: expected 'S', got %c", buf.Cell(23, 0).Rune)
+	}
+}
+
+func TestLineFeedFullScreenScroll(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.Cell(0, 0).Rune = 'A'
+	buf.cursor.Row = 4
+	buf.LineFeed()
+	if buf.cursor.Row != 4 {
+		t.Errorf("expected cursor row 4, got %d", buf.cursor.Row)
+	}
+	if buf.History().Len() != 1 {
+		t.Errorf("expected history len 1, got %d", buf.History().Len())
+	}
+}
+
+func TestLineFeedMidRegionNoScroll(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(0, 22)
+	buf.cursor.Row = 10
+	buf.LineFeed()
+	if buf.cursor.Row != 11 {
+		t.Errorf("expected cursor row 11, got %d", buf.cursor.Row)
+	}
+}
+
+func TestLineFeedBelowRegionClamps(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(0, 22)
+	buf.cursor.Row = 23
+	buf.LineFeed()
+	if buf.cursor.Row != 23 {
+		t.Errorf("cursor below region should not move, got row %d", buf.cursor.Row)
+	}
+}
+
+func TestReverseIndexScrollsInRegion(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(5, 20)
+	for i := 5; i <= 20; i++ {
+		buf.Cell(i, 0).Rune = rune('a' + (i-5)%26)
+	}
+	buf.cursor.Row = 5
+	buf.ReverseIndex()
+	if buf.cursor.Row != 5 {
+		t.Errorf("expected cursor row 5 (scrollTop), got %d", buf.cursor.Row)
+	}
+	if buf.Cell(5, 0).Rune != ' ' {
+		t.Errorf("expected row 5 blank after RI scroll, got %c", buf.Cell(5, 0).Rune)
+	}
+	if buf.Cell(6, 0).Rune != 'a' {
+		t.Errorf("expected row 6 = 'a', got %c", buf.Cell(6, 0).Rune)
+	}
+}
+
+func TestReverseIndexMidRegionNoScroll(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(5, 20)
+	buf.cursor.Row = 10
+	buf.ReverseIndex()
+	if buf.cursor.Row != 9 {
+		t.Errorf("expected cursor row 9, got %d", buf.cursor.Row)
+	}
+}
+
+func TestAltScreenNoHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.SetAltScreen(true)
+	for i := 0; i < 5; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.ScrollUp(1)
+	if buf.History().Len() != 0 {
+		t.Errorf("alt screen should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestMainScreenPushesHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.Cell(0, 0).Rune = 'A'
+	buf.ScrollUp(1)
+	if buf.History().Len() != 1 {
+		t.Errorf("main screen should push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestClearAllClearsHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.Cell(0, 0).Rune = 'A'
+	buf.ScrollUp(1)
+	if buf.History().Len() != 1 {
+		t.Fatal("expected history len 1 before ClearAll")
+	}
+	buf.ClearAll()
+	if buf.History().Len() != 0 {
+		t.Errorf("expected history cleared, got len %d", buf.History().Len())
+	}
+	if buf.Cell(0, 0).Rune != ' ' {
+		t.Errorf("expected cells cleared, got %c", buf.Cell(0, 0).Rune)
+	}
+}
+
+func TestClearKeepsHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	buf.Cell(0, 0).Rune = 'A'
+	buf.ScrollUp(1)
+	buf.Clear()
+	if buf.History().Len() != 1 {
+		t.Errorf("Clear should keep history (ED 2 semantics), got len %d", buf.History().Len())
+	}
+}

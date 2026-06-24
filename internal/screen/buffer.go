@@ -5,13 +5,14 @@ type Rect struct {
 }
 
 type Buffer struct {
-	lines     []*Line
-	cols      int
-	rows      int
-	scrollTop int
-	scrollBot int
-	cursor    *Cursor
-	history   *History
+	lines      []*Line
+	cols       int
+	rows       int
+	scrollTop  int
+	scrollBot  int
+	cursor     *Cursor
+	history    *History
+	altScreen  bool
 }
 
 func NewBuffer(cols, rows int) *Buffer {
@@ -68,7 +69,7 @@ func (b *Buffer) ScrollUp(n int) {
 		n = b.scrollBot - b.scrollTop + 1
 	}
 	for i := b.scrollTop; i < b.scrollTop+n; i++ {
-		if b.lines[i] != nil {
+		if b.lines[i] != nil && !b.altScreen {
 			b.history.Push(b.lines[i])
 		}
 	}
@@ -109,6 +110,34 @@ func (b *Buffer) ScrollTop() int {
 	return b.scrollTop
 }
 
+func (b *Buffer) ScrollBot() int {
+	return b.scrollBot
+}
+
+func (b *Buffer) SetAltScreen(alt bool) {
+	b.altScreen = alt
+}
+
+func (b *Buffer) IsAltScreen() bool {
+	return b.altScreen
+}
+
+func (b *Buffer) LineFeed() {
+	if b.cursor.Row == b.scrollBot {
+		b.ScrollUp(1)
+	} else if b.cursor.Row < b.rows-1 {
+		b.cursor.Row++
+	}
+}
+
+func (b *Buffer) ReverseIndex() {
+	if b.cursor.Row == b.scrollTop {
+		b.ScrollDown(1)
+	} else if b.cursor.Row > 0 {
+		b.cursor.Row--
+	}
+}
+
 func (b *Buffer) Resize(cols, rows int) {
 	if cols == b.cols && rows == b.rows {
 		return
@@ -138,6 +167,13 @@ func (b *Buffer) Clear() {
 	for i := range b.lines {
 		b.lines[i].Clear()
 	}
+}
+
+func (b *Buffer) ClearAll() {
+	for i := range b.lines {
+		b.lines[i].Clear()
+	}
+	b.history.Clear()
 }
 
 func (b *Buffer) ClearRect(r Rect) {
