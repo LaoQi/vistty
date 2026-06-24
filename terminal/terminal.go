@@ -31,39 +31,47 @@ type savedCursorState struct {
 	charset charsetState
 }
 
+type scaleReq struct {
+	delta int
+}
+
 type Terminal struct {
-	screen     *screen.Buffer
-	cursor     *screen.Cursor
-	parser     *vte.Parser
-	pty        *os.File
-	ptyCmd     *os.Process
-	hostWriter io.Writer
-	compositor *render.Compositor
-	surface    platform.Surface
-	input      platform.InputSource
-	backend    platform.Backend
-	face       font.Face
-	scrollOffset int
-	mainBuf      *screen.Buffer
-	altBuf       *screen.Buffer
-	done         chan struct{}
-	closeOnce  sync.Once
-	seqCh      chan []vte.Sequence
-	eofCh      chan struct{}
-	wg         sync.WaitGroup
-	cleanupOnce sync.Once
-	opts       Options
-	curFg      screen.Color
-	curBg      screen.Color
-	curAttr    screen.Attributes
-	saved      savedCursorState
-	resizeCh   <-chan platform.ResizeEvent
-	autoWrap       bool
-	cursorKeysApp  bool
-	bracketedPaste bool
-	focusReporting bool
-	charset        charsetState
-	tabStops       []bool
+	screen          *screen.Buffer
+	cursor          *screen.Cursor
+	parser          *vte.Parser
+	pty             *os.File
+	ptyCmd          *os.Process
+	hostWriter      io.Writer
+	compositor      *render.Compositor
+	surface         platform.Surface
+	input           platform.InputSource
+	backend         platform.Backend
+	face            font.Face
+	faceCache       *font.FaceCache
+	fontData        []byte
+	initialFontSize float64
+	scaleReqCh      chan scaleReq
+	scrollOffset    int
+	mainBuf         *screen.Buffer
+	altBuf          *screen.Buffer
+	done            chan struct{}
+	closeOnce       sync.Once
+	seqCh           chan []vte.Sequence
+	eofCh           chan struct{}
+	wg              sync.WaitGroup
+	cleanupOnce     sync.Once
+	opts            Options
+	curFg           screen.Color
+	curBg           screen.Color
+	curAttr         screen.Attributes
+	saved           savedCursorState
+	resizeCh        <-chan platform.ResizeEvent
+	autoWrap        bool
+	cursorKeysApp   bool
+	bracketedPaste  bool
+	focusReporting  bool
+	charset         charsetState
+	tabStops        []bool
 }
 
 func New(backend platform.Backend, opts Options) (*Terminal, error) {
@@ -78,13 +86,28 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 		return nil, fmt.Errorf("create input source: %w", err)
 	}
 
-	var face *font.OpenTypeFace
+	var fontData []byte
 	if opts.FontPath != "" {
-		face, err = font.NewOpenTypeFaceFromFile(opts.FontPath, opts.FontSize, 72)
+		fontData, err = os.ReadFile(opts.FontPath)
+		if err != nil {
+			input.Close()
+			surface.Close()
+			return nil, fmt.Errorf("read font file: %w", err)
+		}
 	} else {
-		face, err = font.NewEmbeddedFace(opts.FontSize, 72)
+		fontData = font.EmbeddedFontData()
 	}
+
+	faceCache, err := font.NewFaceCache(fontData, 72)
 	if err != nil {
+		input.Close()
+		surface.Close()
+		return nil, fmt.Errorf("load font: %w", err)
+	}
+
+	face, err := faceCache.Get(opts.FontSize)
+	if err != nil {
+		faceCache.Close()
 		input.Close()
 		surface.Close()
 		return nil, fmt.Errorf("load font: %w", err)
@@ -112,34 +135,38 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 
 	ptyFile, cmdProc, err := startPty(opts.Shell, rows, cols)
 	if err != nil {
-		face.Close()
+		faceCache.Close()
 		input.Close()
 		surface.Close()
 		return nil, fmt.Errorf("start pty: %w", err)
 	}
 
 	term := &Terminal{
-		screen:     buf,
-		cursor:     buf.Cursor(),
-		parser:     parser,
-		pty:        ptyFile,
-		ptyCmd:     cmdProc,
-		hostWriter: ptyFile,
-		compositor: compositor,
-		surface:    surface,
-		input:      input,
-		backend:    backend,
-		face:       face,
-		done:       make(chan struct{}),
-		seqCh:      make(chan []vte.Sequence, 64),
-		eofCh:      make(chan struct{}, 1),
-		opts:       opts,
-		mainBuf:    buf,
-		altBuf:     altBuf,
-		curFg:      screen.Color{IsDefault: true},
-		curBg:      screen.Color{IsDefault: true},
-		autoWrap:   true,
-		charset:    newCharsetState(),
+		screen:          buf,
+		cursor:          buf.Cursor(),
+		parser:          parser,
+		pty:             ptyFile,
+		ptyCmd:          cmdProc,
+		hostWriter:      ptyFile,
+		compositor:      compositor,
+		surface:         surface,
+		input:           input,
+		backend:         backend,
+		face:            face,
+		faceCache:       faceCache,
+		fontData:        fontData,
+		initialFontSize: opts.FontSize,
+		scaleReqCh:      make(chan scaleReq, 1),
+		done:            make(chan struct{}),
+		seqCh:           make(chan []vte.Sequence, 64),
+		eofCh:           make(chan struct{}, 1),
+		opts:            opts,
+		mainBuf:         buf,
+		altBuf:          altBuf,
+		curFg:           screen.Color{IsDefault: true},
+		curBg:           screen.Color{IsDefault: true},
+		autoWrap:        true,
+		charset:         newCharsetState(),
 	}
 	term.initTabStops()
 	return term, nil
@@ -235,6 +262,92 @@ func (t *Terminal) handleResize(ev platform.ResizeEvent) {
 	}
 	t.scrollOffset = 0
 	t.initTabStops()
+	t.setPtySize(rows, cols)
+}
+
+func (t *Terminal) setPtySize(rows, cols int) {
+	if t.pty == nil {
+		return
+	}
+	_ = pty.Setsize(t.pty, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+}
+
+// requestScale enqueues a font scale request. delta > 0 zooms in, < 0 zooms
+// out, 0 resets to the initial font size. Non-blocking: it drops the request
+// if a previous one is still pending (cap-1 channel), coalescing rapid input.
+func (t *Terminal) requestScale(delta int) {
+	select {
+	case t.scaleReqCh <- scaleReq{delta: delta}:
+	case <-t.done:
+	default:
+	}
+}
+
+// handleScale rebuilds the font face and recomputes the terminal grid for the
+// new font size. Runs on the eventLoop goroutine, so face/atlas mutation is
+// free of races with Render. The previous face is not closed — it remains in
+// the FaceCache for reuse when switching back to that size.
+func (t *Terminal) handleScale(req scaleReq) {
+	const minSize, maxSize = 6.0, 72.0
+
+	newSize := t.opts.FontSize + float64(req.delta)
+	if req.delta == 0 {
+		newSize = t.initialFontSize
+	}
+	if newSize < minSize {
+		newSize = minSize
+	}
+	if newSize > maxSize {
+		newSize = maxSize
+	}
+	if newSize == t.opts.FontSize {
+		return
+	}
+
+	newFace, err := t.faceCache.Get(newSize)
+	if err != nil {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "handleScale: face cache get failed: %v\n", err)
+		}
+		return
+	}
+
+	t.opts.FontSize = newSize
+	t.face = newFace
+	t.compositor.SetFace(newFace)
+
+	m := newFace.Metrics()
+	w, h := t.surface.Size()
+	cols := w / m.Width
+	rows := 0
+	if m.Height > 0 {
+		rows = h / m.Height
+	}
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+
+	t.mainBuf.Resize(cols, rows)
+	t.altBuf.Resize(cols, rows)
+	t.compositor.Resize(cols, rows)
+	if t.cursor.Row >= rows {
+		t.cursor.Row = rows - 1
+	}
+	if t.cursor.Col >= cols {
+		t.cursor.Col = cols - 1
+	}
+	t.scrollOffset = 0
+	t.initTabStops()
+	t.setPtySize(rows, cols)
+
+	if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
+		}
+	}
 }
 
 func (t *Terminal) cleanup() {
@@ -266,10 +379,10 @@ func (t *Terminal) cleanup() {
 			t.compositor.Close()
 		}
 		if debugLog {
-			fmt.Fprintf(os.Stderr, "cleanup: compositor done, closing face\n")
+			fmt.Fprintf(os.Stderr, "cleanup: compositor done, closing face cache\n")
 		}
-		if t.face != nil {
-			t.face.Close()
+		if t.faceCache != nil {
+			t.faceCache.Close()
 		}
 		if debugLog {
 			fmt.Fprintf(os.Stderr, "cleanup: done\n")
@@ -304,6 +417,8 @@ func (t *Terminal) eventLoop() {
 			}
 		case ev := <-resizeCh:
 			t.handleResize(ev)
+		case req := <-t.scaleReqCh:
+			t.handleScale(req)
 		case <-t.eofCh:
 			t.signalClose()
 			return
@@ -369,14 +484,19 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 		case vte.ActionPrint:
 			t.execPrint(seq)
 		case vte.ActionExecute:
+			t.cursor.WrapPending = false
 			t.execControl(seq)
 		case vte.ActionCSI:
+			t.cursor.WrapPending = false
 			t.execCSI(seq)
 		case vte.ActionOSC:
+			t.cursor.WrapPending = false
 			t.execOSC(seq)
 		case vte.ActionESC:
+			t.cursor.WrapPending = false
 			t.execESC(seq)
 		case vte.ActionDCS:
+			t.cursor.WrapPending = false
 		case vte.ActionIgnore:
 		}
 	}
@@ -385,6 +505,12 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 func (t *Terminal) execPrint(seq vte.Sequence) {
 	r := t.charset.current().Translate(seq.Rune)
 	w := runeWidth(r)
+
+	if t.cursor.WrapPending && t.autoWrap {
+		t.cursor.Col = 0
+		t.screen.LineFeed()
+		t.cursor.WrapPending = false
+	}
 
 	if w == 2 && t.cursor.Col+1 >= t.screen.Cols() {
 		if t.autoWrap {
@@ -416,8 +542,8 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 	t.cursor.Col += w
 	if t.cursor.Col >= t.screen.Cols() {
 		if t.autoWrap {
-			t.cursor.Col = 0
-			t.screen.LineFeed()
+			t.cursor.Col = t.screen.Cols() - 1
+			t.cursor.WrapPending = true
 		} else {
 			t.cursor.Col = t.screen.Cols() - 1
 		}
@@ -1065,6 +1191,15 @@ func (t *Terminal) handleKey(ev platform.KeyEvent) {
 			return
 		case 'Z', 'z':
 			t.ptyWrite([]byte{0x1a})
+			return
+		case '=':
+			t.requestScale(1)
+			return
+		case '-':
+			t.requestScale(-1)
+			return
+		case '0':
+			t.requestScale(0)
 			return
 		}
 	}

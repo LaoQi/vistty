@@ -25,7 +25,10 @@ func NewOpenTypeFace(fontData []byte, size float64, dpi float64) (*OpenTypeFace,
 	if err != nil {
 		return nil, err
 	}
+	return newFaceFromParsed(parsed, size, dpi)
+}
 
+func newFaceFromParsed(parsed *opentype.Font, size float64, dpi float64) (*OpenTypeFace, error) {
 	f, err := opentype.NewFace(parsed, &opentype.FaceOptions{
 		Size: size,
 		DPI:  dpi,

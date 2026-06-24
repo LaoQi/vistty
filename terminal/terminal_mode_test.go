@@ -157,17 +157,18 @@ func TestScrollRegionAutoWrapScrolls(t *testing.T) {
 	term, _ := newTerminalForTest(3, 4)
 	term.feedBytes([]byte("\x1b[?1049h"))
 	term.feedBytes([]byte("\x1b[1;3r"))
-	term.feedBytes([]byte("ABC"))
-	term.feedBytes([]byte("DEF"))
-	term.feedBytes([]byte("GHI"))
+	// With deferred wrap, writing "ABC" fills row 0 but doesn't scroll yet.
+	// The wrap happens when the NEXT printable char arrives.
+	// ABC->row0, DEF->row1, GHI->row2(scrollBot), J triggers wrap+scroll.
+	term.feedBytes([]byte("ABCDEFGHIJ"))
 	if term.screen.Cell(0, 0).Rune != 'D' {
 		t.Errorf("row0: expected 'D' after scroll, got %c", term.screen.Cell(0, 0).Rune)
 	}
 	if term.screen.Cell(1, 0).Rune != 'G' {
 		t.Errorf("row1: expected 'G' after scroll, got %c", term.screen.Cell(1, 0).Rune)
 	}
-	if term.screen.Cell(2, 0).Rune != ' ' {
-		t.Errorf("row2: expected blank after scroll, got %c", term.screen.Cell(2, 0).Rune)
+	if term.screen.Cell(2, 0).Rune != 'J' {
+		t.Errorf("row2: expected 'J' after scroll, got %c", term.screen.Cell(2, 0).Rune)
 	}
 	if term.cursor.Row != 2 {
 		t.Errorf("cursor: expected row 2, got %d", term.cursor.Row)

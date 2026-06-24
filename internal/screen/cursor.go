@@ -9,11 +9,12 @@ const (
 )
 
 type Cursor struct {
-	Row      int
-	Col      int
-	Style    CursorStyle
-	Visible  bool
-	Blinking bool
+	Row         int
+	Col         int
+	Style       CursorStyle
+	Visible     bool
+	Blinking    bool
+	WrapPending bool
 }
 
 func NewCursor() *Cursor {
@@ -29,6 +30,7 @@ func NewCursor() *Cursor {
 func (c *Cursor) Move(row, col int) {
 	c.Row = row
 	c.Col = col
+	c.WrapPending = false
 }
 
 func (c *Cursor) Clamp(maxRow, maxCol int) {

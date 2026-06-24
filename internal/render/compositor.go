@@ -38,7 +38,7 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 	c := &Compositor{
 		surface:    surface,
 		face:       face,
-		atlas:      font.NewAtlas(4096),
+		atlas:      font.NewAtlas(8192),
 		metrics:    m,
 		cols:       cols,
 		rows:       rows,
@@ -54,6 +54,16 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 	bg := c.defColor.bg
 	fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	return c
+}
+
+// SetFace replaces the active font face. The glyph atlas is rebuilt because
+// cached bitmaps are bound to the previous size. The old face is NOT closed
+// here — when a font.FaceCache owns the face it reclaims it at shutdown;
+// callers owning the face directly must close it themselves.
+func (c *Compositor) SetFace(face font.Face) {
+	c.face = face
+	c.atlas = font.NewAtlas(8192)
+	c.metrics = face.Metrics()
 }
 
 func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
@@ -129,16 +139,16 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				if err != nil || glyph == nil {
 					continue
 				}
-			gx := px + glyph.XOffset
-			gy := py + c.metrics.Ascent + glyph.YOffset
-			if cell.Attr&screen.AttrBold != 0 {
-				blendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
-			}
-			if cell.Attr&screen.AttrItalic != 0 {
-				blendGlyphItalic(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
-			} else {
-				blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
-			}
+				gx := px + glyph.XOffset
+				gy := py + c.metrics.Ascent + glyph.YOffset
+				if cell.Attr&screen.AttrBold != 0 {
+					blendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+				}
+				if cell.Attr&screen.AttrItalic != 0 {
+					blendGlyphItalic(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+				} else {
+					blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+				}
 
 				if cell.Attr&screen.AttrUnderline != 0 {
 					underlineY := py + c.metrics.Ascent + 1
