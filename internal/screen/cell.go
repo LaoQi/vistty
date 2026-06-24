@@ -38,6 +38,14 @@ func (c *Cell) Clear() {
 	*c = NewCell()
 }
 
+func (c *Cell) Erase(fg, bg Color, attr Attributes) {
+	c.Rune = ' '
+	c.Width = 1
+	c.Fg = fg
+	c.Bg = bg
+	c.Attr = attr
+}
+
 func (c *Cell) Equal(other Cell) bool {
 	return c.Rune == other.Rune &&
 		c.Width == other.Width &&

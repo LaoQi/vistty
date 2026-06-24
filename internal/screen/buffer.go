@@ -13,6 +13,7 @@ type Buffer struct {
 	cursor     *Cursor
 	history    *History
 	altScreen  bool
+	eraseCell  Cell
 }
 
 func NewBuffer(cols, rows int) *Buffer {
@@ -23,6 +24,7 @@ func NewBuffer(cols, rows int) *Buffer {
 		scrollBot: rows - 1,
 		cursor:    NewCursor(),
 		history:   NewHistory(1000),
+		eraseCell: NewCell(),
 	}
 	b.lines = make([]*Line, rows)
 	for i := range b.lines {
@@ -61,6 +63,16 @@ func (b *Buffer) History() *History {
 	return b.history
 }
 
+func (b *Buffer) SetEraseCell(fg, bg Color, attr Attributes) {
+	b.eraseCell = Cell{
+		Rune:  ' ',
+		Width: 1,
+		Fg:    fg,
+		Bg:    bg,
+		Attr:  attr,
+	}
+}
+
 func (b *Buffer) ScrollUp(n int) {
 	if n <= 0 {
 		return
@@ -76,6 +88,7 @@ func (b *Buffer) ScrollUp(n int) {
 	copy(b.lines[b.scrollTop:], b.lines[b.scrollTop+n:b.scrollBot+1])
 	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
 		b.lines[i] = NewLine(b.cols)
+		b.lines[i].Fill(b.eraseCell)
 	}
 }
 
@@ -89,6 +102,7 @@ func (b *Buffer) ScrollDown(n int) {
 	copy(b.lines[b.scrollTop+n:b.scrollBot+1], b.lines[b.scrollTop:b.scrollBot-n+1])
 	for i := b.scrollTop; i < b.scrollTop+n; i++ {
 		b.lines[i] = NewLine(b.cols)
+		b.lines[i].Fill(b.eraseCell)
 	}
 }
 
@@ -165,13 +179,13 @@ func (b *Buffer) Resize(cols, rows int) {
 
 func (b *Buffer) Clear() {
 	for i := range b.lines {
-		b.lines[i].Clear()
+		b.lines[i].Fill(b.eraseCell)
 	}
 }
 
 func (b *Buffer) ClearAll() {
 	for i := range b.lines {
-		b.lines[i].Clear()
+		b.lines[i].Fill(b.eraseCell)
 	}
 	b.history.Clear()
 }
@@ -187,7 +201,7 @@ func (b *Buffer) ClearRect(r Rect) {
 			}
 			cell := b.Cell(y, x)
 			if cell != nil {
-				cell.Clear()
+				*cell = b.eraseCell
 			}
 		}
 	}

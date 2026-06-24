@@ -3,6 +3,8 @@ package terminal
 import (
 	"os"
 	"testing"
+
+	"github.com/LaoQi/vistty/internal/screen"
 )
 
 // TestNvimCursorUpRewrite reproduces the nvim cursor-up rendering bug.
@@ -223,6 +225,94 @@ func TestCursorMoveResetsWrapPending(t *testing.T) {
 	cell := term.screen.Cell(0, 0)
 	if cell == nil || cell.Rune != 'X' {
 		t.Errorf("cell(0,0) = %v, want 'X' (overwritten at CUP position)", cell)
+	}
+}
+
+// TestEraseUsesCurrentBg verifies that EL (Erase in Line) fills erased cells
+// with the current SGR background color, not the default black background.
+func TestEraseUsesCurrentBg(t *testing.T) {
+	term, _ := newTerminalForTest(10, 3)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	// Set custom background via SGR 48;2;R;G;B
+	term.feedBytes([]byte("\x1b[48;2;46;50;60m"))
+	// Fill row 0 with "AAAAAAAAAA"
+	term.feedBytes([]byte("AAAAAAAAAA"))
+	// Move to col 3, erase to end of line (EL 0)
+	term.feedBytes([]byte("\x1b[1;4H\x1b[K"))
+
+	// Cells 3-9 should be spaces with Bg = {46,50,60}
+	wantBg := screen.Color{R: 46, G: 50, B: 60}
+	for col := 3; col < 10; col++ {
+		cell := term.screen.Cell(0, col)
+		if cell == nil {
+			t.Fatalf("cell(0,%d) is nil", col)
+		}
+		if cell.Bg != wantBg {
+			t.Errorf("cell(0,%d).Bg = %+v, want {46,50,60}", col, cell.Bg)
+		}
+		if cell.Rune != ' ' {
+			t.Errorf("cell(0,%d).Rune = %q, want space", col, cell.Rune)
+		}
+	}
+	// Cells 0-2 should be 'A' (untouched)
+	for col := 0; col < 3; col++ {
+		cell := term.screen.Cell(0, col)
+		if cell == nil || cell.Rune != 'A' {
+			t.Errorf("cell(0,%d) = %v, want 'A'", col, cell)
+		}
+	}
+}
+
+// TestScrollUpNewLineUsesCurrentBg verifies that new lines created by
+// scroll-up are filled with the current SGR background color.
+func TestScrollUpNewLineUsesCurrentBg(t *testing.T) {
+	term, _ := newTerminalForTest(5, 3)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	// Fill all 3 rows with 'X'
+	term.feedBytes([]byte("XXXXX\r\nXXXXX\r\nXXXXX"))
+	// Set custom background, then scroll up 1 line
+	term.feedBytes([]byte("\x1b[48;2;46;50;60m\x1b[S"))
+
+	// Bottom row (row 2) should be blank cells with custom Bg
+	wantBg := screen.Color{R: 46, G: 50, B: 60}
+	for col := 0; col < 5; col++ {
+		cell := term.screen.Cell(2, col)
+		if cell == nil {
+			t.Fatalf("cell(2,%d) is nil", col)
+		}
+		if cell.Bg != wantBg {
+			t.Errorf("cell(2,%d).Bg = %+v, want {46,50,60}", col, cell.Bg)
+		}
+	}
+}
+
+// TestEraseCharsUsesCurrentBg verifies that ECH (Erase Characters) fills
+// erased cells with the current SGR background color.
+func TestEraseCharsUsesCurrentBg(t *testing.T) {
+	term, _ := newTerminalForTest(10, 1)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	// Fill row with 'A', set custom bg, erase 3 chars at col 2
+	term.feedBytes([]byte("AAAAAAAAAA"))
+	term.feedBytes([]byte("\x1b[48;2;46;50;60m\x1b[2G\x1b[3X"))
+
+	wantBg := screen.Color{R: 46, G: 50, B: 60}
+	for col := 1; col < 4; col++ {
+		cell := term.screen.Cell(0, col)
+		if cell == nil {
+			t.Fatalf("cell(0,%d) is nil", col)
+		}
+		if cell.Bg != wantBg {
+			t.Errorf("cell(0,%d).Bg = %+v, want {46,50,60}", col, cell.Bg)
+		}
 	}
 }
 

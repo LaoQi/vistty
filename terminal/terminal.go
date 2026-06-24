@@ -778,12 +778,14 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 		case 47, 1047:
 			if isSet {
 				if p == 1047 {
+					t.altBuf.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 					t.altBuf.ClearAll()
 				}
 				t.screen = t.altBuf
 				t.cursor = t.altBuf.Cursor()
 			} else {
 				if p == 1047 {
+					t.altBuf.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 					t.altBuf.ClearAll()
 				}
 				t.screen = t.mainBuf
@@ -800,6 +802,7 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				t.saveCursor()
 				t.screen = t.altBuf
 				t.cursor = t.altBuf.Cursor()
+				t.altBuf.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 				t.altBuf.ClearAll()
 				t.cursor.Row = 0
 				t.cursor.Col = 0
@@ -893,13 +896,14 @@ func (t *Terminal) restoreCursor() {
 }
 
 func (t *Terminal) fullReset() {
+	t.curFg = screen.Color{IsDefault: true}
+	t.curBg = screen.Color{IsDefault: true}
+	t.curAttr = 0
+	t.screen.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 	t.screen.ClearAll()
 	t.screen.SetScrollRegion(0, t.screen.Rows()-1)
 	t.cursor.Row = 0
 	t.cursor.Col = 0
-	t.curFg = screen.Color{IsDefault: true}
-	t.curBg = screen.Color{IsDefault: true}
-	t.curAttr = 0
 	t.saved = savedCursorState{}
 	t.charset = newCharsetState()
 	t.autoWrap = true
@@ -989,7 +993,7 @@ func (t *Terminal) eraseChars(n int) {
 	for i := 0; i < n && t.cursor.Col+i < t.screen.Cols(); i++ {
 		cell := t.screen.Cell(t.cursor.Row, t.cursor.Col+i)
 		if cell != nil {
-			cell.Clear()
+			cell.Erase(t.curFg, t.curBg, t.curAttr)
 		}
 	}
 }
@@ -1028,7 +1032,7 @@ func (t *Terminal) deleteChars(n int) {
 		} else {
 			dstCell := row.Cell(dst)
 			if dstCell != nil {
-				dstCell.Clear()
+				dstCell.Erase(t.curFg, t.curBg, t.curAttr)
 			}
 		}
 	}
@@ -1052,7 +1056,7 @@ func (t *Terminal) insertChars(n int) {
 		} else {
 			dstCell := row.Cell(dst)
 			if dstCell != nil {
-				dstCell.Clear()
+				dstCell.Erase(t.curFg, t.curBg, t.curAttr)
 			}
 		}
 	}
@@ -1112,6 +1116,7 @@ func (t *Terminal) applySGR(params []int) {
 			t.curBg = screen.Color{IsDefault: true}
 		}
 	}
+	t.screen.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 }
 
 func (t *Terminal) inputLoop() {

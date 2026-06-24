@@ -46,6 +46,12 @@ func (l *Line) Clear() {
 	}
 }
 
+func (l *Line) Fill(c Cell) {
+	for i := range l.cells {
+		l.cells[i] = c
+	}
+}
+
 func (l *Line) Clone() *Line {
 	c := &Line{
 		cells: make([]Cell, len(l.cells)),
