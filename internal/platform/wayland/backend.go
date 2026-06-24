@@ -9,6 +9,15 @@ import (
 	"github.com/rajveermalviya/go-wayland/wayland/stable/xdg-shell"
 )
 
+const (
+	wlFmtXRGB8888 uint32 = 0x34325258
+	wlFmtARGB8888 uint32 = 0x34325241
+	wlFmtXBGR8888 uint32 = 0x34324258
+	wlFmtABGR8888 uint32 = 0x34324241
+	wlFmtBGRX8888 uint32 = 0x34325842
+	wlFmtBGRA8888 uint32 = 0x34324142
+)
+
 type WaylandBackend struct {
 	ctx        *client.Context
 	display    *client.Display
@@ -18,6 +27,7 @@ type WaylandBackend struct {
 	wmBase     *xdg_shell.WmBase
 	seat       *client.Seat
 	shmFormat  uint32
+	swapBR     bool
 
 	mu        sync.Mutex
 	closed    bool
@@ -156,6 +166,14 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 		}
 	}
 	syncCb.Destroy()
+
+	if b.shmFormat == 0xFFFFFFFF {
+		b.shmFormat = wlFmtXRGB8888
+	}
+	switch b.shmFormat {
+	case wlFmtXBGR8888, wlFmtABGR8888, wlFmtBGRX8888, wlFmtBGRA8888:
+		b.swapBR = true
+	}
 
 	wmBaseProxy := xdg_shell.NewWmBase(b.ctx)
 	if err := registryBind(b.ctx, registry.ID(), wmBaseName, "xdg_wm_base", 1, wmBaseProxy.ID()); err != nil {

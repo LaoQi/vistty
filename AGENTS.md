@@ -279,14 +279,14 @@ xterm-256 VT 支持详情：
 Wayland 后端实现细节：
 - 5个文件：backend.go（连接+全局绑定+事件循环+错误处理）、surface.go（双缓冲wl_shm+XDG toplevel）、input.go（wl_keyboard/wl_pointer+修饰键跟踪+keymap handler 解析）、keymap.go（XKB keymap 解析 + evdev code 索引 + US 布局回退）、wire.go（修正的Wayland线格式编码）
 - 使用 memfd_create + mmap 创建共享内存
-- 支持 shm format 协商（通过 wl_shm.format 事件动态选择格式）
+- 支持 shm format 协商（通过 wl_shm.format 事件取合成器首个支持的格式）；backBuf 恒以 BGRA 字节序写入，当选中 BGR 序格式（XBGR/ABGR/BGRX/BGRA8888）时 backend 置 swapBR 标志，surface.Swap() 提交前逐像素交换 B/R 通道修正颜色
 - 支持窗口resize（Configure事件驱动重新分配buffer）
 - XDG toplevel 关闭事件通过 backend.Done() 通知 terminal 退出
 - Display.SetErrorHandler 捕获合成器协议错误，便于调试
 
 go-wayland 库已知 bug（已在 wire.go 中修复）：
 - PutString 写入 padded length 而非 actual length（含 NUL 终止符）到 uint32 长度字段
-- ShmFormat 枚举常量使用顺序索引（0, 1）而非 DRM FourCC 码，但合成器实际发送的是顺序索引值
+- ShmFormat 枚举常量使用顺序索引（0, 1）而非 DRM FourCC 码，但事件解析 Uint32 读原始字节得到的是真实 FourCC；故 backend.go 自定义 wlFmt* 裸 FourCC 常量，不用库常量
 - wire.go 重新实现了 registryBind、toplevelSetTitle、toplevelSetAppId、shmCreatePool、shmPoolCreateBuffer、compositorCreateSurface、xdgWmBaseGetXdgSurface、xdgSurfaceGetToplevel，使用 encoding/binary 正确编码
 
 待完善：

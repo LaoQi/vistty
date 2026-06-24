@@ -35,6 +35,7 @@ type WaylandSurface struct {
 	stride int
 	bufs   [2]shmBuf
 	front  int
+	swapBR bool
 
 	resizeCh chan platform.ResizeEvent
 }
@@ -50,6 +51,7 @@ func newWaylandSurface(backend *WaylandBackend, ctx *client.Context, compositor 
 		height:     height,
 		stride:     width * 4,
 		resizeCh:   make(chan platform.ResizeEvent, 4),
+		swapBR:     backend.swapBR,
 	}
 
 	wlSurface, err := compositorCreateSurface(ctx, compositor.ID())
@@ -162,6 +164,13 @@ func (s *WaylandSurface) Swap() error {
 	defer s.mu.Unlock()
 	backIdx := s.front ^ 1
 	buf := &s.bufs[backIdx]
+
+	if s.swapBR {
+		data := buf.data
+		for i := 0; i+3 < len(data); i += 4 {
+			data[i], data[i+2] = data[i+2], data[i]
+		}
+	}
 
 	if err := s.wlSurface.Attach(buf.buffer, 0, 0); err != nil {
 		return fmt.Errorf("attach buffer: %w", err)
