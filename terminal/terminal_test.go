@@ -1,11 +1,14 @@
 package terminal
 
 import (
+	"bytes"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/screen"
+	"github.com/LaoQi/vistty/internal/vte"
 )
 
 type fakeSurface struct {
@@ -163,3 +166,24 @@ func TestTerminalInputNoDeadlock(t *testing.T) {
 }
 
 var _ io.Closer = (*fakeSurface)(nil)
+
+func newTerminalForTest(cols, rows int) (*Terminal, *bytes.Buffer) {
+	buf := screen.NewBuffer(cols, rows)
+	altBuf := screen.NewBuffer(cols, rows)
+	resp := &bytes.Buffer{}
+	t := &Terminal{
+		screen:     buf,
+		cursor:     buf.Cursor(),
+		parser:     vte.NewParser(),
+		mainBuf:    buf,
+		altBuf:     altBuf,
+		hostWriter: resp,
+		done:       make(chan struct{}),
+		curFg:      screen.Color{IsDefault: true},
+		curBg:      screen.Color{IsDefault: true},
+		autoWrap:   true,
+		charset:    newCharsetState(),
+	}
+	t.initTabStops()
+	return t, resp
+}

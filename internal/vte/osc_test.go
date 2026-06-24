@@ -78,3 +78,15 @@ func TestParseOSCColorQuery(t *testing.T) {
 		t.Errorf("expected OSCColorQuery, got %d", osc.Command)
 	}
 }
+
+func TestOSC2WindowTitle(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, ']', '2', ';', 'w', 'i', 'n', 0x07})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	osc := ParseOSC(seqs[0])
+	if osc.Command != OSCSetWindowTitle {
+		t.Errorf("expected OSCSetWindowTitle, got %d", osc.Command)
+	}
+}

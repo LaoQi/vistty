@@ -50,6 +50,8 @@ func ParseOSC(seq Sequence) OSCSequence {
 	switch cmd {
 	case 0:
 		return OSCSequence{Command: OSCSetWindowTitle, Data: payload}
+	case 2:
+		return OSCSequence{Command: OSCSetWindowTitle, Data: payload}
 	case 1:
 		return OSCSequence{Command: OSCSetIconTitle, Data: payload}
 	case 7:

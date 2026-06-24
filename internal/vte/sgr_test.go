@@ -99,17 +99,20 @@ func TestSGRBrightColors(t *testing.T) {
 
 func TestSGRResetAttributes(t *testing.T) {
 	sgrs := ParseSGR([]int{22, 23, 24})
-	if len(sgrs) != 3 {
-		t.Fatalf("expected 3 SGRs, got %d", len(sgrs))
+	if len(sgrs) != 4 {
+		t.Fatalf("expected 4 SGRs, got %d", len(sgrs))
 	}
 	if sgrs[0].Attr != SGRBoldOff {
 		t.Errorf("expected SGRBoldOff, got %d", sgrs[0].Attr)
 	}
-	if sgrs[1].Attr != SGRItalicOff {
-		t.Errorf("expected SGRItalicOff, got %d", sgrs[1].Attr)
+	if sgrs[1].Attr != SGRDimOff {
+		t.Errorf("expected SGRDimOff, got %d", sgrs[1].Attr)
 	}
-	if sgrs[2].Attr != SGRUnderlineOff {
-		t.Errorf("expected SGRUnderlineOff, got %d", sgrs[2].Attr)
+	if sgrs[2].Attr != SGRItalicOff {
+		t.Errorf("expected SGRItalicOff, got %d", sgrs[2].Attr)
+	}
+	if sgrs[3].Attr != SGRUnderlineOff {
+		t.Errorf("expected SGRUnderlineOff, got %d", sgrs[3].Attr)
 	}
 }
 
@@ -151,5 +154,55 @@ func TestParseSGREmpty(t *testing.T) {
 	sgrs := ParseSGR([]int{})
 	if len(sgrs) != 1 || sgrs[0].Attr != SGRReset {
 		t.Error("expected SGRReset for empty params")
+	}
+}
+
+func TestSGR22DisablesBoldAndDim(t *testing.T) {
+	sgrs := ParseSGR([]int{22})
+	if len(sgrs) != 2 {
+		t.Fatalf("expected 2 SGRs, got %d", len(sgrs))
+	}
+	if sgrs[0].Attr != SGRBoldOff {
+		t.Errorf("expected SGRBoldOff, got %d", sgrs[0].Attr)
+	}
+	if sgrs[1].Attr != SGRDimOff {
+		t.Errorf("expected SGRDimOff, got %d", sgrs[1].Attr)
+	}
+}
+
+func TestSGRDimOffVia22(t *testing.T) {
+	sgrs := ParseSGR([]int{2, 22})
+	if len(sgrs) != 3 {
+		t.Fatalf("expected 3 SGRs (Dim + BoldOff + DimOff), got %d", len(sgrs))
+	}
+	if sgrs[0].Attr != SGRDim {
+		t.Errorf("expected SGRDim first, got %d", sgrs[0].Attr)
+	}
+}
+
+func TestSGR38MissingColor(t *testing.T) {
+	sgrs := ParseSGR([]int{38})
+	if len(sgrs) != 1 || sgrs[0].Attr != SGRForegroundColorReset {
+		t.Errorf("expected SGRForegroundColorReset, got %v", sgrs)
+	}
+}
+
+func TestSGR48_256Color(t *testing.T) {
+	sgrs := ParseSGR([]int{48, 5, 21})
+	if len(sgrs) != 1 {
+		t.Fatalf("expected 1 SGR, got %d", len(sgrs))
+	}
+	if sgrs[0].Attr != SGRBackgroundColor256 {
+		t.Errorf("expected SGRBackgroundColor256, got %d", sgrs[0].Attr)
+	}
+	if sgrs[0].ColorIdx != 21 {
+		t.Errorf("expected ColorIdx 21, got %d", sgrs[0].ColorIdx)
+	}
+}
+
+func TestSGR38InvalidSubmode(t *testing.T) {
+	sgrs := ParseSGR([]int{38, 9})
+	if len(sgrs) != 1 || sgrs[0].Attr != SGRForegroundColorReset {
+		t.Errorf("expected SGRForegroundColorReset, got %v", sgrs)
 	}
 }

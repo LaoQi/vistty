@@ -10,6 +10,7 @@ type Options struct {
 	Height      int
 	RepeatDelay time.Duration
 	RepeatRate  time.Duration
+	OnTitle     func(string)
 }
 
 func DefaultOptions() Options {

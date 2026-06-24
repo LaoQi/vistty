@@ -12,12 +12,15 @@ const (
 	ESCDeckpam
 	ESCDeckpnm
 	ESCFullReset
+	ESCDesignateG0
+	ESCDesignateG1
 	ESCUnknown
 )
 
 type ESCSequence struct {
 	Command  ESCCommand
-	Intermed byte
+	Intermed []byte
+	Charset  byte
 }
 
 func ParseESC(seq Sequence) ESCSequence {
@@ -26,9 +29,13 @@ func ParseESC(seq Sequence) ESCSequence {
 	}
 
 	if len(seq.Intermed) > 0 {
-		if seq.Intermed[0] == ' ' && seq.Command == 'F' {
-			return ESCSequence{Command: ESCUnknown, Intermed: seq.Intermed[0]}
+		switch seq.Intermed[0] {
+		case '(', '*':
+			return ESCSequence{Command: ESCDesignateG0, Intermed: seq.Intermed, Charset: seq.Command}
+		case ')', '+':
+			return ESCSequence{Command: ESCDesignateG1, Intermed: seq.Intermed, Charset: seq.Command}
 		}
+		return ESCSequence{Command: ESCUnknown, Intermed: seq.Intermed}
 	}
 
 	switch seq.Command {
@@ -51,6 +58,6 @@ func ParseESC(seq Sequence) ESCSequence {
 	case 'c':
 		return ESCSequence{Command: ESCFullReset}
 	default:
-		return ESCSequence{Command: ESCUnknown, Intermed: seq.Command}
+		return ESCSequence{Command: ESCUnknown}
 	}
 }

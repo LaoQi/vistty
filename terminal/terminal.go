@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,12 +22,22 @@ import (
 
 var debugLog = os.Getenv("VISTTY_DEBUG") != ""
 
+type savedCursorState struct {
+	row     int
+	col     int
+	fg      screen.Color
+	bg      screen.Color
+	attr    screen.Attributes
+	charset charsetState
+}
+
 type Terminal struct {
 	screen     *screen.Buffer
 	cursor     *screen.Cursor
 	parser     *vte.Parser
 	pty        *os.File
 	ptyCmd     *os.Process
+	hostWriter io.Writer
 	compositor *render.Compositor
 	surface    platform.Surface
 	input      platform.InputSource
@@ -45,9 +56,14 @@ type Terminal struct {
 	curFg      screen.Color
 	curBg      screen.Color
 	curAttr    screen.Attributes
-	savedRow   int
-	savedCol   int
+	saved      savedCursorState
 	resizeCh   <-chan platform.ResizeEvent
+	autoWrap       bool
+	cursorKeysApp  bool
+	bracketedPaste bool
+	focusReporting bool
+	charset        charsetState
+	tabStops       []bool
 }
 
 func New(backend platform.Backend, opts Options) (*Terminal, error) {
@@ -101,12 +117,13 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 		return nil, fmt.Errorf("start pty: %w", err)
 	}
 
-	return &Terminal{
+	term := &Terminal{
 		screen:     buf,
 		cursor:     buf.Cursor(),
 		parser:     parser,
 		pty:        ptyFile,
 		ptyCmd:     cmdProc,
+		hostWriter: ptyFile,
 		compositor: compositor,
 		surface:    surface,
 		input:      input,
@@ -120,7 +137,11 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 		altBuf:     altBuf,
 		curFg:      screen.Color{IsDefault: true},
 		curBg:      screen.Color{IsDefault: true},
-	}, nil
+		autoWrap:   true,
+		charset:    newCharsetState(),
+	}
+	term.initTabStops()
+	return term, nil
 }
 
 func (t *Terminal) Run() error {
@@ -212,6 +233,7 @@ func (t *Terminal) handleResize(ev platform.ResizeEvent) {
 		t.cursor.Col = cols - 1
 	}
 	t.scrollOffset = 0
+	t.initTabStops()
 }
 
 func (t *Terminal) cleanup() {
@@ -360,20 +382,25 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 }
 
 func (t *Terminal) execPrint(seq vte.Sequence) {
-	w := runeWidth(seq.Rune)
+	r := t.charset.current().Translate(seq.Rune)
+	w := runeWidth(r)
 
 	if w == 2 && t.cursor.Col+1 >= t.screen.Cols() {
-		t.cursor.Col = 0
-		t.cursor.Row++
-		if t.cursor.Row > t.screen.Rows()-1 {
-			t.screen.ScrollUp(1)
-			t.cursor.Row = t.screen.Rows() - 1
+		if t.autoWrap {
+			t.cursor.Col = 0
+			t.cursor.Row++
+			if t.cursor.Row > t.screen.Rows()-1 {
+				t.screen.ScrollUp(1)
+				t.cursor.Row = t.screen.Rows() - 1
+			}
+		} else {
+			return
 		}
 	}
 
 	cell := t.screen.Cell(t.cursor.Row, t.cursor.Col)
 	if cell != nil {
-		cell.Rune = seq.Rune
+		cell.Rune = r
 		cell.Fg = t.curFg
 		cell.Bg = t.curBg
 		cell.Attr = t.curAttr
@@ -391,11 +418,15 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 	}
 	t.cursor.Col += w
 	if t.cursor.Col >= t.screen.Cols() {
-		t.cursor.Col = 0
-		t.cursor.Row++
-		if t.cursor.Row > t.screen.Rows()-1 {
-			t.screen.ScrollUp(1)
-			t.cursor.Row = t.screen.Rows() - 1
+		if t.autoWrap {
+			t.cursor.Col = 0
+			t.cursor.Row++
+			if t.cursor.Row > t.screen.Rows()-1 {
+				t.screen.ScrollUp(1)
+				t.cursor.Row = t.screen.Rows() - 1
+			}
+		} else {
+			t.cursor.Col = t.screen.Cols() - 1
 		}
 	}
 }
@@ -419,15 +450,13 @@ func (t *Terminal) execControl(seq vte.Sequence) {
 			t.cursor.Col--
 		}
 	case vte.ControlHT:
-		tabStop := 8
-		nextCol := ((t.cursor.Col / tabStop) + 1) * tabStop
-		if nextCol >= t.screen.Cols() {
-			nextCol = t.screen.Cols() - 1
-		}
-		t.cursor.Col = nextCol
+		t.cursor.Col = t.nextTabStop()
 	case vte.ControlBEL:
-	case vte.ControlNUL, vte.ControlSO, vte.ControlSI,
-		vte.ControlCAN, vte.ControlSUB, vte.ControlDEL:
+	case vte.ControlSO:
+		t.charset.shiftOut()
+	case vte.ControlSI:
+		t.charset.shiftIn()
+	case vte.ControlNUL, vte.ControlCAN, vte.ControlSUB, vte.ControlDEL:
 	}
 }
 
@@ -546,43 +575,63 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 	case vte.CSICursorStyle:
 		style := csiParam(csi, 0, 0)
 		switch style {
-		case 0, 1, 2:
+		case 0, 1:
 			t.cursor.SetStyle(screen.CursorBlock)
-		case 3, 4:
+			t.cursor.Blinking = true
+		case 2:
+			t.cursor.SetStyle(screen.CursorBlock)
+			t.cursor.Blinking = false
+		case 3:
 			t.cursor.SetStyle(screen.CursorUnderline)
-		case 5, 6:
+			t.cursor.Blinking = true
+		case 4:
+			t.cursor.SetStyle(screen.CursorUnderline)
+			t.cursor.Blinking = false
+		case 5:
 			t.cursor.SetStyle(screen.CursorBar)
+			t.cursor.Blinking = true
+		case 6:
+			t.cursor.SetStyle(screen.CursorBar)
+			t.cursor.Blinking = false
 		}
 	case vte.CSICursorShow:
 		t.cursor.Show()
 	case vte.CSICursorHide:
 		t.cursor.Hide()
 	case vte.CSISaveCursor:
-		t.savedRow = t.cursor.Row
-		t.savedCol = t.cursor.Col
+		t.saveCursor()
 	case vte.CSIRestoreCursor:
-		t.cursor.Row = t.savedRow
-		t.cursor.Col = t.savedCol
+		t.restoreCursor()
 	case vte.CSICursorHorizontalTab:
 		n := csiParam(csi, 0, 1)
 		for i := 0; i < n; i++ {
-			tabStop := 8
-			nextCol := ((t.cursor.Col / tabStop) + 1) * tabStop
-			if nextCol >= t.screen.Cols() {
-				nextCol = t.screen.Cols() - 1
+			stop := t.nextTabStop()
+			if stop <= t.cursor.Col {
+				t.cursor.Col = t.screen.Cols() - 1
 				break
 			}
-			t.cursor.Col = nextCol
+			t.cursor.Col = stop
 		}
 	case vte.CSICursorBackTab:
 		n := csiParam(csi, 0, 1)
 		for i := 0; i < n; i++ {
-			tabStop := 8
-			prevCol := ((t.cursor.Col - 1) / tabStop) * tabStop
-			if prevCol < 0 {
-				prevCol = 0
-			}
-			t.cursor.Col = prevCol
+			t.cursor.Col = t.prevTabStop()
+		}
+	case vte.CSIEraseChars:
+		n := csiParam(csi, 0, 1)
+		t.eraseChars(n)
+	case vte.CSIDeviceStatusReport:
+		t.handleDSR(csi)
+	case vte.CSIDeviceAttributes:
+		t.ptyWrite([]byte("\x1b[?62;4c"))
+	case vte.CSIDeviceAttributes2:
+		t.ptyWrite([]byte("\x1b[>0;0;0c"))
+	case vte.CSITabClear:
+		n := csiParam(csi, 0, 0)
+		if n == 0 {
+			t.clearTabStop()
+		} else if n == 3 {
+			t.clearAllTabStops()
 		}
 	case vte.CSISGR:
 		t.applySGR(csi.Params)
@@ -595,16 +644,39 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 	isSet := csi.Command == vte.CSISetMode
 	for _, p := range csi.Params {
 		switch p {
+		case 1:
+			t.cursorKeysApp = isSet
+		case 7:
+			t.autoWrap = isSet
 		case 25:
 			if isSet {
 				t.cursor.Show()
 			} else {
 				t.cursor.Hide()
 			}
+		case 47, 1047:
+			if isSet {
+				if p == 1047 {
+					t.altBuf.Clear()
+				}
+				t.screen = t.altBuf
+				t.cursor = t.altBuf.Cursor()
+			} else {
+				if p == 1047 {
+					t.altBuf.Clear()
+				}
+				t.screen = t.mainBuf
+				t.cursor = t.mainBuf.Cursor()
+			}
+		case 1048:
+			if isSet {
+				t.saveCursor()
+			} else {
+				t.restoreCursor()
+			}
 		case 1049:
 			if isSet {
-				t.savedRow = t.cursor.Row
-				t.savedCol = t.cursor.Col
+				t.saveCursor()
 				t.screen = t.altBuf
 				t.cursor = t.altBuf.Cursor()
 				t.altBuf.Clear()
@@ -614,12 +686,13 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 			} else {
 				t.screen = t.mainBuf
 				t.cursor = t.mainBuf.Cursor()
-				t.cursor.Row = t.savedRow
-				t.cursor.Col = t.savedCol
+				t.restoreCursor()
 				t.scrollOffset = 0
 			}
+		case 1004:
+			t.focusReporting = isSet
 		case 2004:
-		case 1:
+			t.bracketedPaste = isSet
 		}
 	}
 }
@@ -642,11 +715,9 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 	esc := vte.ParseESC(seq)
 	switch esc.Command {
 	case vte.ESCResetState:
-		t.savedRow = t.cursor.Row
-		t.savedCol = t.cursor.Col
+		t.saveCursor()
 	case vte.ESCRestoreState:
-		t.cursor.Row = t.savedRow
-		t.cursor.Col = t.savedCol
+		t.restoreCursor()
 	case vte.ESCIndex:
 		t.cursor.Row++
 		if t.cursor.Row > t.screen.Rows()-1 {
@@ -667,8 +738,13 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 			t.cursor.Row--
 		}
 	case vte.ESCTabSet:
+		t.setTabStop()
 	case vte.ESCDeckpam:
 	case vte.ESCDeckpnm:
+	case vte.ESCDesignateG0:
+		t.charset.designateG0(esc.Charset)
+	case vte.ESCDesignateG1:
+		t.charset.designateG1(esc.Charset)
 	case vte.ESCFullReset:
 		t.fullReset()
 	case vte.ESCUnknown:
@@ -676,7 +752,29 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 }
 
 func (t *Terminal) setTitle(title string) {
-	_ = title
+	if t.opts.OnTitle != nil {
+		t.opts.OnTitle(title)
+	}
+}
+
+func (t *Terminal) saveCursor() {
+	t.saved = savedCursorState{
+		row:     t.cursor.Row,
+		col:     t.cursor.Col,
+		fg:      t.curFg,
+		bg:      t.curBg,
+		attr:    t.curAttr,
+		charset: t.charset,
+	}
+}
+
+func (t *Terminal) restoreCursor() {
+	t.cursor.Row = t.saved.row
+	t.cursor.Col = t.saved.col
+	t.curFg = t.saved.fg
+	t.curBg = t.saved.bg
+	t.curAttr = t.saved.attr
+	t.charset = t.saved.charset
 }
 
 func (t *Terminal) fullReset() {
@@ -687,9 +785,59 @@ func (t *Terminal) fullReset() {
 	t.curFg = screen.Color{IsDefault: true}
 	t.curBg = screen.Color{IsDefault: true}
 	t.curAttr = 0
-	t.savedRow = 0
-	t.savedCol = 0
+	t.saved = savedCursorState{}
+	t.charset = newCharsetState()
+	t.autoWrap = true
 	t.scrollOffset = 0
+	t.initTabStops()
+}
+
+func (t *Terminal) initTabStops() {
+	cols := t.screen.Cols()
+	if cap(t.tabStops) >= cols {
+		t.tabStops = t.tabStops[:cols]
+	} else {
+		t.tabStops = make([]bool, cols)
+	}
+	for i := range t.tabStops {
+		t.tabStops[i] = i%8 == 0
+	}
+}
+
+func (t *Terminal) setTabStop() {
+	if t.cursor.Col < len(t.tabStops) {
+		t.tabStops[t.cursor.Col] = true
+	}
+}
+
+func (t *Terminal) clearTabStop() {
+	if t.cursor.Col < len(t.tabStops) {
+		t.tabStops[t.cursor.Col] = false
+	}
+}
+
+func (t *Terminal) clearAllTabStops() {
+	for i := range t.tabStops {
+		t.tabStops[i] = false
+	}
+}
+
+func (t *Terminal) nextTabStop() int {
+	for i := t.cursor.Col + 1; i < len(t.tabStops); i++ {
+		if t.tabStops[i] {
+			return i
+		}
+	}
+	return t.screen.Cols() - 1
+}
+
+func (t *Terminal) prevTabStop() int {
+	for i := t.cursor.Col - 1; i >= 0; i-- {
+		if t.tabStops[i] {
+			return i
+		}
+	}
+	return 0
 }
 
 func (t *Terminal) eraseDisplay(n int) {
@@ -706,6 +854,8 @@ func (t *Terminal) eraseDisplay(n int) {
 		t.screen.ClearRect(screen.Rect{X: 0, Y: t.cursor.Row, W: t.cursor.Col + 1, H: 1})
 	case 2:
 		t.screen.Clear()
+	case 3:
+		t.screen.History().Clear()
 	}
 }
 
@@ -717,6 +867,31 @@ func (t *Terminal) eraseLine(n int) {
 		t.screen.ClearRect(screen.Rect{X: 0, Y: t.cursor.Row, W: t.cursor.Col + 1, H: 1})
 	case 2:
 		t.screen.ClearRect(screen.Rect{X: 0, Y: t.cursor.Row, W: t.screen.Cols(), H: 1})
+	}
+}
+
+func (t *Terminal) eraseChars(n int) {
+	for i := 0; i < n && t.cursor.Col+i < t.screen.Cols(); i++ {
+		cell := t.screen.Cell(t.cursor.Row, t.cursor.Col+i)
+		if cell != nil {
+			cell.Clear()
+		}
+	}
+}
+
+func (t *Terminal) handleDSR(csi vte.CSISequence) {
+	n := csiParam(csi, 0, 0)
+	switch n {
+	case 5:
+		t.ptyWrite([]byte("\x1b[0n"))
+	case 6:
+		row := t.cursor.Row + 1
+		col := t.cursor.Col + 1
+		if csi.Private {
+			t.ptyWrite([]byte(fmt.Sprintf("\x1b[?%d;%d;1R", row, col)))
+		} else {
+			t.ptyWrite([]byte(fmt.Sprintf("\x1b[%d;%dR", row, col)))
+		}
 	}
 }
 
@@ -925,9 +1100,16 @@ func (t *Terminal) handleKey(ev platform.KeyEvent) {
 }
 
 func (t *Terminal) ptyWrite(b []byte) {
-	if _, err := t.pty.Write(b); err != nil {
+	if t.hostWriter == nil {
+		return
+	}
+	if _, err := t.hostWriter.Write(b); err != nil {
 		t.signalClose()
 	}
+}
+
+func (t *Terminal) feedBytes(data []byte) {
+	t.executeSequences(t.parser.FeedAll(data))
 }
 
 func (t *Terminal) writeKeyEscape(code uint16, mods platform.Modifiers) {
@@ -940,13 +1122,29 @@ func (t *Terminal) writeKeyEscape(code uint16, mods platform.Modifiers) {
 
 	switch code {
 	case 103:
-		seq = "\x1b[A"
+		if t.cursorKeysApp {
+			seq = "\x1bOA"
+		} else {
+			seq = "\x1b[A"
+		}
 	case 108:
-		seq = "\x1b[B"
+		if t.cursorKeysApp {
+			seq = "\x1bOB"
+		} else {
+			seq = "\x1b[B"
+		}
 	case 106:
-		seq = "\x1b[C"
+		if t.cursorKeysApp {
+			seq = "\x1bOC"
+		} else {
+			seq = "\x1b[C"
+		}
 	case 105:
-		seq = "\x1b[D"
+		if t.cursorKeysApp {
+			seq = "\x1bOD"
+		} else {
+			seq = "\x1b[D"
+		}
 	case 102:
 		seq = "\x1b[H"
 	case 107:

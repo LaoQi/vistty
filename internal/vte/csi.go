@@ -32,6 +32,12 @@ const (
 	CSICursorHorizontalTab
 	CSICursorBackTab
 	CSIScreenMode
+	CSIEraseChars
+	CSIDeviceStatusReport
+	CSIDeviceAttributes
+	CSIDeviceAttributes2
+	CSITabClear
+	CSISetCharProtection
 	CSIUnknown
 )
 
@@ -53,15 +59,24 @@ func ParseCSI(seq Sequence) CSISequence {
 		return CSISequence{Command: CSIUnknown}
 	}
 
-	private := false
+	privateMarker := byte(0)
 	for _, b := range seq.Intermed {
-		if b == '?' {
-			private = true
+		if b == '?' || b == '>' || b == '=' || b == '<' {
+			privateMarker = b
+			break
 		}
 	}
 
-	if private {
-		return parseCSIPrivate(seq)
+	if privateMarker != 0 {
+		return parseCSIPrivate(seq, privateMarker)
+	}
+
+	var intermed byte = 0
+	for _, b := range seq.Intermed {
+		if b >= 0x20 && b <= 0x2F {
+			intermed = b
+			break
+		}
 	}
 
 	switch seq.Command {
@@ -97,6 +112,14 @@ func ParseCSI(seq Sequence) CSISequence {
 		return CSISequence{Command: CSIScrollDown, Params: []int{param(seq, 0, 1)}}
 	case '@':
 		return CSISequence{Command: CSIInsertChars, Params: []int{param(seq, 0, 1)}}
+	case 'X':
+		return CSISequence{Command: CSIEraseChars, Params: []int{param(seq, 0, 1)}}
+	case 'n':
+		return CSISequence{Command: CSIDeviceStatusReport, Params: []int{param(seq, 0, 0)}}
+	case 'c':
+		return CSISequence{Command: CSIDeviceAttributes, Params: []int{param(seq, 0, 0)}}
+	case 'g':
+		return CSISequence{Command: CSITabClear, Params: []int{param(seq, 0, 0)}}
 	case 'r':
 		top := 1
 		bottom := 0
@@ -110,7 +133,13 @@ func ParseCSI(seq Sequence) CSISequence {
 	case 'm':
 		return CSISequence{Command: CSISGR, Params: seq.Params}
 	case 'q':
-		return CSISequence{Command: CSICursorStyle, Params: []int{param(seq, 0, 0)}}
+		if intermed == 0x20 {
+			return CSISequence{Command: CSICursorStyle, Params: []int{param(seq, 0, 0)}}
+		}
+		if intermed == 0x22 {
+			return CSISequence{Command: CSISetCharProtection, Params: []int{param(seq, 0, 0)}}
+		}
+		return CSISequence{Command: CSIUnknown, Params: seq.Params}
 	case 'd':
 		return CSISequence{Command: CSILinePositionAbsolute, Params: []int{param(seq, 0, 1)}}
 	case 'I':
@@ -126,28 +155,42 @@ func ParseCSI(seq Sequence) CSISequence {
 	}
 }
 
-func parseCSIPrivate(seq Sequence) CSISequence {
-	switch seq.Command {
-	case 'h':
-		if len(seq.Params) > 0 {
-			switch seq.Params[0] {
-			case 25:
-				return CSISequence{Command: CSICursorShow, Private: true}
-			default:
-				return CSISequence{Command: CSISetMode, Params: seq.Params, Private: true}
+func parseCSIPrivate(seq Sequence, marker byte) CSISequence {
+	switch marker {
+	case '?':
+		switch seq.Command {
+		case 'h':
+			if len(seq.Params) > 0 {
+				switch seq.Params[0] {
+				case 25:
+					return CSISequence{Command: CSICursorShow, Private: true}
+				default:
+					return CSISequence{Command: CSISetMode, Params: seq.Params, Private: true}
+				}
 			}
-		}
-		return CSISequence{Command: CSISetMode, Private: true}
-	case 'l':
-		if len(seq.Params) > 0 {
-			switch seq.Params[0] {
-			case 25:
-				return CSISequence{Command: CSICursorHide, Private: true}
-			default:
-				return CSISequence{Command: CSIResetMode, Params: seq.Params, Private: true}
+			return CSISequence{Command: CSISetMode, Private: true}
+		case 'l':
+			if len(seq.Params) > 0 {
+				switch seq.Params[0] {
+				case 25:
+					return CSISequence{Command: CSICursorHide, Private: true}
+				default:
+					return CSISequence{Command: CSIResetMode, Params: seq.Params, Private: true}
+				}
 			}
+			return CSISequence{Command: CSIResetMode, Private: true}
+		case 'n':
+			return CSISequence{Command: CSIDeviceStatusReport, Params: []int{param(seq, 0, 0)}, Private: true}
+		default:
+			return CSISequence{Command: CSIUnknown, Params: seq.Params, Private: true}
 		}
-		return CSISequence{Command: CSIResetMode, Private: true}
+	case '>':
+		switch seq.Command {
+		case 'c':
+			return CSISequence{Command: CSIDeviceAttributes2, Private: true}
+		default:
+			return CSISequence{Command: CSIUnknown, Params: seq.Params, Private: true}
+		}
 	default:
 		return CSISequence{Command: CSIUnknown, Params: seq.Params, Private: true}
 	}

@@ -67,7 +67,7 @@ func ParseSGR(params []int) []SGR {
 		case 9:
 			result = append(result, SGR{Attr: SGRCrossedOut})
 		case 22:
-			result = append(result, SGR{Attr: SGRBoldOff})
+			result = append(result, SGR{Attr: SGRBoldOff}, SGR{Attr: SGRDimOff})
 		case 23:
 			result = append(result, SGR{Attr: SGRItalicOff})
 		case 24:
@@ -170,8 +170,8 @@ func parseSGRColor(params []int, idx int, fg bool) (SGR, int) {
 		return SGR{Attr: rgbAttr}, 2
 	default:
 		if fg {
-			return SGR{Attr: SGRForegroundColorReset}, 1
+			return SGR{Attr: SGRForegroundColorReset}, 2
 		}
-		return SGR{Attr: SGRBackgroundColorReset}, 1
+		return SGR{Attr: SGRBackgroundColorReset}, 2
 	}
 }

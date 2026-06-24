@@ -253,3 +253,39 @@ func TestFeedUTF8Truncated(t *testing.T) {
 		t.Fatalf("expected 0 sequences (buffered), got %d", len(seqs))
 	}
 }
+
+func TestCSIDECSCUSRIntermed(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, '[', '2', ' ', 'q'})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if len(seqs[0].Intermed) != 1 || seqs[0].Intermed[0] != ' ' {
+		t.Errorf("expected intermed [' '], got %v", seqs[0].Intermed)
+	}
+}
+
+func TestCSIPrivateGTMarker(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, '[', '>', 'c'})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if len(seqs[0].Intermed) != 1 || seqs[0].Intermed[0] != '>' {
+		t.Errorf("expected intermed ['>'], got %v", seqs[0].Intermed)
+	}
+}
+
+func TestOSCBackToBack(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, ']', '0', ';', 'a', 0x07, 0x1B, ']', '1', ';', 'b', 0x07})
+	if len(seqs) != 2 {
+		t.Fatalf("expected 2 sequences, got %d", len(seqs))
+	}
+	if string(seqs[0].Data) != "0;a" {
+		t.Errorf("expected data '0;a', got %q", string(seqs[0].Data))
+	}
+	if string(seqs[1].Data) != "1;b" {
+		t.Errorf("expected data '1;b', got %q", string(seqs[1].Data))
+	}
+}

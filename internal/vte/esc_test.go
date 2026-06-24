@@ -83,3 +83,48 @@ func TestParseESCUnknown(t *testing.T) {
 		t.Errorf("expected ESCUnknown, got %d", esc.Command)
 	}
 }
+
+func TestESCG0CharsetUS(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, '(', 'B'})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	esc := ParseESC(seqs[0])
+	if esc.Command != ESCDesignateG0 {
+		t.Errorf("expected ESCDesignateG0, got %d", esc.Command)
+	}
+	if esc.Charset != 'B' {
+		t.Errorf("expected charset 'B', got %c", esc.Charset)
+	}
+}
+
+func TestESCG0CharsetDEC(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, '(', '0'})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	esc := ParseESC(seqs[0])
+	if esc.Command != ESCDesignateG0 {
+		t.Errorf("expected ESCDesignateG0, got %d", esc.Command)
+	}
+	if esc.Charset != '0' {
+		t.Errorf("expected charset '0', got %c", esc.Charset)
+	}
+}
+
+func TestESCG1Charset(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0x1B, ')', '0'})
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	esc := ParseESC(seqs[0])
+	if esc.Command != ESCDesignateG1 {
+		t.Errorf("expected ESCDesignateG1, got %d", esc.Command)
+	}
+	if esc.Charset != '0' {
+		t.Errorf("expected charset '0', got %c", esc.Charset)
+	}
+}
