@@ -484,19 +484,14 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 		case vte.ActionPrint:
 			t.execPrint(seq)
 		case vte.ActionExecute:
-			t.cursor.WrapPending = false
 			t.execControl(seq)
 		case vte.ActionCSI:
-			t.cursor.WrapPending = false
 			t.execCSI(seq)
 		case vte.ActionOSC:
-			t.cursor.WrapPending = false
 			t.execOSC(seq)
 		case vte.ActionESC:
-			t.cursor.WrapPending = false
 			t.execESC(seq)
 		case vte.ActionDCS:
-			t.cursor.WrapPending = false
 		case vte.ActionIgnore:
 		}
 	}
@@ -557,14 +552,18 @@ func (t *Terminal) execControl(seq vte.Sequence) {
 	}
 	switch cc {
 	case vte.ControlLF, vte.ControlVT, vte.ControlFF:
+		t.cursor.WrapPending = false
 		t.screen.LineFeed()
 	case vte.ControlCR:
+		t.cursor.WrapPending = false
 		t.cursor.Col = 0
 	case vte.ControlBS:
+		t.cursor.WrapPending = false
 		if t.cursor.Col > 0 {
 			t.cursor.Col--
 		}
 	case vte.ControlHT:
+		t.cursor.WrapPending = false
 		t.cursor.Col = t.nextTabStop()
 	case vte.ControlBEL:
 	case vte.ControlSO:
@@ -577,6 +576,13 @@ func (t *Terminal) execControl(seq vte.Sequence) {
 
 func (t *Terminal) execCSI(seq vte.Sequence) {
 	csi := vte.ParseCSI(seq)
+	switch csi.Command {
+	case vte.CSISGR, vte.CSICursorStyle, vte.CSIDeviceStatusReport,
+		vte.CSIDeviceAttributes, vte.CSIDeviceAttributes2, vte.CSITabClear,
+		vte.CSISetCharProtection, vte.CSIUnknown:
+	default:
+		t.cursor.WrapPending = false
+	}
 	switch csi.Command {
 	case vte.CSICursorUp:
 		n := csiParam(csi, 0, 1)
@@ -828,6 +834,12 @@ func (t *Terminal) execOSC(seq vte.Sequence) {
 
 func (t *Terminal) execESC(seq vte.Sequence) {
 	esc := vte.ParseESC(seq)
+	switch esc.Command {
+	case vte.ESCDesignateG0, vte.ESCDesignateG1, vte.ESCTabSet,
+		vte.ESCDeckpam, vte.ESCDeckpnm, vte.ESCUnknown:
+	default:
+		t.cursor.WrapPending = false
+	}
 	switch esc.Command {
 	case vte.ESCResetState:
 		t.saveCursor()

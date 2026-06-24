@@ -149,3 +149,80 @@ func TestNvimRealSequence(t *testing.T) {
 	}
 }
 
+// TestSGRDoesNotResetWrapPending verifies that SGR sequences between a
+// wrap-pending char and the next print char do NOT reset deferred wrap.
+// This is the root cause of nvim rendering glitches: nvim writes a char at
+// the last column, then sends SGR (color changes), then writes the next char.
+// xterm-compatible behavior: SGR preserves pending wrap, so the next char
+// wraps to the next line instead of overwriting the last column.
+func TestSGRDoesNotResetWrapPending(t *testing.T) {
+	term, _ := newTerminalForTest(5, 3)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	term.feedBytes([]byte("ABCDE"))
+	if !term.cursor.WrapPending {
+		t.Fatal("after filling row: WrapPending should be true")
+	}
+
+	term.feedBytes([]byte("\x1b[m\x1b[31m"))
+	if !term.cursor.WrapPending {
+		t.Fatal("after SGR: WrapPending should still be true")
+	}
+
+	term.feedBytes([]byte("F"))
+	if term.cursor.Row != 1 {
+		t.Fatalf("after print 'F': cursor.Row = %d, want 1 (wrapped)", term.cursor.Row)
+	}
+	cell := term.screen.Cell(0, 4)
+	if cell == nil || cell.Rune != 'E' {
+		t.Errorf("cell(0,4) = %v, want 'E' (not overwritten)", cell)
+	}
+	cell = term.screen.Cell(1, 0)
+	if cell == nil || cell.Rune != 'F' {
+		t.Errorf("cell(1,0) = %v, want 'F'", cell)
+	}
+}
+
+// TestCharsetDesignateDoesNotResetWrapPending verifies that ESC ( B
+// (designate G0 charset) does not reset deferred wrap.
+func TestCharsetDesignateDoesNotResetWrapPending(t *testing.T) {
+	term, _ := newTerminalForTest(5, 3)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	term.feedBytes([]byte("ABCDE"))
+	term.feedBytes([]byte("\x1b(B"))
+	if !term.cursor.WrapPending {
+		t.Fatal("after ESC ( B: WrapPending should still be true")
+	}
+
+	term.feedBytes([]byte("F"))
+	if term.cursor.Row != 1 {
+		t.Fatalf("after print 'F': cursor.Row = %d, want 1 (wrapped)", term.cursor.Row)
+	}
+}
+
+// TestCursorMoveResetsWrapPending verifies that cursor positioning commands
+// DO reset deferred wrap (contrast with SGR/charset).
+func TestCursorMoveResetsWrapPending(t *testing.T) {
+	term, _ := newTerminalForTest(5, 3)
+	term.screen = term.altBuf
+	term.cursor = term.altBuf.Cursor()
+	term.altBuf.ClearAll()
+
+	term.feedBytes([]byte("ABCDE"))
+	term.feedBytes([]byte("\x1b[1;1H"))
+	if term.cursor.WrapPending {
+		t.Fatal("after CUP: WrapPending should be false")
+	}
+
+	term.feedBytes([]byte("X"))
+	cell := term.screen.Cell(0, 0)
+	if cell == nil || cell.Rune != 'X' {
+		t.Errorf("cell(0,0) = %v, want 'X' (overwritten at CUP position)", cell)
+	}
+}
+
