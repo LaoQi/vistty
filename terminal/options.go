@@ -3,6 +3,8 @@ package terminal
 import (
 	"io"
 	"time"
+
+	"github.com/LaoQi/vistty/internal/screen"
 )
 
 type Options struct {
@@ -14,6 +16,7 @@ type Options struct {
 	RepeatDelay   time.Duration
 	RepeatRate    time.Duration
 	OnTitle       func(string)
+	OnDefaultColor func(fg, bg screen.Color)
 	RecordWriter  io.Writer
 	Primary       string
 	Mode          string
@@ -28,6 +31,6 @@ func DefaultOptions() Options {
 		Height:      600,
 		RepeatDelay: 250 * time.Millisecond,
 		RepeatRate:  33 * time.Millisecond,
-		Mode:        "mirror",
+		Mode:        "independent",
 	}
 }

@@ -71,11 +71,25 @@ func TestParseOSCHyperlink(t *testing.T) {
 	}
 }
 
-func TestParseOSCColorQuery(t *testing.T) {
+func TestParseOSCFgColor(t *testing.T) {
 	seq := Sequence{Action: ActionOSC, Data: []byte("10;?")}
 	osc := ParseOSC(seq)
-	if osc.Command != OSCColorQuery {
-		t.Errorf("expected OSCColorQuery, got %d", osc.Command)
+	if osc.Command != OSCFgColor {
+		t.Errorf("expected OSCFgColor, got %d", osc.Command)
+	}
+	if osc.Data != "?" {
+		t.Errorf("expected '?', got %q", osc.Data)
+	}
+}
+
+func TestParseOSCBgColor(t *testing.T) {
+	seq := Sequence{Action: ActionOSC, Data: []byte("11;?")}
+	osc := ParseOSC(seq)
+	if osc.Command != OSCBgColor {
+		t.Errorf("expected OSCBgColor, got %d", osc.Command)
+	}
+	if osc.Data != "?" {
+		t.Errorf("expected '?', got %q", osc.Data)
 	}
 }
 

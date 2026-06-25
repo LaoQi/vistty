@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -47,6 +49,8 @@ type Terminal struct {
 	curFg           screen.Color
 	curBg           screen.Color
 	curAttr         screen.Attributes
+	defFg           screen.Color
+	defBg           screen.Color
 	saved           savedCursorState
 	scrollOffset    int
 	autoWrap        bool
@@ -92,6 +96,8 @@ func New(opts Options, cols, rows int) (*Terminal, error) {
 		altBuf:      altBuf,
 		curFg:       screen.Color{IsDefault: true},
 		curBg:       screen.Color{IsDefault: true},
+		defFg:       screen.Color{R: 204, G: 204, B: 204},
+		defBg:       screen.Color{R: 0, G: 0, B: 0},
 		autoWrap:    true,
 		charset:     newCharsetState(),
 		active:      true,
@@ -646,8 +652,40 @@ func (t *Terminal) execOSC(seq vte.Sequence) {
 	case vte.OSCSetClipboard:
 	case vte.OSCSetWorkingDir:
 	case vte.OSCHyperlink:
-	case vte.OSCColorQuery:
+	case vte.OSCFgColor:
+		t.handleOSCColor(osc.Data, true)
+	case vte.OSCBgColor:
+		t.handleOSCColor(osc.Data, false)
 	case vte.OSCUnknown:
+	}
+}
+
+func (t *Terminal) handleOSCColor(data string, isFg bool) {
+	if data == "?" {
+		var col screen.Color
+		var cmdNum int
+		if isFg {
+			col = t.defFg
+			cmdNum = 10
+		} else {
+			col = t.defBg
+			cmdNum = 11
+		}
+		resp := fmt.Sprintf("\x1b]%d;rgb:%04x/%04x/%04x\x07", cmdNum, uint16(col.R)*0x0101, uint16(col.G)*0x0101, uint16(col.B)*0x0101)
+		t.PtyWrite([]byte(resp))
+		return
+	}
+	c, ok := parseColorSpec(data)
+	if !ok {
+		return
+	}
+	if isFg {
+		t.defFg = c
+	} else {
+		t.defBg = c
+	}
+	if t.opts.OnDefaultColor != nil {
+		t.opts.OnDefaultColor(t.defFg, t.defBg)
 	}
 }
 
@@ -715,6 +753,11 @@ func (t *Terminal) fullReset() {
 	t.curFg = screen.Color{IsDefault: true}
 	t.curBg = screen.Color{IsDefault: true}
 	t.curAttr = 0
+	t.defFg = screen.Color{R: 204, G: 204, B: 204}
+	t.defBg = screen.Color{R: 0, G: 0, B: 0}
+	if t.opts.OnDefaultColor != nil {
+		t.opts.OnDefaultColor(t.defFg, t.defBg)
+	}
 	t.screen.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 	t.screen.ClearAll()
 	t.screen.SetScrollRegion(0, t.screen.Rows()-1)
@@ -1128,4 +1171,70 @@ func color256(idx int) screen.Color {
 		return screen.Color{R: uint8(v), G: uint8(v), B: uint8(v)}
 	}
 	return screen.Color{IsDefault: true}
+}
+
+func parseColorSpec(spec string) (screen.Color, bool) {
+	spec = strings.TrimSpace(spec)
+
+	if strings.HasPrefix(spec, "rgb:") {
+		parts := strings.Split(strings.TrimPrefix(spec, "rgb:"), "/")
+		if len(parts) != 3 {
+			return screen.Color{}, false
+		}
+		r, ok1 := parseHexChannel(parts[0])
+		g, ok2 := parseHexChannel(parts[1])
+		b, ok3 := parseHexChannel(parts[2])
+		if !ok1 || !ok2 || !ok3 {
+			return screen.Color{}, false
+		}
+		return screen.Color{R: r, G: g, B: b}, true
+	}
+
+	if strings.HasPrefix(spec, "#") {
+		hex := strings.TrimPrefix(spec, "#")
+		switch len(hex) {
+		case 3:
+			r, err1 := strconv.ParseUint(string(hex[0])+string(hex[0]), 16, 8)
+			g, err2 := strconv.ParseUint(string(hex[1])+string(hex[1]), 16, 8)
+			b, err3 := strconv.ParseUint(string(hex[2])+string(hex[2]), 16, 8)
+			if err1 != nil || err2 != nil || err3 != nil {
+				return screen.Color{}, false
+			}
+			return screen.Color{R: uint8(r), G: uint8(g), B: uint8(b)}, true
+		case 6:
+			r, err1 := strconv.ParseUint(hex[0:2], 16, 8)
+			g, err2 := strconv.ParseUint(hex[2:4], 16, 8)
+			b, err3 := strconv.ParseUint(hex[4:6], 16, 8)
+			if err1 != nil || err2 != nil || err3 != nil {
+				return screen.Color{}, false
+			}
+			return screen.Color{R: uint8(r), G: uint8(g), B: uint8(b)}, true
+		}
+	}
+
+	return screen.Color{}, false
+}
+
+func parseHexChannel(s string) (uint8, bool) {
+	s = strings.TrimSpace(s)
+	v, err := strconv.ParseUint(s, 16, 16)
+	if err != nil {
+		return 0, false
+	}
+	switch len(s) {
+	case 1:
+		return uint8(v * 0x11), true
+	case 2:
+		return uint8(v), true
+	case 3:
+		return uint8(v >> 4), true
+	case 4:
+		return uint8(v >> 8), true
+	default:
+		return 0, false
+	}
+}
+
+func (t *Terminal) SetOnDefaultColor(f func(fg, bg screen.Color)) {
+	t.opts.OnDefaultColor = f
 }

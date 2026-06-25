@@ -10,7 +10,8 @@ const (
 	OSCSetClipboard
 	OSCSetWorkingDir
 	OSCHyperlink
-	OSCColorQuery
+	OSCFgColor
+	OSCBgColor
 	OSCUnknown
 )
 
@@ -58,8 +59,10 @@ func ParseOSC(seq Sequence) OSCSequence {
 		return OSCSequence{Command: OSCSetWorkingDir, Data: payload}
 	case 8:
 		return OSCSequence{Command: OSCHyperlink, Data: payload}
-	case 10, 11:
-		return OSCSequence{Command: OSCColorQuery, Data: payload}
+	case 10:
+		return OSCSequence{Command: OSCFgColor, Data: payload}
+	case 11:
+		return OSCSequence{Command: OSCBgColor, Data: payload}
 	case 52:
 		return OSCSequence{Command: OSCSetClipboard, Data: payload}
 	default:

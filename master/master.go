@@ -9,6 +9,7 @@ import (
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
+	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/slave"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -168,6 +169,9 @@ func (m *Master) initMirror() error {
 		faceCache.Close()
 		return fmt.Errorf("create terminal: %w", err)
 	}
+	term.SetOnDefaultColor(func(fg, bg screen.Color) {
+		m.compositor.SetDefaultColors(fg, bg)
+	})
 
 	for _, s := range m.slaves {
 		s.BindTerminal(term)
@@ -202,6 +206,10 @@ func (m *Master) initIndependent() error {
 		if err != nil {
 			return fmt.Errorf("create terminal: %w", err)
 		}
+		slaveComp := s.Compositor()
+		term.SetOnDefaultColor(func(fg, bg screen.Color) {
+			slaveComp.SetDefaultColors(fg, bg)
+		})
 		s.BindTerminal(term)
 		m.terms = append(m.terms, term)
 	}

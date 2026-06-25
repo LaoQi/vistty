@@ -144,14 +144,14 @@ github.com/LaoQi/vistty/
 ├── terminal/
 │   ├── terminal.go             # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control 执行
 │   ├── charset.go              # 字符集状态管理（G0/G1/GL + DEC line drawing 映射）
-│   ├── options.go              # Options + Primary/Mode + OnTitle 回调 + RecordWriter
+│   ├── options.go              # Options + Primary/Mode + OnTitle/OnDefaultColor 回调 + RecordWriter
 │   ├── render_harness.go       # 导出桥接 API：NewRenderHarness/FeedBytes/RenderFrame（性能测量用）
 │   └── rune_width.go           # 宽度判断（ASCII 快路径 + x/text/width）
 ├── internal/
 │   ├── vte/                    # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go           # 状态机（9 状态 + privateMarker 分发）
 │   │   ├── csi.go              # CSI 语义：privateMarker ?/>/=/</ + intermed SP/" 分发
-│   │   ├── osc.go              # OSC 语义：0/1/2/7/8/10/11/52
+│   │   ├── osc.go              # OSC 语义：0/1/2/7/8/10(FgColor)/11(BgColor)/52
 │   │   ├── esc.go              # ESC 语义：G0/G1 字符集指定 ( ) * + + DECSC/RC
 │   │   ├── control.go          # C0 控制字符识别
 │   │   ├── sgr.go              # SGR 解析：22 → BoldOff+DimOff
@@ -161,7 +161,7 @@ github.com/LaoQi/vistty/
 │   │   ├── face.go / atlas.go / metrics.go / embedded.go / cache.go
 │   │   └── assets/             # 内置字体资源（Sarasa Fixed SC 子集 + LICENSE）
 │   ├── render/                 # 渲染合成
-│   │   ├── compositor.go / draw.go / cursor.go
+│   │   ├── compositor.go / draw.go / cursor.go   # compositor: Render+SetDefaultColors+SetFace+Resize
 │   ├── perf/                   # 性能评估工具
 │   │   └── replay/             # 离线回放 + 三级归因 benchmark（L1 parser/L2 screen/L3 render）
 │   │       ├── harness.go / genworkload.go / bench_test.go / embed.go
@@ -292,13 +292,15 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ glyph 位图缓存扩容（Atlas 4096 → 8192，减少 CJK 字符 LRU 淘汰）
 - ✅ deferred wrap 精细化（SGR/charset designate/DSR/DA 等纯属性命令不再重置 WrapPending，仅光标移动/擦除/滚动/换行命令重置；修复 nvim 行尾字符后发 SGR 导致下一字符覆盖而非换行）
 - ✅ 擦除区域保留当前 SGR 背景色（EL/ED/ECH/DCH/ICH/ScrollUp/ScrollDown 新行使用 curBg 填充而非 default 黑色，符合 xterm 规范）
+- ✅ OSC 10/11 默认前景/背景色查询+设置（OSCColorQuery 拆为 OSCFgColor/OSCBgColor；Query→回写 rgb:HHHH/HHHH/HHHH 16-bit；SET→parseColorSpec 解析 rgb:H/H/H..HHHH/HHHH/HHHH + #RGB/#RRGGBB→更新 defFg/defBg→OnDefaultColor 回调→compositor.SetDefaultColors 传播渲染层；fullReset 恢复默认色；master 镜像/独立模式 per-terminal 绑定回调；修复 nvim E1568）
 - ✅ 性能评估基础设施（internal/perf/replay 三级归因 benchmark L1/L2/L3 + cmd/vistty pprof 集成 -cpuprofile/-memprofile/-trace/-mutexprofile/-fps/-record）
 - ✅ 9 项性能优化（parser 预分配 -99.6% allocs / fillRect uint32 / history 所有权移交 / blendGlyph >>8 / atlas 读路径去锁 / copyAll 整块 / rune_width ASCII 快路径 / InsertLines 批量化 / swapBR uint32）
 - ✅ 内存分配热点消除（Sequence.Params []int→[16]int+NParams 内嵌数组，删除 copyInts 堆分配，CSI allocs -99.7%；ParseSGR 预分配 cap=8；Parser.seqs 预分配 cap=256 消除 growslice，L1 解析提速 1.3-1.8x）
 - ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；master 协调层枚举输出+焦点路由+渲染编排；slave 输出绑定+terms[]预留tabs）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
-- ✅ 镜像/独立双模式（-mode mirror|independent；镜像 master 集中渲染裁剪分发，独立每 slave 自持 compositor 串行渲染）
+- ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 master 集中渲染裁剪分发，独立每 slave 自持 compositor 串行渲染）
 - ✅ 主屏选择参数（-primary <名称|索引>，按 connector name 如 HDMI-A-1 或数字索引匹配）
+- ✅ 显示设备列表（-list-outputs：枚举所有输出并打印索引/名称/分辨率/ID 后退出）
 - ✅ Mod 键焦点路由（independent 模式 Mod+1..9 切焦点屏 / Mod+Tab 轮转；setFocus 投递 renderReqCh 主线程渲染避免并发）
 - ✅ 右 Win 键支持（keymap.go 补 126:ModSuper，DRM 路径左右 Win 均识别）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
@@ -327,7 +329,7 @@ scroll region 与换行语义：
 
 xterm-256 VT 支持详情：
 - 解析层(vte)：SGR 22 同时关闭 Bold+Dim；CSI q 按 intermed 区分 DECSCUSR(SP)/DECSCA(")/Unknown；新增 CSI 命令 X(ECH)/n(DSR)/c(DA1)/g(TBC)；私有标记 > 分发 DA2(>c)；ESC ( ) G0/G1 字符集指定；OSC 2 窗口标题
-- 执行层(terminal)：hostWriter 响应回写通道；savedCursorState 完整状态保存（位置+SGR+字符集）；DECAWM(?7) 自动换行开关；DECCKM(?1) 应用光标键；?47/?1047/?1048 备用屏幕；?1004 焦点标志；?2004 括号粘贴标志；DECSCUSR 6 种光标样式含闪烁/稳定；DEC line drawing 字符集转换+SO/SI；tab stop 动态管理；ECH 擦除字符；ED case3 清 scrollback；DSR/DA1/DA2 响应回写；OSC 标题 OnTitle 回调
+- 执行层(terminal)：hostWriter 响应回写通道；savedCursorState 完整状态保存（位置+SGR+字符集）；DECAWM(?7) 自动换行开关；DECCKM(?1) 应用光标键；?47/?1047/?1048 备用屏幕；?1004 焦点标志；?2004 括号粘贴标志；DECSCUSR 6 种光标样式含闪烁/稳定；DEC line drawing 字符集转换+SO/SI；tab stop 动态管理；ECH 擦除字符；ED case3 清 scrollback；DSR/DA1/DA2 响应回写；OSC 标题 OnTitle 回调；OSC 10/11 默认前景/背景色查询(Question→回写 rgb:HHHH/HHHH/HHHH)+设置(解析 rgb:/#RRGGBB/#RGB→OnDefaultColor 回调→compositor.SetDefaultColors)
 - DA1 响应：`CSI ?62;4c`（VT220 + SGR 颜色）
 - DA2 响应：`CSI >0;0;0c`
 - 测试架构：newTerminalForTest + feedBytes 无 IO 测试入口

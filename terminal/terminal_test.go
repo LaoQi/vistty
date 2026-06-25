@@ -98,6 +98,8 @@ func newTerminalForTest(cols, rows int) (*Terminal, *bytes.Buffer) {
 		done:       make(chan struct{}),
 		curFg:      screen.Color{IsDefault: true},
 		curBg:      screen.Color{IsDefault: true},
+		defFg:      screen.Color{R: 204, G: 204, B: 204},
+		defBg:      screen.Color{R: 0, G: 0, B: 0},
 		autoWrap:   true,
 		charset:    newCharsetState(),
 		active:     true,

@@ -258,6 +258,11 @@ func (c *Compositor) BackBuf() (data []byte, stride, width, height int) {
 	return c.backBuf, c.backStride, c.backWidth, c.backHeight
 }
 
+func (c *Compositor) SetDefaultColors(fg, bg screen.Color) {
+	c.defColor.fg = fg
+	c.defColor.bg = bg
+}
+
 func (c *Compositor) resolveBg(col screen.Color) screen.Color {
 	if col.IsDefault {
 		return c.defColor.bg

@@ -29,7 +29,7 @@ func run() error {
 	widthFlag := flag.Int("width", 800, "window width")
 	heightFlag := flag.Int("height", 600, "window height")
 	primaryFlag := flag.String("primary", "", "primary output name or index")
-	modeFlag := flag.String("mode", "mirror", "display mode: mirror or independent")
+	modeFlag := flag.String("mode", "independent", "display mode: mirror or independent")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
@@ -38,6 +38,7 @@ func run() error {
 	recordPath := flag.String("record", "", "record PTY output to file")
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
 	noGBMFlag := flag.Bool("nogbm", false, "disable GBM/EGL, use dumb buffer (DRM only)")
+	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
 	flag.Parse()
 
 	debugLog := os.Getenv("VISTTY_DEBUG") != ""
@@ -114,6 +115,18 @@ func run() error {
 		return fmt.Errorf("failed to create backend: %w", err)
 	}
 	defer backend.Close()
+
+	if *listOutputsFlag {
+		outputs, err := backend.ListOutputs()
+		if err != nil {
+			return fmt.Errorf("list outputs: %w", err)
+		}
+		for i, o := range outputs {
+			w, h := o.Size()
+			fmt.Printf("[%d] %s  %dx%d  (id=%d, connector=%d, crtc=%d)\n", i, o.Name(), w, h, o.ID(), o.ConnectorID(), o.CrtcID())
+		}
+		return nil
+	}
 
 	m, err := master.New(backend, opts)
 	if err != nil {
