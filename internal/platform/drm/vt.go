@@ -11,12 +11,13 @@ import (
 
 const (
 	ioctlTiocGwinsz = 0x5413
-	ioctlKdSetmode  = 0x4B3A
-	ioctlKdGetmode  = 0x4B3B
-	ioctlVtGetstate = 0x5603
-	ioctlVtSetmode  = 0x5602
-	ioctlVtReldis   = 0x5605
-	ioctlVtAcqdis   = 0x5606
+	ioctlTiocSctty   = 0x540E
+	ioctlKdSetmode   = 0x4B3A
+	ioctlKdGetmode   = 0x4B3B
+	ioctlVtGetstate  = 0x5603
+	ioctlVtSetmode   = 0x5602
+	ioctlVtReldis    = 0x5605
+	ioctlVtAcqdis    = 0x5606
 
 	kdGraphics = 0x03
 	kdText     = 0x00
@@ -48,10 +49,11 @@ type VTManager struct {
 	wg        sync.WaitGroup
 }
 
-func newVTManager(callbacks VTCallbacks) (*VTManager, error) {
-	ttyFd, err := syscallOpenTty()
+func newVTManager(callbacks VTCallbacks, ttyPath string) (*VTManager, error) {
+	ttyFd, err := syscallOpenTty(ttyPath)
 	if err != nil {
-		return nil, err
+		fmt.Fprintf(os.Stderr, "warning: vt manager: %v; running without VT switch support\n", err)
+		return nil, nil
 	}
 
 	v := &VTManager{
@@ -132,11 +134,28 @@ func (v *VTManager) Close() error {
 	return nil
 }
 
-func syscallOpenTty() (int, error) {
-	fd, err := syscall.Open("/dev/tty", syscall.O_RDWR, 0)
-	if err != nil {
-		return 0, fmt.Errorf("open /dev/tty: %w", err)
+func syscallOpenTty(ttyPath string) (int, error) {
+	target := ttyPath
+	if target == "" {
+		target = "/dev/tty"
+	} else {
+		if _, _, errno := syscall.Syscall(syscall.SYS_SETSID, 0, 0, 0); errno != 0 && errno != syscall.EPERM {
+			return 0, fmt.Errorf("setsid: %w", errno)
+		}
 	}
+
+	fd, err := syscall.Open(target, syscall.O_RDWR, 0)
+	if err != nil {
+		return 0, fmt.Errorf("open %s: %w", target, err)
+	}
+
+	if ttyPath != "" {
+		if err := vtIoctl(fd, ioctlTiocSctty, 0); err != nil {
+			syscall.Close(fd)
+			return 0, fmt.Errorf("set controlling tty %s: %w", target, err)
+		}
+	}
+
 	return fd, nil
 }
 

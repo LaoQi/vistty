@@ -27,7 +27,7 @@ type DRMBackend struct {
 	useGBM      bool
 }
 
-func NewDRMBackend() (*DRMBackend, error) {
+func NewDRMBackend(ttyPath string, noGBM bool) (*DRMBackend, error) {
 	cards := drminternal.ListDevices()
 	if len(cards) == 0 {
 		return nil, fmt.Errorf("no DRM device found")
@@ -73,7 +73,7 @@ func NewDRMBackend() (*DRMBackend, error) {
 		eventDone:   make(chan struct{}),
 	}
 
-	if drminternal.HasAtomic(int(fd.Fd())) {
+	if !noGBM && drminternal.HasAtomic(int(fd.Fd())) {
 		gbmDev, err := NewGBMDevice(int(fd.Fd()))
 		if err == nil {
 			b.gbmDevice = gbmDev
@@ -101,7 +101,7 @@ func NewDRMBackend() (*DRMBackend, error) {
 			}
 			drminternal.DropMaster(int(fd.Fd()))
 		},
-	})
+	}, ttyPath)
 	if err != nil {
 		if b.commitor != nil {
 			b.commitor.Close()
@@ -115,17 +115,19 @@ func NewDRMBackend() (*DRMBackend, error) {
 	}
 	b.vt = vt
 
-	if err := vt.SetGraphicsMode(); err != nil {
-		vt.Close()
-		if b.commitor != nil {
-			b.commitor.Close()
+	if vt != nil {
+		if err := vt.SetGraphicsMode(); err != nil {
+			vt.Close()
+			if b.commitor != nil {
+				b.commitor.Close()
+			}
+			if b.gbmDevice != nil {
+				b.gbmDevice.Close()
+			}
+			drminternal.DropMaster(int(fd.Fd()))
+			fd.Close()
+			return nil, fmt.Errorf("set graphics mode: %w", err)
 		}
-		if b.gbmDevice != nil {
-			b.gbmDevice.Close()
-		}
-		drminternal.DropMaster(int(fd.Fd()))
-		fd.Close()
-		return nil, fmt.Errorf("set graphics mode: %w", err)
 	}
 
 	return b, nil

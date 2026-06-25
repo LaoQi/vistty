@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
@@ -34,9 +36,16 @@ func run() error {
 	traceFile := flag.String("trace", "", "write execution trace to file")
 	fpsFlag := flag.Bool("fps", false, "print per-frame timing to stderr")
 	recordPath := flag.String("record", "", "record PTY output to file")
+	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
+	noGBMFlag := flag.Bool("nogbm", false, "disable GBM/EGL, use dumb buffer (DRM only)")
 	flag.Parse()
 
 	debugLog := os.Getenv("VISTTY_DEBUG") != ""
+
+	resolvedTty := resolveTtyPath(*ttyFlag)
+	if resolvedTty != "" && debugLog {
+		fmt.Fprintf(os.Stderr, "resolved tty path: %s\n", resolvedTty)
+	}
 
 	opts := terminal.DefaultOptions()
 	opts.Shell = *shellFlag
@@ -79,18 +88,24 @@ func run() error {
 			if debugLog {
 				fmt.Fprintf(os.Stderr, "auto: DRM probe succeeded, using DRM backend\n")
 			}
-			backend, err = drm.NewDRMBackend()
+			backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
 		} else if wayland.Probe() {
 			if debugLog {
 				fmt.Fprintf(os.Stderr, "auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
+			}
+			if resolvedTty != "" {
+				fmt.Fprintf(os.Stderr, "warning: -tty is ignored by wayland backend\n")
 			}
 			backend, err = wayland.NewWaylandBackend()
 		} else {
 			return fmt.Errorf("no suitable display backend found (tried DRM and Wayland)")
 		}
 	case "drm":
-		backend, err = drm.NewDRMBackend()
+		backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
 	case "wayland":
+		if resolvedTty != "" {
+			fmt.Fprintf(os.Stderr, "warning: -tty is ignored by wayland backend\n")
+		}
 		backend, err = wayland.NewWaylandBackend()
 	default:
 		return fmt.Errorf("unknown backend: %s", *backendFlag)
@@ -114,4 +129,17 @@ func run() error {
 		return fmt.Errorf("master error: %w", err)
 	}
 	return nil
+}
+
+func resolveTtyPath(tty string) string {
+	if tty == "" {
+		return ""
+	}
+	if strings.HasPrefix(tty, "/dev/") {
+		return tty
+	}
+	if _, err := strconv.Atoi(tty); err == nil {
+		return "/dev/tty" + tty
+	}
+	return tty
 }
