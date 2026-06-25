@@ -72,6 +72,7 @@ type Terminal struct {
 	focusReporting  bool
 	charset         charsetState
 	tabStops        []bool
+	fpsLogging      bool
 }
 
 func New(backend platform.Backend, opts Options) (*Terminal, error) {
@@ -221,7 +222,9 @@ func (t *Terminal) Run() error {
 func (t *Terminal) Close() error {
 	t.signalClose()
 	t.wg.Wait()
-	t.backend.Stop()
+	if t.backend != nil {
+		t.backend.Stop()
+	}
 	if t.input != nil {
 		t.input.Close()
 	}
@@ -408,12 +411,19 @@ func (t *Terminal) eventLoop() {
 			}
 			t.executeSequences(seqs)
 		case <-ticker.C:
+			var frameStart time.Time
+			if t.fpsLogging {
+				frameStart = time.Now()
+			}
 			if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
 				if debugLog {
 					fmt.Fprintf(os.Stderr, "eventLoop: render error: %v\n", err)
 				}
 				t.signalClose()
 				return
+			}
+			if t.fpsLogging {
+				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
 			}
 		case ev := <-resizeCh:
 			t.handleResize(ev)
@@ -460,6 +470,9 @@ func (t *Terminal) ptyReadLoop() {
 			}
 			if debugLog {
 				fmt.Fprintf(os.Stderr, "ptyReadLoop: read %d bytes: %q\n", r.n, string(buf[:r.n]))
+			}
+			if t.opts.RecordWriter != nil {
+				t.opts.RecordWriter.Write(buf[:r.n])
 			}
 			seqs := t.parser.FeedAll(buf[:r.n])
 			if debugLog && len(seqs) > 0 {
@@ -665,14 +678,10 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 		t.eraseLine(n)
 	case vte.CSIInsertLines:
 		n := csiParam(csi, 0, 1)
-		for i := 0; i < n; i++ {
-			t.screen.ScrollDown(1)
-		}
+		t.screen.ScrollDown(n)
 	case vte.CSIDeleteLines:
 		n := csiParam(csi, 0, 1)
-		for i := 0; i < n; i++ {
-			t.screen.ScrollUp(1)
-		}
+		t.screen.ScrollUp(n)
 	case vte.CSIDeleteChars:
 		n := csiParam(csi, 0, 1)
 		t.deleteChars(n)

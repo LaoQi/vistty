@@ -13,7 +13,7 @@ func NewHistory(maxLines int) *History {
 }
 
 func (h *History) Push(line *Line) {
-	h.lines = append(h.lines, line.Clone())
+	h.lines = append(h.lines, line)
 	if len(h.lines) > h.maxLines {
 		for i := 0; i < len(h.lines)-h.maxLines; i++ {
 			h.lines[i] = nil

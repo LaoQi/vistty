@@ -1,6 +1,9 @@
 package terminal
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 type Options struct {
 	Shell       string
@@ -11,6 +14,7 @@ type Options struct {
 	RepeatDelay time.Duration
 	RepeatRate  time.Duration
 	OnTitle     func(string)
+	RecordWriter io.Writer
 }
 
 func DefaultOptions() Options {

@@ -231,6 +231,11 @@ func (c *Compositor) copyAllToSurface() {
 	surfData := c.surface.Data()
 	surfStride := c.surface.Stride()
 	backStride := c.backStride
+	if surfStride == backStride {
+		totalBytes := backStride * c.backHeight
+		copy(surfData[:totalBytes], c.backBuf[:totalBytes])
+		return
+	}
 	minStride := backStride
 	if surfStride < minStride {
 		minStride = surfStride

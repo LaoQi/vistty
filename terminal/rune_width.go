@@ -3,6 +3,9 @@ package terminal
 import "golang.org/x/text/width"
 
 func runeWidth(r rune) int {
+	if r < 0x80 {
+		return 1
+	}
 	kind := width.LookupRune(r).Kind()
 	if kind == width.EastAsianFullwidth || kind == width.EastAsianWide {
 		return 2

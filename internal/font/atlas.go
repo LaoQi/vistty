@@ -41,16 +41,11 @@ func NewAtlas(capacity int) *Atlas {
 
 func (a *Atlas) Get(r rune) *Glyph {
 	a.mu.RLock()
+	defer a.mu.RUnlock()
 	entry, ok := a.cache[r]
-	a.mu.RUnlock()
 	if !ok {
 		return nil
 	}
-
-	a.mu.Lock()
-	a.order.MoveToFront(entry.elem)
-	a.mu.Unlock()
-
 	return entry.glyph
 }
 

@@ -54,6 +54,7 @@ type Parser struct {
 	utf8Buf     [4]byte
 	utf8Len     int
 	utf8Total   int
+	seqs        []Sequence
 }
 
 func NewParser() *Parser {
@@ -73,276 +74,297 @@ func (p *Parser) Reset() {
 	p.privateMarker = 0
 	p.pendingOSC = false
 	p.pendingDCS = false
+	p.seqs = p.seqs[:0]
 }
 
 func (p *Parser) Feed(b byte) []Sequence {
+	start := len(p.seqs)
+	p.dispatch(b)
+	if len(p.seqs) == start {
+		return nil
+	}
+	result := make([]Sequence, len(p.seqs)-start)
+	copy(result, p.seqs[start:])
+	return result
+}
+
+func (p *Parser) dispatch(b byte) {
 	switch p.state {
 	case stateGround:
-		return p.feedGround(b)
+		p.feedGround(b)
 	case stateEscape:
-		return p.feedEscape(b)
+		p.feedEscape(b)
 	case stateEscapeIntermediate:
-		return p.feedEscapeIntermediate(b)
+		p.feedEscapeIntermediate(b)
 	case stateCSIEntry:
-		return p.feedCSIEntry(b)
+		p.feedCSIEntry(b)
 	case stateCSIParameter:
-		return p.feedCSIParameter(b)
+		p.feedCSIParameter(b)
 	case stateCSIIntermediate:
-		return p.feedCSIIntermediate(b)
+		p.feedCSIIntermediate(b)
 	case stateOSCString:
-		return p.feedOSCString(b)
+		p.feedOSCString(b)
 	case stateDCSString:
-		return p.feedDCSString(b)
+		p.feedDCSString(b)
 	case stateUTF8:
-		return p.feedUTF8(b)
+		p.feedUTF8(b)
 	default:
 		p.state = stateGround
-		return nil
 	}
 }
 
-func (p *Parser) feedGround(b byte) []Sequence {
+func (p *Parser) feedGround(b byte) {
 	if b == 0x1B {
 		p.state = stateEscape
-		return nil
+		return
 	}
 	if b < 0x20 || b == 0x7F {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	if b >= 0x80 {
 		p.utf8Total = utf8Len(b)
 		if p.utf8Total < 2 || p.utf8Total > 4 {
 			p.utf8Total = 0
-			return []Sequence{{Action: ActionPrint, Rune: unicode.ReplacementChar}}
+			p.seqs = append(p.seqs, Sequence{Action: ActionPrint, Rune: unicode.ReplacementChar})
+			return
 		}
 		p.utf8Buf[0] = b
 		p.utf8Len = 1
 		p.state = stateUTF8
-		return nil
+		return
 	}
-	return []Sequence{{Action: ActionPrint, Rune: rune(b)}}
+	p.seqs = append(p.seqs, Sequence{Action: ActionPrint, Rune: rune(b)})
 }
 
-func (p *Parser) feedEscape(b byte) []Sequence {
+func (p *Parser) feedEscape(b byte) {
 	if p.pendingOSC {
 		p.pendingOSC = false
 		if b == '\\' {
 			p.state = stateGround
-			return []Sequence{{Action: ActionOSC, Data: copyBytes(p.data)}}
+			p.seqs = append(p.seqs, Sequence{Action: ActionOSC, Data: copyBytes(p.data)})
+			return
 		}
-		var seqs []Sequence
-		seqs = append(seqs, Sequence{Action: ActionOSC, Data: copyBytes(p.data)})
+		p.seqs = append(p.seqs, Sequence{Action: ActionOSC, Data: copyBytes(p.data)})
 		p.state = stateGround
-		seqs = append(seqs, p.Feed(b)...)
-		return seqs
+		p.dispatch(b)
+		return
 	}
 	if p.pendingDCS {
 		p.pendingDCS = false
 		if b == '\\' {
 			p.state = stateGround
-			return []Sequence{{Action: ActionDCS, Data: copyBytes(p.data), Command: 0}}
+			p.seqs = append(p.seqs, Sequence{Action: ActionDCS, Data: copyBytes(p.data), Command: 0})
+			return
 		}
-		var seqs []Sequence
-		seqs = append(seqs, Sequence{Action: ActionDCS, Data: copyBytes(p.data), Command: 0})
+		p.seqs = append(p.seqs, Sequence{Action: ActionDCS, Data: copyBytes(p.data), Command: 0})
 		p.state = stateGround
-		seqs = append(seqs, p.Feed(b)...)
-		return seqs
+		p.dispatch(b)
+		return
 	}
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	switch b {
 	case '[':
 		p.resetSequence()
 		p.state = stateCSIEntry
-		return nil
+		return
 	case ']':
 		p.resetSequence()
 		p.state = stateOSCString
-		return nil
+		return
 	case 'P':
 		p.resetSequence()
 		p.state = stateDCSString
-		return nil
+		return
 	case 'X', '^', '_':
 		p.data = p.data[:0]
 		p.state = stateDCSString
-		return nil
+		return
 	}
 	if b >= 0x20 && b <= 0x2F {
 		p.intermed = append(p.intermed, b)
 		p.state = stateEscapeIntermediate
-		return nil
+		return
 	}
 	if b >= 0x30 && b <= 0x7E {
 		p.state = stateGround
-		return []Sequence{{Action: ActionESC, Command: b, Intermed: copyBytes(p.intermed)}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionESC, Command: b, Intermed: copyBytes(p.intermed)})
+		return
 	}
 	p.state = stateGround
-	return nil
 }
 
-func (p *Parser) feedEscapeIntermediate(b byte) []Sequence {
+func (p *Parser) feedEscapeIntermediate(b byte) {
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	if b >= 0x20 && b <= 0x2F {
 		p.intermed = append(p.intermed, b)
-		return nil
+		return
 	}
 	if b >= 0x30 && b <= 0x7E {
 		p.state = stateGround
-		return []Sequence{{Action: ActionESC, Command: b, Intermed: copyBytes(p.intermed)}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionESC, Command: b, Intermed: copyBytes(p.intermed)})
+		return
 	}
 	p.state = stateGround
-	return nil
 }
 
-func (p *Parser) feedCSIEntry(b byte) []Sequence {
+func (p *Parser) feedCSIEntry(b byte) {
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	if b >= 0x30 && b <= 0x39 {
 		p.curParam = int(b - '0')
 		p.hasParam = true
 		p.state = stateCSIParameter
-		return nil
+		return
 	}
 	if b == ';' {
 		p.params = append(p.params, p.curParam)
 		p.curParam = 0
 		p.hasParam = false
 		p.state = stateCSIParameter
-		return nil
+		return
 	}
 	if b == '?' || b == '>' || b == '=' || b == '<' {
 		p.private = true
 		p.privateMarker = b
 		p.state = stateCSIParameter
-		return nil
+		return
 	}
 	if b >= 0x20 && b <= 0x2F {
 		p.intermed = append(p.intermed, b)
 		p.state = stateCSIIntermediate
-		return nil
+		return
 	}
 	if b >= 0x40 && b <= 0x7E {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
-		return []Sequence{{
+		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
 			Params:   copyInts(p.params),
 			Intermed: intermed,
-		}}
+		})
+		return
 	}
 	p.state = stateGround
-	return nil
 }
 
-func (p *Parser) feedCSIParameter(b byte) []Sequence {
+func (p *Parser) feedCSIParameter(b byte) {
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	if b >= 0x30 && b <= 0x39 {
 		p.curParam = p.curParam*10 + int(b-'0')
 		p.hasParam = true
-		return nil
+		return
 	}
 	if b == ';' {
 		p.params = append(p.params, p.curParam)
 		p.curParam = 0
 		p.hasParam = false
-		return nil
+		return
 	}
 	if b == '?' || b == '>' || b == '=' || b == '<' {
 		p.private = true
 		p.privateMarker = b
-		return nil
+		return
 	}
 	if b >= 0x20 && b <= 0x2F {
 		p.intermed = append(p.intermed, b)
 		p.state = stateCSIIntermediate
-		return nil
+		return
 	}
 	if b >= 0x40 && b <= 0x7E {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
-		return []Sequence{{
+		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
 			Params:   copyInts(p.params),
 			Intermed: intermed,
-		}}
+		})
+		return
 	}
 	p.state = stateGround
-	return nil
 }
 
-func (p *Parser) feedCSIIntermediate(b byte) []Sequence {
+func (p *Parser) feedCSIIntermediate(b byte) {
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	if b >= 0x20 && b <= 0x2F {
 		p.intermed = append(p.intermed, b)
-		return nil
+		return
 	}
 	if b >= 0x40 && b <= 0x7E {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
-		return []Sequence{{
+		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
 			Params:   copyInts(p.params),
 			Intermed: intermed,
-		}}
+		})
+		return
 	}
 	p.state = stateGround
-	return nil
 }
 
-func (p *Parser) feedOSCString(b byte) []Sequence {
+func (p *Parser) feedOSCString(b byte) {
 	if b == 0x07 {
 		p.state = stateGround
-		return []Sequence{{Action: ActionOSC, Data: copyBytes(p.data)}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionOSC, Data: copyBytes(p.data)})
+		return
 	}
 	if b == 0x1B {
 		p.pendingOSC = true
 		p.state = stateEscape
-		return nil
+		return
 	}
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	p.data = append(p.data, b)
-	return nil
 }
 
-func (p *Parser) feedDCSString(b byte) []Sequence {
+func (p *Parser) feedDCSString(b byte) {
 	if b == 0x07 {
 		p.state = stateGround
-		return []Sequence{{Action: ActionDCS, Data: copyBytes(p.data), Command: 0}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionDCS, Data: copyBytes(p.data), Command: 0})
+		return
 	}
 	if b == 0x1B {
 		p.pendingDCS = true
 		p.state = stateEscape
-		return nil
+		return
 	}
 	if b < 0x20 {
-		return []Sequence{{Action: ActionExecute, Command: b}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
+		return
 	}
 	p.data = append(p.data, b)
-	return nil
 }
 
-func (p *Parser) feedUTF8(b byte) []Sequence {
+func (p *Parser) feedUTF8(b byte) {
 	if b&0xC0 != 0x80 {
 		p.state = stateGround
 		p.utf8Total = 0
-		return []Sequence{{Action: ActionPrint, Rune: unicode.ReplacementChar}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionPrint, Rune: unicode.ReplacementChar})
+		return
 	}
 	p.utf8Buf[p.utf8Len] = b
 	p.utf8Len++
@@ -353,9 +375,9 @@ func (p *Parser) feedUTF8(b byte) []Sequence {
 		}
 		p.state = stateGround
 		p.utf8Total = 0
-		return []Sequence{{Action: ActionPrint, Rune: r}}
+		p.seqs = append(p.seqs, Sequence{Action: ActionPrint, Rune: r})
+		return
 	}
-	return nil
 }
 
 func utf8Len(b byte) int {
@@ -374,11 +396,15 @@ func utf8Len(b byte) int {
 }
 
 func (p *Parser) FeedAll(data []byte) []Sequence {
-	var result []Sequence
+	p.seqs = p.seqs[:0]
 	for _, b := range data {
-		seqs := p.Feed(b)
-		result = append(result, seqs...)
+		p.dispatch(b)
 	}
+	if len(p.seqs) == 0 {
+		return nil
+	}
+	result := make([]Sequence, len(p.seqs))
+	copy(result, p.seqs)
 	return result
 }
 

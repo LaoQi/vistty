@@ -46,7 +46,7 @@ func TestAtlasLRUEviction(t *testing.T) {
 	}
 }
 
-func TestAtlasLRUReorder(t *testing.T) {
+func TestAtlasLRUNoReorderOnGet(t *testing.T) {
 	a := NewAtlas(3)
 	a.Put('A', &Glyph{Bitmap: make([]byte, 64), Width: 8, Height: 16})
 	a.Put('B', &Glyph{Bitmap: make([]byte, 64), Width: 8, Height: 16})
@@ -56,12 +56,16 @@ func TestAtlasLRUReorder(t *testing.T) {
 	a.Put('D', &Glyph{Bitmap: make([]byte, 64), Width: 8, Height: 16})
 
 	g := a.Get('A')
+	if g != nil {
+		t.Error("expected 'A' to be evicted (Get does not reorder)")
+	}
+	g = a.Get('D')
 	if g == nil {
-		t.Error("expected 'A' to be present after LRU reorder")
+		t.Error("expected 'D' to be present")
 	}
 	g = a.Get('B')
-	if g != nil {
-		t.Error("expected 'B' to be evicted")
+	if g == nil {
+		t.Error("expected 'B' to be present")
 	}
 }
 

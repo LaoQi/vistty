@@ -43,14 +43,17 @@ func TestHistoryPushOverflow(t *testing.T) {
 	}
 }
 
-func TestHistoryPushClone(t *testing.T) {
+func TestHistoryPushOwnership(t *testing.T) {
 	h := NewHistory(10)
 	l := NewLine(5)
 	l.Cell(0).Rune = 'X'
 	h.Push(l)
-	l.Cell(0).Rune = 'Y'
 	if h.Line(0).Cell(0).Rune != 'X' {
-		t.Error("Push should clone the line")
+		t.Error("Push should store the line")
+	}
+	l.Cell(0).Rune = 'Y'
+	if h.Line(0).Cell(0).Rune != 'Y' {
+		t.Error("Push should transfer ownership, not clone")
 	}
 }
 

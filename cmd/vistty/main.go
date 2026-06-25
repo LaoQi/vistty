@@ -25,6 +25,12 @@ func run() error {
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
 	widthFlag := flag.Int("width", 800, "window width")
 	heightFlag := flag.Int("height", 600, "window height")
+	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
+	memProfile := flag.String("memprofile", "", "write heap profile to file")
+	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
+	traceFile := flag.String("trace", "", "write execution trace to file")
+	fpsFlag := flag.Bool("fps", false, "print per-frame timing to stderr")
+	recordPath := flag.String("record", "", "record PTY output to file")
 	flag.Parse()
 
 	debugLog := os.Getenv("VISTTY_DEBUG") != ""
@@ -35,6 +41,30 @@ func run() error {
 	opts.FontSize = *fontSizeFlag
 	opts.Width = *widthFlag
 	opts.Height = *heightFlag
+
+	var recordFile *os.File
+	if *recordPath != "" {
+		f, err := os.Create(*recordPath)
+		if err != nil {
+			return fmt.Errorf("create record file: %w", err)
+		}
+		defer f.Close()
+		recordFile = f
+		opts.RecordWriter = f
+	}
+	_ = recordFile
+
+	prof := &profileConfig{
+		cpuProfile:   *cpuProfile,
+		memProfile:   *memProfile,
+		mutexProfile: *mutexProfile,
+		traceFile:    *traceFile,
+		fps:          *fpsFlag,
+	}
+	if err := prof.start(); err != nil {
+		return fmt.Errorf("start profiling: %w", err)
+	}
+	defer prof.stop()
 
 	var backend platform.Backend
 	var err error
@@ -70,6 +100,10 @@ func run() error {
 		return fmt.Errorf("failed to create terminal: %w", err)
 	}
 	defer term.Close()
+
+	if prof.fps {
+		term.EnableFPSLogging()
+	}
 
 	if err := term.Run(); err != nil {
 		return fmt.Errorf("terminal error: %w", err)

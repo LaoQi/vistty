@@ -3,6 +3,7 @@ package wayland
 import (
 	"fmt"
 	"sync"
+	"unsafe"
 
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/rajveermalviya/go-wayland/wayland/client"
@@ -167,8 +168,10 @@ func (s *WaylandSurface) Swap() error {
 
 	if s.swapBR {
 		data := buf.data
-		for i := 0; i+3 < len(data); i += 4 {
-			data[i], data[i+2] = data[i+2], data[i]
+		for i := 0; i+4 <= len(data); i += 4 {
+			v := *(*uint32)(unsafe.Pointer(&data[i]))
+			v = (v & 0xFF00FF00) | ((v >> 16) & 0xFF) | ((v & 0xFF) << 16)
+			*(*uint32)(unsafe.Pointer(&data[i])) = v
 		}
 	}
 
