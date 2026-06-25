@@ -1,12 +1,15 @@
 package gbm
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/ebitengine/purego"
 )
 
 const (
-	GBM_FORMAT_XRGB8888  = 0x34325258
-	GBM_FORMAT_ARGB8888  = 0x34325241
+	GBM_FORMAT_XRGB8888    = 0x34325258
+	GBM_FORMAT_ARGB8888    = 0x34325241
 	GBM_FORMAT_XRGB2101010 = 0x30335258
 
 	GBM_BO_USE_SCANOUT   = 1 << 0
@@ -15,23 +18,23 @@ const (
 )
 
 type GBMLoader struct {
-	lib          *LibHandle
-	createDevice uintptr
-	deviceDestroy uintptr
-	surfaceCreate uintptr
-	surfaceDestroy uintptr
-	surfaceLockFrontBuffer uintptr
-	surfaceReleaseBuffer uintptr
-	boCreate uintptr
-	boDestroy uintptr
-	boGetHandle uintptr
-	boGetStride uintptr
+	lib                    uintptr
+	createDevice           func(fd int) uintptr
+	deviceDestroy          func(dev uintptr)
+	surfaceCreate          func(dev uintptr, w, h, format, flags uint32) uintptr
+	surfaceDestroy         func(surf uintptr)
+	surfaceLockFrontBuffer func(surf uintptr) uintptr
+	surfaceReleaseBuffer   func(surf, bo uintptr)
+	boCreate               func(dev uintptr, w, h, format, flags uint32) uintptr
+	boDestroy              func(bo uintptr)
+	boGetHandle            func(bo uintptr) uint32
+	boGetStride            func(bo uintptr) uint32
 }
 
 func LoadGBM() (*GBMLoader, error) {
-	lib, err := OpenLib("libgbm.so.1")
+	lib, err := purego.Dlopen("libgbm.so.1", purego.RTLD_LAZY|purego.RTLD_GLOBAL)
 	if err != nil {
-		lib, err = OpenLib("libgbm.so")
+		lib, err = purego.Dlopen("libgbm.so", purego.RTLD_LAZY|purego.RTLD_GLOBAL)
 		if err != nil {
 			return nil, fmt.Errorf("load libgbm: %w", err)
 		}
@@ -41,7 +44,7 @@ func LoadGBM() (*GBMLoader, error) {
 
 	type symDef struct {
 		name string
-		ptr  *uintptr
+		fptr any
 	}
 	syms := []symDef{
 		{"gbm_create_device", &l.createDevice},
@@ -56,58 +59,58 @@ func LoadGBM() (*GBMLoader, error) {
 		{"gbm_bo_get_stride", &l.boGetStride},
 	}
 
-	var me multiError
+	var errs []error
 	for _, s := range syms {
-		addr, err := lib.Sym(s.name)
+		addr, err := purego.Dlsym(lib, s.name)
 		if err != nil {
-			me.add(fmt.Errorf("missing GBM symbol %s: %w", s.name, err))
+			errs = append(errs, fmt.Errorf("missing GBM symbol %s: %w", s.name, err))
 			continue
 		}
-		*s.ptr = addr
+		purego.RegisterFunc(s.fptr, addr)
 	}
-	if me.hasErrors() {
-		return nil, fmt.Errorf("GBM symbol resolution: %w", me.asError())
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("GBM symbol resolution: %w", errors.Join(errs...))
 	}
 
 	return l, nil
 }
 
 func (l *GBMLoader) CreateDevice(fd int) uintptr {
-	return ccall1(l.createDevice, uintptr(fd))
+	return l.createDevice(fd)
 }
 
 func (l *GBMLoader) DeviceDestroy(dev uintptr) {
-	ccall1(l.deviceDestroy, dev)
+	l.deviceDestroy(dev)
 }
 
 func (l *GBMLoader) SurfaceCreate(dev uintptr, w, h, format, flags uint32) uintptr {
-	return ccall5(l.surfaceCreate, dev, uintptr(w), uintptr(h), uintptr(format), uintptr(flags))
+	return l.surfaceCreate(dev, w, h, format, flags)
 }
 
 func (l *GBMLoader) SurfaceDestroy(surf uintptr) {
-	ccall1(l.surfaceDestroy, surf)
+	l.surfaceDestroy(surf)
 }
 
 func (l *GBMLoader) SurfaceLockFrontBuffer(surf uintptr) uintptr {
-	return ccall1(l.surfaceLockFrontBuffer, surf)
+	return l.surfaceLockFrontBuffer(surf)
 }
 
 func (l *GBMLoader) SurfaceReleaseBuffer(surf, bo uintptr) {
-	ccall2(l.surfaceReleaseBuffer, surf, bo)
+	l.surfaceReleaseBuffer(surf, bo)
 }
 
 func (l *GBMLoader) BOCreate(dev uintptr, w, h, format, flags uint32) uintptr {
-	return ccall5(l.boCreate, dev, uintptr(w), uintptr(h), uintptr(format), uintptr(flags))
+	return l.boCreate(dev, w, h, format, flags)
 }
 
 func (l *GBMLoader) BODestroy(bo uintptr) {
-	ccall1(l.boDestroy, bo)
+	l.boDestroy(bo)
 }
 
 func (l *GBMLoader) BOGetHandle(bo uintptr) uint32 {
-	return uint32(ccall1(l.boGetHandle, bo))
+	return l.boGetHandle(bo)
 }
 
 func (l *GBMLoader) BOGetStride(bo uintptr) uint32 {
-	return uint32(ccall1(l.boGetStride, bo))
+	return l.boGetStride(bo)
 }

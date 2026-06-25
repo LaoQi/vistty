@@ -178,8 +178,7 @@ github.com/LaoQi/vistty/
 │       │       ├── device.go / master.go / mode.go / dumb.go
 │       │       ├── flip.go / mmap.go / event.go
 │       │       ├── atomic.go / property.go / plane.go  # Atomic Modesetting ioctl 封装
-│       │       └── gbm/            # GBM + EGL purego dlopen（自研汇编 trampoline + ELF 符号解析）
-│       │           ├── asm_amd64.s / dlfcn.go / loader.go
+│       │       └── gbm/            # GBM + EGL purego dlopen（github.com/ebitengine/purego，跨架构支持 amd64/arm64）
 │       │           ├── gbm.go / egl.go
 │       └── wayland/            # Wayland 后端（单虚拟输出）
 │           ├── backend.go / surface.go / input.go
@@ -303,7 +302,7 @@ go run ./cmd/vistty -backend wayland        # 强制 Wayland 窗口（开发调�
 - ✅ 右 Win 键支持（keymap.go 补 126:ModSuper，DRM 路径左右 Win 均识别）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
-- ✅ GBM + EGL purego dlopen（自研汇编 trampoline asm_amd64.s ccall0-6 + ELF 符号解析 dlfcn.go：/proc/self/maps 定位 libc → GNU hash/SysV hash 查找 → 无 CGO 调用 C 库函数）
+- ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）
 - ✅ GBMSurface + AtomicCommitor（GBMDevice 共享 gbm_device+EGLDisplay+EGLContext；GBMSurface 实现Surface Swap: eglSwapBuffers→lock_front_buffer→AddFB→CommitSingle→wait flipCh；AtomicCommitor 属性ID缓存+primary plane发现+多CRTC同步批提交）
 - ✅ GBM 可选初始化与回退（backend.go：HasAtomic→NewGBMDevice 成功 useGBM=true，失败静默回退 dumb buffer；eventLoop 按 ev.CrtcID 路由 GBM surfaces）
 

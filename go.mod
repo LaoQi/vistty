@@ -11,3 +11,5 @@ require (
 )
 
 require golang.org/x/text v0.38.0
+
+require github.com/ebitengine/purego v0.10.1

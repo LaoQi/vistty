@@ -214,7 +214,26 @@ Terminal（简化后，纯逻辑会话）{
 - backend.go GBM 回退正确：HasAtomic 成功→NewGBMDevice 成功→useGBM=true；任意步骤失败→静默回退 dumb buffer（现有路径不变）
 - eventLoop 按 ev.CrtcID 路由 GBM surfaces
 - GBMSurface.Data() 返回 nil（GPU 纹理无 CPU mmap），现有 CPU 渲染管线不兼容（GL 渲染管线为后续工作）
-- go vet 8 个 unsafe.Pointer 警告（dlfcn.go ELF 内存解析的必要操作，无法避免）
+- ~~go vet 8 个 unsafe.Pointer 警告（dlfcn.go ELF 内存解析的必要操作，无法避免）~~ → purego 替换后已消除
+
+### P1c：purego 替换自研汇编（跨平台支持）✅
+- [x] 删除 asm_amd64.s / ccall_decl.go / dlfcn.go / loader.go（~600 行自研汇编+ELF解析）
+- [x] gbm.go 改用 purego.Dlopen+Dlsym+RegisterFunc（函数指针字段 uintptr→func 类型）
+- [x] egl.go 同上改造（optional 符号 nil 判断）
+- [x] go.mod 加 github.com/ebitengine/purego v0.10.1
+- [x] gbm_device.go/gbm_surface.go/atomic_commit.go/backend.go 无改动（方法签名不变）
+- [x] go build ./... 通过
+- [x] go vet ./... 通过（8 个 unsafe.Pointer 警告全部消除）
+- [x] go test ./... 通过
+- [x] GOOS=linux GOARCH=arm64 交叉编译通过（purego 替换核心收益）
+- **状态**: ✅ 完成
+
+### P1c 审计记录
+- purego 替换正确：Dlopen+Dlsym+RegisterFunc 三步替代自研 dlopen/ELF解析/ccallN
+- 函数指针字段改为 func 类型（如 createDevice func(fd int) uintptr），直接调用 l.createDevice(fd) 替代 ccall1(l.createDevice, fd)
+- 消除 8 个 unsafe.Pointer vet 警告（dlfcn.go 已删除）
+- 跨架构编译验证：GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build 通过（自研汇编方案在 arm64 会链接失败，purego 内部处理各架构调用约定）
+- purego Tier 1 支持 linux/amd64 + linux/arm64，Tier 2 支持 linux/386/arm/ppc64le/riscv64/loong64/s390x
 
 ## 审计记录
 
