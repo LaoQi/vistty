@@ -229,6 +229,9 @@ func (c *Compositor) Resize(cols, rows int) {
 
 func (c *Compositor) copyAllToSurface() {
 	surfData := c.surface.Data()
+	if surfData == nil {
+		return
+	}
 	surfStride := c.surface.Stride()
 	backStride := c.backStride
 	if surfStride == backStride {

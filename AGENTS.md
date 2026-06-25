@@ -178,8 +178,8 @@ github.com/LaoQi/vistty/
 │       │       ├── device.go / master.go / mode.go / dumb.go
 │       │       ├── flip.go / mmap.go / event.go
 │       │       ├── atomic.go / property.go / plane.go  # Atomic Modesetting ioctl 封装
-│       │       └── gbm/            # GBM + EGL purego dlopen（github.com/ebitengine/purego，跨架构支持 amd64/arm64）
-│       │           ├── gbm.go / egl.go
+│       │   └── gbm/            # GBM + EGL + GLES purego dlopen（github.com/ebitengine/purego，跨架构支持 amd64/arm64）
+│       │       ├── gbm.go / egl.go / gles.go
 │       └── wayland/            # Wayland 后端（单虚拟输出）
 │           ├── backend.go / surface.go / input.go
 │           ├── keymap.go / wire.go    # wire.go: 修正的 Wayland 线格式编码
@@ -306,6 +306,9 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）
 - ✅ GBMSurface + AtomicCommitor（GBMDevice 共享 gbm_device+EGLDisplay+EGLContext；GBMSurface 实现Surface Swap: eglSwapBuffers→lock_front_buffer→AddFB→CommitSingle→wait flipCh；AtomicCommitor 属性ID缓存+primary plane发现+多CRTC同步批提交）
 - ✅ GBM 可选初始化与回退（backend.go：HasAtomic→NewGBMDevice 成功 useGBM=true，失败静默回退 dumb buffer；eventLoop 按 ev.CrtcID 路由 GBM surfaces）
+- ✅ GBM GPU 渲染链路打通（GLES 纹理上传：Compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；GLSL shader 内嵌；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销）
+- ✅ DRM 属性枚举 bug 修复（GetProperty：预分配 values 缓冲区避免 EFAULT；GetObjectProperties：保留 CountProps 作缓冲区大小避免属性列表为空）
+- ✅ EGL config 兼容修复（EGL_ALPHA_SIZE 0→8 修复 EGL_BAD_MATCH；eglGetError 加载用于精确错误码）
 
 字体缓存与缩放实现详情：
 - `font.FaceCache`（cache.go）：缓存 `*opentype.Font`（全局唯一，一次 Parse）+ `map[size]*OpenTypeFace`（无上限，惰性创建）。缓存拥有 face 所有权，调用方只借用，退出时 `Close()` 统一释放
@@ -349,3 +352,8 @@ go-wayland 库已知 bug（已在 wire.go 中修复）：
 - ✅ VT 管理容错降级（tty 获取失败不报错退出，打印警告并跳过 VT 管理；SSH 远程无控制终端场景仍能 DRM 渲染到物理屏，仅无 VT 切换信号）
 - ✅ GBM 绕过开关（-nogbm：跳过 GBM/EGL 初始化走 dumb buffer；DSI-1 输出 eglCreateWindowSurface 失败时可绕过，SSH 远程 -nogbm 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
 - ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(master fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）
+- ✅ GBM GPU 渲染链路打通（GLES 纹理上传：compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；新建 gles.go 加载 libGLESv2.so 37 函数；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销；Intel i915 实测 hasBGRA=true 双屏 200+帧稳定）
+- ✅ DRM 属性枚举 bug 修复（GetProperty EFAULT：预分配 values 缓冲区避免 enum 属性首次 ioctl 写入 null 指针；GetObjectProperties CountProps=0 bug：保留首次调用的 count 作为缓冲区大小）
+- ✅ EGL config 兼容修复（EGL_ALPHA_SIZE 0→8 修复 EGL_BAD_MATCH；eglGetError 加载用于精确错误码；EGL_NATIVE_VISUAL_ID 查询匹配 GBM surface 格式）
+- ✅ GBM eglMakeCurrent 修复（Swap 前未调用 eglMakeCurrent 导致 eglSwapBuffers 失败；多屏共享 context 每帧切换 current surface）
+- ✅ GBM Data() nil panic 修复（compositor.copyAllToSurface + master.blitToSlave 添加 nil 检查跳过 CPU blit）

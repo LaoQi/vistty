@@ -2,6 +2,7 @@ package drm
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
@@ -70,6 +71,7 @@ func findPropID(fd int, objID, objType uint32, name string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("get properties for obj %d: %w", objID, err)
 	}
+
 	for _, pid := range propIDs {
 		prop, err := drminternal.GetProperty(fd, pid)
 		if err != nil {
@@ -83,6 +85,8 @@ func findPropID(fd int, objID, objType uint32, name string) (uint32, error) {
 }
 
 func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
+	debugLog := os.Getenv("VISTTY_DEBUG") != ""
+
 	res, err := drminternal.GetResources(c.fd)
 	if err != nil {
 		return 0, fmt.Errorf("get resources: %w", err)
@@ -115,19 +119,21 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 			continue
 		}
 
-		propID, err := findPropID(c.fd, pid, drminternal.ModeObjectPlane, "type")
+		propIDs, propValues, err := drminternal.GetObjectProperties(c.fd, pid, drminternal.ModeObjectPlane)
 		if err != nil {
 			continue
 		}
 
-		_, propValues, err := drminternal.GetObjectProperties(c.fd, pid, drminternal.ModeObjectPlane)
+		typePropID, err := findPropID(c.fd, pid, drminternal.ModeObjectPlane, "type")
 		if err != nil {
 			continue
 		}
 
-		propIDs, _, _ := drminternal.GetObjectProperties(c.fd, pid, drminternal.ModeObjectPlane)
 		for i, p := range propIDs {
-			if p == propID && i < len(propValues) {
+			if p == typePropID && i < len(propValues) {
+				if debugLog {
+					fmt.Fprintf(os.Stderr, "findPrimaryPlane: plane %d type=%d for CRTC %d\n", pid, propValues[i], crtcID)
+				}
 				if propValues[i] == drminternal.PlaneTypePrimary {
 					return pid, nil
 				}

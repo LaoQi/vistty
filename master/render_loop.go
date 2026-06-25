@@ -236,6 +236,9 @@ func (m *Master) renderIndependent() error {
 func (m *Master) blitToSlave(s *slave.Slave, src []byte, srcStride, srcW, srcH int) {
 	surf := s.Surface()
 	dst := surf.Data()
+	if dst == nil {
+		return
+	}
 	dstStride := surf.Stride()
 	w, h := surf.Size()
 

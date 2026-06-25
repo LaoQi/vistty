@@ -41,11 +41,11 @@ func GetObjectProperties(fd int, objID, objType uint32) ([]uint32, []uint64, err
 		return nil, nil, err
 	}
 
-	propIDs := make([]uint32, op.CountProps)
-	propValues := make([]uint64, op.CountProps)
-	op.CountProps = 0
+	propCount := op.CountProps
+	propIDs := make([]uint32, propCount)
+	propValues := make([]uint64, propCount)
 
-	if len(propIDs) > 0 {
+	if propCount > 0 {
 		op.PropsPtr = uint64(uintptr(unsafe.Pointer(&propIDs[0])))
 		op.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propValues[0])))
 	}
@@ -63,18 +63,17 @@ func GetProperty(fd int, propID uint32) (*PropertyResult, error) {
 	var p PropertyRes
 	p.PropID = propID
 
+	var values [64]uint64
+	p.ValuesPtr = uint64(uintptr(unsafe.Pointer(&values[0])))
+	p.CountValues = uint32(len(values))
+
 	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETPROPERTY, unsafe.Pointer(&p), "DRM_IOCTL_MODE_GETPROPERTY"); err != nil {
 		return nil, err
 	}
 
-	var values []uint64
-	if p.CountValues > 0 {
-		values = make([]uint64, p.CountValues)
-		p.CountValues = 0
-		p.ValuesPtr = uint64(uintptr(unsafe.Pointer(&values[0])))
-		if err := drmIoctl(fd, DRM_IOCTL_MODE_GETPROPERTY, unsafe.Pointer(&p), "DRM_IOCTL_MODE_GETPROPERTY"); err != nil {
-			return nil, err
-		}
+	actualValues := uint32(p.CountValues)
+	if actualValues > uint32(len(values)) {
+		actualValues = uint32(len(values))
 	}
 
 	name := p.Name[:]
@@ -87,7 +86,7 @@ func GetProperty(fd int, propID uint32) (*PropertyResult, error) {
 		ID:     p.PropID,
 		Name:   string(name[:end]),
 		Flags:  p.Flags,
-		Values: values,
+		Values: values[:actualValues],
 	}, nil
 }
 
