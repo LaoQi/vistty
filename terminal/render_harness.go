@@ -104,7 +104,7 @@ func (t *Terminal) RenderFrame() error {
 }
 
 // EnableFPSLogging enables per-frame timing output to stderr. When enabled,
-// the eventLoop prints the Render+Swap duration for each frame.
+// the main render loop prints the Render+Swap duration for each frame.
 func (t *Terminal) EnableFPSLogging() {
 	t.fpsLogging = true
 }

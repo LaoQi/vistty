@@ -61,11 +61,11 @@ func TestCSICursorPosition(t *testing.T) {
 	if seqs[0].Command != 'H' {
 		t.Errorf("expected command 'H', got %c", seqs[0].Command)
 	}
-	if len(seqs[0].Params) != 2 {
-		t.Fatalf("expected 2 params, got %d", len(seqs[0].Params))
+	if seqs[0].NParams != 2 {
+		t.Fatalf("expected 2 params, got %d", seqs[0].NParams)
 	}
 	if seqs[0].Params[0] != 1 || seqs[0].Params[1] != 2 {
-		t.Errorf("expected params [1,2], got %v", seqs[0].Params)
+		t.Errorf("expected params [1,2], got %v", seqs[0].Params[:seqs[0].NParams])
 	}
 }
 
@@ -81,8 +81,8 @@ func TestCSINoParams(t *testing.T) {
 	if seqs[0].Command != 'H' {
 		t.Errorf("expected command 'H', got %c", seqs[0].Command)
 	}
-	if len(seqs[0].Params) != 0 {
-		t.Errorf("expected 0 params, got %d", len(seqs[0].Params))
+	if seqs[0].NParams != 0 {
+		t.Errorf("expected 0 params, got %d", seqs[0].NParams)
 	}
 }
 
@@ -98,8 +98,8 @@ func TestCSIPrivateMode(t *testing.T) {
 	if seqs[0].Command != 'l' {
 		t.Errorf("expected command 'l', got %c", seqs[0].Command)
 	}
-	if len(seqs[0].Params) != 1 || seqs[0].Params[0] != 25 {
-		t.Errorf("expected params [25], got %v", seqs[0].Params)
+	if seqs[0].NParams != 1 || seqs[0].Params[0] != 25 {
+		t.Errorf("expected params [25], got %v", seqs[0].Params[:seqs[0].NParams])
 	}
 }
 
@@ -162,8 +162,8 @@ func TestCSIMultipleParams(t *testing.T) {
 		t.Errorf("expected command 'm', got %c", seqs[0].Command)
 	}
 	expected := []int{38, 5, 196}
-	if len(seqs[0].Params) != len(expected) {
-		t.Fatalf("expected %d params, got %d", len(expected), len(seqs[0].Params))
+	if seqs[0].NParams != len(expected) {
+		t.Fatalf("expected %d params, got %d", len(expected), seqs[0].NParams)
 	}
 	for i, v := range expected {
 		if seqs[0].Params[i] != v {

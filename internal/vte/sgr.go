@@ -44,6 +44,7 @@ func ParseSGR(params []int) []SGR {
 	}
 
 	var result []SGR
+	result = make([]SGR, 0, 8)
 	i := 0
 	for i < len(params) {
 		p := params[i]

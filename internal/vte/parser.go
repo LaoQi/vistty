@@ -34,7 +34,8 @@ const (
 type Sequence struct {
 	Action   Action
 	Command  byte
-	Params   []int
+	Params   [16]int
+	NParams  int
 	Intermed []byte
 	Data     []byte
 	Rune     rune
@@ -58,7 +59,9 @@ type Parser struct {
 }
 
 func NewParser() *Parser {
-	p := &Parser{}
+	p := &Parser{
+		seqs: make([]Sequence, 0, 256),
+	}
 	p.Reset()
 	return p
 }
@@ -247,10 +250,12 @@ func (p *Parser) feedCSIEntry(b byte) {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
+		params, n := p.copyParams()
 		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
-			Params:   copyInts(p.params),
+			Params:   params,
+			NParams:  n,
 			Intermed: intermed,
 		})
 		return
@@ -288,10 +293,12 @@ func (p *Parser) feedCSIParameter(b byte) {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
+		params, n := p.copyParams()
 		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
-			Params:   copyInts(p.params),
+			Params:   params,
+			NParams:  n,
 			Intermed: intermed,
 		})
 		return
@@ -312,10 +319,12 @@ func (p *Parser) feedCSIIntermediate(b byte) {
 		p.finalizeParam()
 		intermed := p.csiIntermed()
 		p.state = stateGround
+		params, n := p.copyParams()
 		p.seqs = append(p.seqs, Sequence{
 			Action:   ActionCSI,
 			Command:  b,
-			Params:   copyInts(p.params),
+			Params:   params,
+			NParams:  n,
 			Intermed: intermed,
 		})
 		return
@@ -449,11 +458,8 @@ func copyBytes(b []byte) []byte {
 	return cp
 }
 
-func copyInts(s []int) []int {
-	if len(s) == 0 {
-		return nil
-	}
-	cp := make([]int, len(s))
-	copy(cp, s)
-	return cp
+func (p *Parser) copyParams() ([16]int, int) {
+	var arr [16]int
+	n := copy(arr[:], p.params)
+	return arr, n
 }

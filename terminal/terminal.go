@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -174,14 +175,16 @@ func New(backend platform.Backend, opts Options) (*Terminal, error) {
 }
 
 func (t *Terminal) Run() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
 		return fmt.Errorf("initial render: %w", err)
 	}
 
-	t.wg.Add(4)
+	t.wg.Add(3)
 	go t.ptyReadLoop()
 	go t.inputLoop()
-	go t.eventLoop()
 	go t.signalLoop()
 
 	backendDone := make(chan struct{})
@@ -190,12 +193,47 @@ func (t *Terminal) Run() error {
 		close(backendDone)
 	}()
 
-	select {
-	case <-t.done:
-	case <-t.backend.Done():
-		t.signalClose()
+	ticker := time.NewTicker(time.Second / 60)
+	defer ticker.Stop()
+	resizeCh := t.surface.ResizeEvents()
+	for {
+		select {
+		case seqs := <-t.seqCh:
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "Run: processing %d sequences\n", len(seqs))
+			}
+			t.executeSequences(seqs)
+		case <-ticker.C:
+			var frameStart time.Time
+			if t.fpsLogging {
+				frameStart = time.Now()
+			}
+			if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
+				if debugLog {
+					fmt.Fprintf(os.Stderr, "Run: render error: %v\n", err)
+				}
+				t.signalClose()
+				goto exit
+			}
+			if t.fpsLogging {
+				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
+			}
+		case ev := <-resizeCh:
+			t.handleResize(ev)
+		case req := <-t.scaleReqCh:
+			t.handleScale(req)
+		case <-t.eofCh:
+			t.signalClose()
+			goto exit
+		case <-t.done:
+			goto exit
+		case <-t.backend.Done():
+			t.signalClose()
+			goto exit
+		}
 	}
 
+exit:
 	if debugLog {
 		fmt.Fprintf(os.Stderr, "Run: wg.Wait() starting\n")
 	}
@@ -287,9 +325,9 @@ func (t *Terminal) requestScale(delta int) {
 }
 
 // handleScale rebuilds the font face and recomputes the terminal grid for the
-// new font size. Runs on the eventLoop goroutine, so face/atlas mutation is
-// free of races with Render. The previous face is not closed — it remains in
-// the FaceCache for reuse when switching back to that size.
+// new font size. Runs on the main thread (render thread), so face/atlas
+// mutation is free of races with Render. The previous face is not closed — it
+// remains in the FaceCache for reuse when switching back to that size.
 func (t *Terminal) handleScale(req scaleReq) {
 	const minSize, maxSize = 6.0, 72.0
 
@@ -393,51 +431,6 @@ func (t *Terminal) cleanup() {
 	})
 }
 
-func (t *Terminal) eventLoop() {
-	defer t.wg.Done()
-	defer func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "eventLoop: exiting\n")
-		}
-	}()
-	ticker := time.NewTicker(time.Second / 60)
-	defer ticker.Stop()
-	resizeCh := t.surface.ResizeEvents()
-	for {
-		select {
-		case seqs := <-t.seqCh:
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "eventLoop: processing %d sequences\n", len(seqs))
-			}
-			t.executeSequences(seqs)
-		case <-ticker.C:
-			var frameStart time.Time
-			if t.fpsLogging {
-				frameStart = time.Now()
-			}
-			if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
-				if debugLog {
-					fmt.Fprintf(os.Stderr, "eventLoop: render error: %v\n", err)
-				}
-				t.signalClose()
-				return
-			}
-			if t.fpsLogging {
-				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
-			}
-		case ev := <-resizeCh:
-			t.handleResize(ev)
-		case req := <-t.scaleReqCh:
-			t.handleScale(req)
-		case <-t.eofCh:
-			t.signalClose()
-			return
-		case <-t.done:
-			return
-		}
-	}
-}
-
 func (t *Terminal) ptyReadLoop() {
 	defer t.wg.Done()
 	defer func() {
@@ -446,47 +439,34 @@ func (t *Terminal) ptyReadLoop() {
 		}
 	}()
 	buf := make([]byte, 4096)
-	type readResult struct {
-		n   int
-		err error
-	}
-	readCh := make(chan readResult, 1)
 	for {
-		go func() {
-			n, err := t.pty.Read(buf)
-			readCh <- readResult{n, err}
-		}()
-		select {
-		case r := <-readCh:
-			if r.err != nil {
-				if debugLog {
-					fmt.Fprintf(os.Stderr, "ptyReadLoop: read error: %v\n", r.err)
-				}
-				select {
-				case <-t.done:
-				case t.eofCh <- struct{}{}:
-				}
+		n, err := t.pty.Read(buf)
+		if err != nil {
+			if debugLog {
+				fmt.Fprintf(os.Stderr, "ptyReadLoop: read error: %v\n", err)
+			}
+			select {
+			case <-t.done:
+			case t.eofCh <- struct{}{}:
+			}
+			return
+		}
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "ptyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
+		}
+		if t.opts.RecordWriter != nil {
+			t.opts.RecordWriter.Write(buf[:n])
+		}
+		seqs := t.parser.FeedAll(buf[:n])
+		if debugLog && len(seqs) > 0 {
+			fmt.Fprintf(os.Stderr, "ptyReadLoop: parsed %d sequences\n", len(seqs))
+		}
+		if len(seqs) > 0 {
+			select {
+			case t.seqCh <- seqs:
+			case <-t.done:
 				return
 			}
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "ptyReadLoop: read %d bytes: %q\n", r.n, string(buf[:r.n]))
-			}
-			if t.opts.RecordWriter != nil {
-				t.opts.RecordWriter.Write(buf[:r.n])
-			}
-			seqs := t.parser.FeedAll(buf[:r.n])
-			if debugLog && len(seqs) > 0 {
-				fmt.Fprintf(os.Stderr, "ptyReadLoop: parsed %d sequences\n", len(seqs))
-			}
-			if len(seqs) > 0 {
-				select {
-				case t.seqCh <- seqs:
-				case <-t.done:
-					return
-				}
-			}
-		case <-t.done:
-			return
 		}
 	}
 }
@@ -695,7 +675,7 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 		n := csiParam(csi, 0, 1)
 		t.screen.ScrollDown(n)
 	case vte.CSISetTopBottomMargin:
-		if len(csi.Params) >= 2 {
+		if csi.NParams >= 2 {
 			t.screen.SetScrollRegion(csi.Params[0]-1, csi.Params[1]-1)
 		} else {
 			t.screen.SetScrollRegion(0, t.screen.Rows()-1)
@@ -764,7 +744,7 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 			t.clearAllTabStops()
 		}
 	case vte.CSISGR:
-		t.applySGR(csi.Params)
+		t.applySGR(csi.Params[:csi.NParams])
 	case vte.CSISetMode, vte.CSIResetMode, vte.CSIScreenMode:
 		t.handleMode(csi)
 	}
@@ -772,7 +752,7 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 
 func (t *Terminal) handleMode(csi vte.CSISequence) {
 	isSet := csi.Command == vte.CSISetMode
-	for _, p := range csi.Params {
+	for _, p := range csi.Params[:csi.NParams] {
 		switch p {
 		case 1:
 			t.cursorKeysApp = isSet
@@ -1347,7 +1327,7 @@ func startPty(shell string, rows, cols int) (*os.File, *os.Process, error) {
 }
 
 func csiParam(csi vte.CSISequence, idx, def int) int {
-	if idx < len(csi.Params) && csi.Params[idx] != 0 {
+	if idx < csi.NParams && csi.Params[idx] != 0 {
 		return csi.Params[idx]
 	}
 	return def

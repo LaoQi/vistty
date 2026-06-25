@@ -3,7 +3,7 @@ package vte
 import "testing"
 
 func TestCSICursorUp(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'A', Params: []int{5}}
+	seq := Sequence{Action: ActionCSI, Command: 'A', Params: [16]int{5}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSICursorUp {
 		t.Errorf("expected CSICursorUp, got %d", csi.Command)
@@ -14,18 +14,18 @@ func TestCSICursorUp(t *testing.T) {
 }
 
 func TestCSICursorPosCmd(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'H', Params: []int{10, 20}}
+	seq := Sequence{Action: ActionCSI, Command: 'H', Params: [16]int{10, 20}, NParams: 2}
 	csi := ParseCSI(seq)
 	if csi.Command != CSICursorPosition {
 		t.Errorf("expected CSICursorPosition, got %d", csi.Command)
 	}
 	if csi.Params[0] != 10 || csi.Params[1] != 20 {
-		t.Errorf("expected params [10,20], got %v", csi.Params)
+		t.Errorf("expected params [10,20], got %v", csi.Params[:csi.NParams])
 	}
 }
 
 func TestCSIDefaultParams(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'A', Params: nil}
+	seq := Sequence{Action: ActionCSI, Command: 'A'}
 	csi := ParseCSI(seq)
 	if csi.Command != CSICursorUp {
 		t.Errorf("expected CSICursorUp, got %d", csi.Command)
@@ -36,7 +36,7 @@ func TestCSIDefaultParams(t *testing.T) {
 }
 
 func TestCSIEraseInDisplay(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'J', Params: []int{2}}
+	seq := Sequence{Action: ActionCSI, Command: 'J', Params: [16]int{2}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIEraseInDisplay {
 		t.Errorf("expected CSIEraseInDisplay, got %d", csi.Command)
@@ -47,13 +47,13 @@ func TestCSIEraseInDisplay(t *testing.T) {
 }
 
 func TestCSISGR(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'm', Params: []int{1, 31}}
+	seq := Sequence{Action: ActionCSI, Command: 'm', Params: [16]int{1, 31}, NParams: 2}
 	csi := ParseCSI(seq)
 	if csi.Command != CSISGR {
 		t.Errorf("expected CSISGR, got %d", csi.Command)
 	}
-	if len(csi.Params) != 2 || csi.Params[0] != 1 || csi.Params[1] != 31 {
-		t.Errorf("expected params [1,31], got %v", csi.Params)
+	if csi.NParams != 2 || csi.Params[0] != 1 || csi.Params[1] != 31 {
+		t.Errorf("expected params [1,31], got %v", csi.Params[:csi.NParams])
 	}
 }
 
@@ -85,7 +85,7 @@ func TestCSICursorShow(t *testing.T) {
 }
 
 func TestCSIDeleteChars(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'P', Params: []int{3}}
+	seq := Sequence{Action: ActionCSI, Command: 'P', Params: [16]int{3}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIDeleteChars {
 		t.Errorf("expected CSIDeleteChars, got %d", csi.Command)
@@ -96,18 +96,18 @@ func TestCSIDeleteChars(t *testing.T) {
 }
 
 func TestCSIMargins(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'r', Params: []int{1, 24}}
+	seq := Sequence{Action: ActionCSI, Command: 'r', Params: [16]int{1, 24}, NParams: 2}
 	csi := ParseCSI(seq)
 	if csi.Command != CSISetTopBottomMargin {
 		t.Errorf("expected CSISetTopBottomMargin, got %d", csi.Command)
 	}
 	if csi.Params[0] != 1 || csi.Params[1] != 24 {
-		t.Errorf("expected params [1,24], got %v", csi.Params)
+		t.Errorf("expected params [1,24], got %v", csi.Params[:csi.NParams])
 	}
 }
 
 func TestCSIEraseChars(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'X', Params: []int{3}}
+	seq := Sequence{Action: ActionCSI, Command: 'X', Params: [16]int{3}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIEraseChars {
 		t.Errorf("expected CSIEraseChars, got %d", csi.Command)
@@ -118,7 +118,7 @@ func TestCSIEraseChars(t *testing.T) {
 }
 
 func TestCSIDeviceStatusReport(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'n', Params: []int{6}}
+	seq := Sequence{Action: ActionCSI, Command: 'n', Params: [16]int{6}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIDeviceStatusReport {
 		t.Errorf("expected CSIDeviceStatusReport, got %d", csi.Command)
@@ -126,7 +126,7 @@ func TestCSIDeviceStatusReport(t *testing.T) {
 }
 
 func TestCSIDeviceAttributes(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'c', Params: []int{0}}
+	seq := Sequence{Action: ActionCSI, Command: 'c', Params: [16]int{0}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIDeviceAttributes {
 		t.Errorf("expected CSIDeviceAttributes, got %d", csi.Command)
@@ -149,7 +149,7 @@ func TestCSIDECSCUSR(t *testing.T) {
 }
 
 func TestCSIDECSCA(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'q', Intermed: []byte{'"'}, Params: []int{1}}
+	seq := Sequence{Action: ActionCSI, Command: 'q', Intermed: []byte{'"'}, Params: [16]int{1}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSISetCharProtection {
 		t.Errorf("expected CSISetCharProtection, got %d", csi.Command)
@@ -157,7 +157,7 @@ func TestCSIDECSCA(t *testing.T) {
 }
 
 func TestCSIBareQUnknown(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'q', Params: []int{1}}
+	seq := Sequence{Action: ActionCSI, Command: 'q', Params: [16]int{1}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSIUnknown {
 		t.Errorf("expected CSIUnknown for bare q, got %d", csi.Command)
@@ -180,7 +180,7 @@ func TestCSIDA2(t *testing.T) {
 }
 
 func TestCSITabClear(t *testing.T) {
-	seq := Sequence{Action: ActionCSI, Command: 'g', Params: []int{3}}
+	seq := Sequence{Action: ActionCSI, Command: 'g', Params: [16]int{3}, NParams: 1}
 	csi := ParseCSI(seq)
 	if csi.Command != CSITabClear {
 		t.Errorf("expected CSITabClear, got %d", csi.Command)
