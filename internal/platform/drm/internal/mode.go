@@ -260,3 +260,11 @@ func publicToModeInfo(p *ModeInfoPublic) ModeInfo {
 	copy(m.Name[:], p.Name)
 	return m
 }
+
+func CreateModeBlob(fd int, mode *ModeInfoPublic) (uint32, error) {
+	m := publicToModeInfo(mode)
+	return CreateBlob(fd, unsafe.Slice((*byte)(unsafe.Pointer(&m)), unsafe.Sizeof(m)))
+}
+
+const PlaneTypePrimary = 1
+const PlaneTypeCursor = 2

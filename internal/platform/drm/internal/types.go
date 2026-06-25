@@ -127,11 +127,73 @@ type DestroyDumb struct {
 }
 
 type PageFlip struct {
-	CrtcID    uint32
-	FbID      uint32
-	Flags     uint32
-	Reserved  uint32
-	UserData  uint64
+	CrtcID   uint32
+	FbID     uint32
+	Flags    uint32
+	Reserved uint32
+	UserData uint64
+}
+
+type AtomicReq struct {
+	Flags         uint32
+	CountObjs     uint32
+	ObjsPtr       uint64
+	CountPropsPtr uint64
+	PropsPtr      uint64
+	PropValuesPtr uint64
+	Reserved      uint64
+	UserData      uint64
+}
+
+type PlaneRes struct {
+	PlaneIDPtr  uint64
+	CountPlanes uint32
+	_           uint32
+}
+
+type Plane struct {
+	PlaneID          uint32
+	CrtcID           uint32
+	FbID             uint32
+	PossibleCrtcs    uint32
+	GammaSize        uint32
+	CountFormatTypes uint32
+	FormatTypePtr    uint64
+}
+
+type PropertyRes struct {
+	ValuesPtr      uint64
+	EnumBlobPtr    uint64
+	PropID         uint32
+	Flags          uint32
+	Name           [32]byte
+	CountValues    uint32
+	CountEnumBlobs uint32
+}
+
+type ObjProperties struct {
+	PropsPtr      uint64
+	PropValuesPtr uint64
+	CountProps    uint32
+	ObjID         uint32
+	ObjType       uint32
+	_             uint32
+}
+
+type GetBlobReq struct {
+	BlobID uint32
+	Length uint32
+	Data   uint64
+}
+
+type CreateBlobReq struct {
+	Data   uint64
+	Length uint32
+	BlobID uint32
+}
+
+type DestroyBlobReq struct {
+	BlobID uint32
 }
 
 func init() {
@@ -228,6 +290,58 @@ func init() {
 
 	mustSize(reflect.TypeOf(PageFlip{}), 24)
 	mustOffset(reflect.TypeOf(PageFlip{}), "UserData", 16)
+
+	mustSize(reflect.TypeOf(AtomicReq{}), 56)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "Flags", 0)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "CountObjs", 4)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "ObjsPtr", 8)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "CountPropsPtr", 16)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "PropsPtr", 24)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "PropValuesPtr", 32)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "Reserved", 40)
+	mustOffset(reflect.TypeOf(AtomicReq{}), "UserData", 48)
+
+	mustSize(reflect.TypeOf(PlaneRes{}), 16)
+	mustOffset(reflect.TypeOf(PlaneRes{}), "PlaneIDPtr", 0)
+	mustOffset(reflect.TypeOf(PlaneRes{}), "CountPlanes", 8)
+
+	mustSize(reflect.TypeOf(Plane{}), 32)
+	mustOffset(reflect.TypeOf(Plane{}), "PlaneID", 0)
+	mustOffset(reflect.TypeOf(Plane{}), "CrtcID", 4)
+	mustOffset(reflect.TypeOf(Plane{}), "FbID", 8)
+	mustOffset(reflect.TypeOf(Plane{}), "PossibleCrtcs", 12)
+	mustOffset(reflect.TypeOf(Plane{}), "GammaSize", 16)
+	mustOffset(reflect.TypeOf(Plane{}), "CountFormatTypes", 20)
+	mustOffset(reflect.TypeOf(Plane{}), "FormatTypePtr", 24)
+
+	mustSize(reflect.TypeOf(PropertyRes{}), 64)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "ValuesPtr", 0)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "EnumBlobPtr", 8)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "PropID", 16)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "Flags", 20)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "Name", 24)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "CountValues", 56)
+	mustOffset(reflect.TypeOf(PropertyRes{}), "CountEnumBlobs", 60)
+
+	mustSize(reflect.TypeOf(ObjProperties{}), 32)
+	mustOffset(reflect.TypeOf(ObjProperties{}), "PropsPtr", 0)
+	mustOffset(reflect.TypeOf(ObjProperties{}), "PropValuesPtr", 8)
+	mustOffset(reflect.TypeOf(ObjProperties{}), "CountProps", 16)
+	mustOffset(reflect.TypeOf(ObjProperties{}), "ObjID", 20)
+	mustOffset(reflect.TypeOf(ObjProperties{}), "ObjType", 24)
+
+	mustSize(reflect.TypeOf(GetBlobReq{}), 16)
+	mustOffset(reflect.TypeOf(GetBlobReq{}), "BlobID", 0)
+	mustOffset(reflect.TypeOf(GetBlobReq{}), "Length", 4)
+	mustOffset(reflect.TypeOf(GetBlobReq{}), "Data", 8)
+
+	mustSize(reflect.TypeOf(CreateBlobReq{}), 16)
+	mustOffset(reflect.TypeOf(CreateBlobReq{}), "Data", 0)
+	mustOffset(reflect.TypeOf(CreateBlobReq{}), "Length", 8)
+	mustOffset(reflect.TypeOf(CreateBlobReq{}), "BlobID", 12)
+
+	mustSize(reflect.TypeOf(DestroyBlobReq{}), 4)
+	mustOffset(reflect.TypeOf(DestroyBlobReq{}), "BlobID", 0)
 }
 
 func strconv(v uintptr) string {

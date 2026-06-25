@@ -167,18 +167,54 @@ Terminal（简化后，纯逻辑会话）{
 - signalClose 正确遍历所有 m.terms 调 SignalClose
 - **审计修复**：handleResizeIndependent/handleScaleIndependent 漏调 SetPtySize → 已补 ft.SetPtySize(rows,cols)（4 处 SetPtySize 全部就位：mirror resize/scale + independent resize/scale）
 
-### P1：GBM + Atomic + purego dlopen（暂缓）
-- [ ] platform/drm/internal/gbm/ — purego dlopen libgbm.so+libEGL.so
-- [ ] platform/drm/internal/atomic.go — AtomicReq/AtomicCommit
-- [ ] platform/drm/internal/property.go — GetProperty/CreateBlob
-- [ ] platform/drm/internal/plane.go — GetPlaneRes/GetPlane
-- [ ] platform/drm/gbm_device.go — 共享 gbm_device+EGLDisplay
-- [ ] platform/drm/gbm_surface.go — GBMSurface implements Surface
-- [ ] platform/drm/atomic_commit.go — AtomicCommitor
-- [ ] master/render_loop.go — commitAll() GBM 分支
-- [ ] go build ./... 通过
-- [ ] go vet ./... 通过
-- **状态**: 暂缓（P0 已提交，P1 后续单独执行）
+### P1a：DRM Atomic/Property/Plane ioctl 封装 ✅
+- [x] platform/drm/internal/atomic.go — AtomicCommit + HasAtomic + AtomicFlag 常量 + AtomicObject/AtomicProp 高层 API
+- [x] platform/drm/internal/property.go — GetObjectProperties/GetProperty/CreateBlob/DestroyBlob/GetBlob + ModeObject 常量
+- [x] platform/drm/internal/plane.go — GetPlaneResources/GetPlane + PlaneResult
+- [x] platform/drm/internal/codes.go — 9 个新 ioctl 码（SET_CLIENT_CAP/GETPROPERTY/GETPROPBLOB/GETPLANERESOURCES/GETPLANE/OBJ_GETPROPERTIES/ATOMIC/CREATEPROPBLOB/DESTROYPROPBLOB）
+- [x] platform/drm/internal/types.go — 8 个新结构体 + init() 大小/偏移校验
+- [x] platform/drm/internal/cap.go — DRM_CLIENT_CAP_ATOMIC + SetClientCap + DRM_CLIENT_CAP_UNIVERSAL_PLANES
+- [x] go build ./... 通过
+- [x] go vet ./... 通过
+- [x] go test ./... 通过
+- **状态**: ✅ 完成
+
+### P1a 审计记录
+- 结构体布局全部匹配内核 UAPI（drm_mode_atomic 56B/drm_mode_get_plane_res 16B/drm_mode_get_plane 32B/drm_mode_get_property 64B/drm_mode_obj_get_properties 32B/drm_mode_create_blob 16B/drm_mode_get_blob 16B/drm_mode_destroy_blob 4B）
+- ioctl 码经内核头文件校验（0xBC/0xB5/0xB6/0xB9/0xAA/0xAC/0xBD/0xBE/0x0d 均正确）
+- Atomic 标志位正确（PageFlipEvent=0x01/PageFlipAsync=0x02/TestOnly=0x0100/NonBlock=0x0200/AllowModeset=0x0400）
+- HasAtomic 通过 SetClientCap(DRM_CLIENT_CAP_ATOMIC=3) 探测（内核唯一方式，无 DRM_CAP_ATOMIC）
+- 两步 ioctl 模式正确（GetObjectProperties/GetPlaneResources/GetPlane/GetProperty 先查 count 再查数据）
+- AtomicCommit 高层 API：AtomicObject{ID,Props[]} → 内部构建 objs/count_props/props/values 四并行数组 + runtime.KeepAlive 防 GC 回收
+- 空切片安全处理（len==0 时不取 &slice[0]）
+- 修正了任务描述中多处与内核 UAPI 不符的错误（ioctl 码/结构体字段/标志位/CAP 探测方式）
+
+### P1b：GBM + EGL purego dlopen + GBMSurface + AtomicCommitor ✅
+- [x] platform/drm/internal/gbm/asm_amd64.s — 汇编 trampoline ccall0-ccall6（SysV AMD64 ABI + 16B 栈对齐）
+- [x] platform/drm/internal/gbm/dlfcn.go — 自研 dlopen/dlsym（/proc/self/maps 定位 libc → ELF 头解析 → PT_DYNAMIC → GNU hash/SysV hash 符号查找）
+- [x] platform/drm/internal/gbm/loader.go — LibHandle 封装 + OpenLib/Sym/Close
+- [x] platform/drm/internal/gbm/gbm.go — GBMLoader（create_device/surface_create/lock_front_buffer/release_buffer/bo_get_handle/bo_get_stride 等）
+- [x] platform/drm/internal/gbm/egl.go — EGLLoader（GetDisplay/GetPlatformDisplay/Initialize/ChooseConfig/CreateContext/CreateWindowSurface/SwapBuffers 等）
+- [x] platform/drm/gbm_device.go — GBMDevice（SetClientCap→LoadGBM+LoadEGL→gbm_create_device→eglGetDisplay→eglInitialize→eglChooseConfig→eglCreateContext）
+- [x] platform/drm/gbm_surface.go — GBMSurface implements Surface（Swap: eglSwapBuffers→lock_front_buffer→AddFB→CommitSingle→wait flipCh→release old BO）
+- [x] platform/drm/atomic_commit.go — AtomicCommitor（属性ID缓存+primary plane发现+CommitSingle单CRTC/Commit多CRTC同步）
+- [x] platform/drm/backend.go — GBM 可选初始化（HasAtomic→NewGBMDevice 成功 useGBM=true，失败回退 dumb buffer）
+- [x] platform/drm/internal/mode.go — +CreateModeBlob + PlaneTypePrimary/Cursor 常量
+- [x] go build ./... 通过
+- [x] go vet ./... 通过（8 个 unsafe.Pointer 警告，ELF 内存解析必要操作）
+- [x] go test ./... 通过
+- **状态**: ✅ 完成
+
+### P1b 审计记录
+- 自研 dlopen 实现正确：不依赖 syscall.SYS_DLOPEN（dlopen 非系统调用），通过 /proc/self/maps 定位 libc → ELF 头/PT_LOAD/PT_DYNAMIC → GNU hash（含 SysV hash 回退）符号查找
+- 汇编 trampoline 正确：ccall0-ccall6 设置 RDI/RSI/RDX/RCX/R8/R9 + SUBQ $8 保证 16 字节栈对齐（SysV ABI 要求 C 函数入口 SP%16==8）
+- GBMDevice 初始化序列正确：SetClientCap(ATOMIC)+SetClientCap(UNIVERSAL_PLANES)→LoadGBM+LoadEGL→gbm_create_device→eglGetPlatformDisplay→eglInitialize→eglBindAPI→eglChooseConfig→eglCreateContext
+- AtomicCommitor 正确：primary plane 发现（PossibleCrtcs & (1<<crtcIndex)）+ 属性ID缓存（CRTC: ACTIVE/MODE_ID，Plane: FB_ID/CRTC_ID/SRC_*/CRTC_*，Connector: CRTC_ID）+ SRC_W/H <<16（16.16 定点数）+ CommitSingle（modeset/pageflip 分支）+ Commit（多 CRTC 同步批提交）
+- GBMSurface.Swap 流程正确：eglSwapBuffers→lock_front_buffer→AddFB→CommitSingle→wait flipCh→release old BO/FB
+- backend.go GBM 回退正确：HasAtomic 成功→NewGBMDevice 成功→useGBM=true；任意步骤失败→静默回退 dumb buffer（现有路径不变）
+- eventLoop 按 ev.CrtcID 路由 GBM surfaces
+- GBMSurface.Data() 返回 nil（GPU 纹理无 CPU mmap），现有 CPU 渲染管线不兼容（GL 渲染管线为后续工作）
+- go vet 8 个 unsafe.Pointer 警告（dlfcn.go ELF 内存解析的必要操作，无法避免）
 
 ## 审计记录
 
