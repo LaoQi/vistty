@@ -6,15 +6,17 @@ import (
 )
 
 type Options struct {
-	Shell       string
-	FontPath    string
-	FontSize    float64
-	Width       int
-	Height      int
-	RepeatDelay time.Duration
-	RepeatRate  time.Duration
-	OnTitle     func(string)
-	RecordWriter io.Writer
+	Shell         string
+	FontPath      string
+	FontSize      float64
+	Width         int
+	Height        int
+	RepeatDelay   time.Duration
+	RepeatRate    time.Duration
+	OnTitle       func(string)
+	RecordWriter  io.Writer
+	Primary       string
+	Mode          string
 }
 
 func DefaultOptions() Options {
@@ -26,5 +28,6 @@ func DefaultOptions() Options {
 		Height:      600,
 		RepeatDelay: 250 * time.Millisecond,
 		RepeatRate:  33 * time.Millisecond,
+		Mode:        "mirror",
 	}
 }

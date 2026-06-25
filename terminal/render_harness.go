@@ -12,15 +12,14 @@ import (
 	"github.com/LaoQi/vistty/internal/vte"
 )
 
-// NewRenderHarness constructs a Terminal with a fully initialized render
-// pipeline (font, compositor, buffer) but without starting a PTY, input
-// source, backend event loop, or any goroutine. It is intended for
-// performance measurement and offline replay scenarios.
-//
-// The surface is provided by the caller — typically a fakeSurface in tests
-// or a real backend surface for online profiling. hostWriter is set to
-// io.Discard so DSR/DA responses do not interfere with measurement.
-func NewRenderHarness(surface platform.Surface, opts Options) (*Terminal, error) {
+type RenderHarness struct {
+	*Terminal
+	compositor *render.Compositor
+	faceCache  *font.FaceCache
+	surface    platform.Surface
+}
+
+func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, error) {
 	var fontData []byte
 	if opts.FontPath != "" {
 		data, err := os.ReadFile(opts.FontPath)
@@ -64,47 +63,45 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*Terminal, error)
 	parser := vte.NewParser()
 
 	t := &Terminal{
-		screen:          buf,
-		cursor:          buf.Cursor(),
-		parser:          parser,
-		hostWriter:      io.Discard,
-		compositor:      compositor,
-		surface:         surface,
-		face:            face,
-		faceCache:       faceCache,
-		fontData:        fontData,
-		initialFontSize: opts.FontSize,
-		scaleReqCh:      make(chan scaleReq, 1),
-		done:            make(chan struct{}),
-		seqCh:           make(chan []vte.Sequence, 64),
-		eofCh:           make(chan struct{}, 1),
-		opts:            opts,
-		mainBuf:         buf,
-		altBuf:          altBuf,
-		curFg:           screen.Color{IsDefault: true},
-		curBg:           screen.Color{IsDefault: true},
-		autoWrap:        true,
-		charset:         newCharsetState(),
+		screen:     buf,
+		cursor:     buf.Cursor(),
+		parser:     parser,
+		hostWriter: io.Discard,
+		done:       make(chan struct{}),
+		seqCh:      make(chan []vte.Sequence, 64),
+		eofCh:      make(chan struct{}, 1),
+		opts:       opts,
+		mainBuf:    buf,
+		altBuf:     altBuf,
+		curFg:      screen.Color{IsDefault: true},
+		curBg:      screen.Color{IsDefault: true},
+		autoWrap:   true,
+		charset:    newCharsetState(),
+		active:     true,
+		cols:       cols,
+		rows:       rows,
 	}
 	t.initTabStops()
-	return t, nil
+
+	return &RenderHarness{
+		Terminal:   t,
+		compositor: compositor,
+		faceCache:  faceCache,
+		surface:    surface,
+	}, nil
 }
 
-// FeedBytes is the exported alias of feedBytes for use by external
-// measurement tools. It parses data through the VTE parser and executes
-// all resulting sequences against the terminal screen.
-func (t *Terminal) FeedBytes(data []byte) {
-	t.feedBytes(data)
+func (h *RenderHarness) RenderFrame() error {
+	return h.compositor.Render(h.Screen(), h.ScrollOffset())
 }
 
-// RenderFrame renders the current screen state to the surface and calls
-// Swap. It is the measurement entry point for L3 (full render) benchmarks.
-func (t *Terminal) RenderFrame() error {
-	return t.compositor.Render(t.screen, t.scrollOffset)
-}
-
-// EnableFPSLogging enables per-frame timing output to stderr. When enabled,
-// the main render loop prints the Render+Swap duration for each frame.
-func (t *Terminal) EnableFPSLogging() {
-	t.fpsLogging = true
+func (h *RenderHarness) Close() error {
+	h.Terminal.Close()
+	if h.compositor != nil {
+		h.compositor.Close()
+	}
+	if h.faceCache != nil {
+		h.faceCache.Close()
+	}
+	return nil
 }

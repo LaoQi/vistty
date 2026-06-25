@@ -229,6 +229,10 @@ func (s *WaylandSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return s.resizeCh
 }
 
+func (s *WaylandSurface) OutputID() uint32 {
+	return 0
+}
+
 func (s *WaylandSurface) resize(newWidth, newHeight int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

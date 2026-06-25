@@ -204,6 +204,31 @@ func (b *WaylandBackend) CreateSurface(width, height int) (platform.Surface, err
 	return newWaylandSurface(b, b.ctx, b.compositor, b.shm, b.wmBase, width, height)
 }
 
+type waylandOutput struct {
+	id     uint32
+	crtcID uint32
+	name   string
+	w      int
+	h      int
+}
+
+func (o *waylandOutput) ID() uint32          { return o.id }
+func (o *waylandOutput) ConnectorID() uint32 { return o.id }
+func (o *waylandOutput) CrtcID() uint32       { return o.crtcID }
+func (o *waylandOutput) Name() string         { return o.name }
+func (o *waylandOutput) Size() (int, int)     { return o.w, o.h }
+
+var _ platform.Output = (*waylandOutput)(nil)
+
+func (b *WaylandBackend) ListOutputs() ([]platform.Output, error) {
+	return []platform.Output{&waylandOutput{name: "wayland"}}, nil
+}
+
+func (b *WaylandBackend) CreateSurfaceFor(out platform.Output) (platform.Surface, error) {
+	w, h := out.Size()
+	return b.CreateSurface(w, h)
+}
+
 func (b *WaylandBackend) CreateInputSource() (platform.InputSource, error) {
 	return newWaylandInput(b.ctx, b.seat)
 }

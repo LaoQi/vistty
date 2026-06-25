@@ -24,7 +24,7 @@ func TestNvimCursorUpRewrite(t *testing.T) {
 		initial = append(initial, []byte(r)...)
 		initial = append(initial, '\r', '\n')
 	}
-	term.feedBytes(initial)
+	term.FeedBytes(initial)
 
 	// Verify initial content
 	checkCell := func(row, col int, want rune) {
@@ -44,7 +44,7 @@ func TestNvimCursorUpRewrite(t *testing.T) {
 	// then rewrite rows 2-3 with new content.
 	// This is the exact pattern from the debug log.
 	upSeq := []byte("\x1b[54;1H\x1b[52A") // CUP to last row, then CUU 52 -> row 2 (0-indexed row 1)
-	term.feedBytes(upSeq)
+	term.FeedBytes(upSeq)
 
 	// Cursor should be at row 1 (0-indexed), col 0
 	if term.cursor.Row != 1 {
@@ -56,7 +56,7 @@ func TestNvimCursorUpRewrite(t *testing.T) {
 
 	// Rewrite row 2 with "XXX" + EL, then CRLF, then row 3 with "YYY"
 	rewrite := []byte("XXX\x1b[K\r\nYYY\x1b[K")
-	term.feedBytes(rewrite)
+	term.FeedBytes(rewrite)
 
 	// Row 2 (0-indexed 1) should now be "XXX"
 	checkCell(1, 0, 'X')
@@ -81,14 +81,14 @@ func TestNvimCursorUpWithPrefix(t *testing.T) {
 
 	// Fill rows 1-3: "  1 line1", "  2 line2", "  3 line3"
 	rows := []string{"  1 line1content", "  2 line2content", "  3 line3content"}
-	term.feedBytes([]byte("\x1b[H\x1b[2J"))
+	term.FeedBytes([]byte("\x1b[H\x1b[2J"))
 	for _, r := range rows {
-		term.feedBytes([]byte(r + "\r\n"))
+		term.FeedBytes([]byte(r + "\r\n"))
 	}
 
 	// Move cursor to row 2 (0-indexed 1), rewrite "  2 " + EL
-	term.feedBytes([]byte("\x1b[2;1H"))
-	term.feedBytes([]byte("  2 \x1b[K"))
+	term.FeedBytes([]byte("\x1b[2;1H"))
+	term.FeedBytes([]byte("  2 \x1b[K"))
 
 	// After "  2 " (5 chars) + EL(0), the rest of row 2 should be cleared
 	cell := term.screen.Cell(1, 0)
@@ -119,7 +119,7 @@ func TestNvimRealSequence(t *testing.T) {
 	term.cursor = term.altBuf.Cursor()
 	term.altBuf.ClearAll()
 
-	term.feedBytes(data)
+	term.FeedBytes(data)
 
 	// Dump rows 0-6 for inspection
 	for row := 0; row < 7; row++ {
@@ -163,17 +163,17 @@ func TestSGRDoesNotResetWrapPending(t *testing.T) {
 	term.cursor = term.altBuf.Cursor()
 	term.altBuf.ClearAll()
 
-	term.feedBytes([]byte("ABCDE"))
+	term.FeedBytes([]byte("ABCDE"))
 	if !term.cursor.WrapPending {
 		t.Fatal("after filling row: WrapPending should be true")
 	}
 
-	term.feedBytes([]byte("\x1b[m\x1b[31m"))
+	term.FeedBytes([]byte("\x1b[m\x1b[31m"))
 	if !term.cursor.WrapPending {
 		t.Fatal("after SGR: WrapPending should still be true")
 	}
 
-	term.feedBytes([]byte("F"))
+	term.FeedBytes([]byte("F"))
 	if term.cursor.Row != 1 {
 		t.Fatalf("after print 'F': cursor.Row = %d, want 1 (wrapped)", term.cursor.Row)
 	}
@@ -195,13 +195,13 @@ func TestCharsetDesignateDoesNotResetWrapPending(t *testing.T) {
 	term.cursor = term.altBuf.Cursor()
 	term.altBuf.ClearAll()
 
-	term.feedBytes([]byte("ABCDE"))
-	term.feedBytes([]byte("\x1b(B"))
+	term.FeedBytes([]byte("ABCDE"))
+	term.FeedBytes([]byte("\x1b(B"))
 	if !term.cursor.WrapPending {
 		t.Fatal("after ESC ( B: WrapPending should still be true")
 	}
 
-	term.feedBytes([]byte("F"))
+	term.FeedBytes([]byte("F"))
 	if term.cursor.Row != 1 {
 		t.Fatalf("after print 'F': cursor.Row = %d, want 1 (wrapped)", term.cursor.Row)
 	}
@@ -215,13 +215,13 @@ func TestCursorMoveResetsWrapPending(t *testing.T) {
 	term.cursor = term.altBuf.Cursor()
 	term.altBuf.ClearAll()
 
-	term.feedBytes([]byte("ABCDE"))
-	term.feedBytes([]byte("\x1b[1;1H"))
+	term.FeedBytes([]byte("ABCDE"))
+	term.FeedBytes([]byte("\x1b[1;1H"))
 	if term.cursor.WrapPending {
 		t.Fatal("after CUP: WrapPending should be false")
 	}
 
-	term.feedBytes([]byte("X"))
+	term.FeedBytes([]byte("X"))
 	cell := term.screen.Cell(0, 0)
 	if cell == nil || cell.Rune != 'X' {
 		t.Errorf("cell(0,0) = %v, want 'X' (overwritten at CUP position)", cell)
@@ -237,11 +237,11 @@ func TestEraseUsesCurrentBg(t *testing.T) {
 	term.altBuf.ClearAll()
 
 	// Set custom background via SGR 48;2;R;G;B
-	term.feedBytes([]byte("\x1b[48;2;46;50;60m"))
+	term.FeedBytes([]byte("\x1b[48;2;46;50;60m"))
 	// Fill row 0 with "AAAAAAAAAA"
-	term.feedBytes([]byte("AAAAAAAAAA"))
+	term.FeedBytes([]byte("AAAAAAAAAA"))
 	// Move to col 3, erase to end of line (EL 0)
-	term.feedBytes([]byte("\x1b[1;4H\x1b[K"))
+	term.FeedBytes([]byte("\x1b[1;4H\x1b[K"))
 
 	// Cells 3-9 should be spaces with Bg = {46,50,60}
 	wantBg := screen.Color{R: 46, G: 50, B: 60}
@@ -275,9 +275,9 @@ func TestScrollUpNewLineUsesCurrentBg(t *testing.T) {
 	term.altBuf.ClearAll()
 
 	// Fill all 3 rows with 'X'
-	term.feedBytes([]byte("XXXXX\r\nXXXXX\r\nXXXXX"))
+	term.FeedBytes([]byte("XXXXX\r\nXXXXX\r\nXXXXX"))
 	// Set custom background, then scroll up 1 line
-	term.feedBytes([]byte("\x1b[48;2;46;50;60m\x1b[S"))
+	term.FeedBytes([]byte("\x1b[48;2;46;50;60m\x1b[S"))
 
 	// Bottom row (row 2) should be blank cells with custom Bg
 	wantBg := screen.Color{R: 46, G: 50, B: 60}
@@ -301,8 +301,8 @@ func TestEraseCharsUsesCurrentBg(t *testing.T) {
 	term.altBuf.ClearAll()
 
 	// Fill row with 'A', set custom bg, erase 3 chars at col 2
-	term.feedBytes([]byte("AAAAAAAAAA"))
-	term.feedBytes([]byte("\x1b[48;2;46;50;60m\x1b[2G\x1b[3X"))
+	term.FeedBytes([]byte("AAAAAAAAAA"))
+	term.FeedBytes([]byte("\x1b[48;2;46;50;60m\x1b[2G\x1b[3X"))
 
 	wantBg := screen.Color{R: 46, G: 50, B: 60}
 	for col := 1; col < 4; col++ {

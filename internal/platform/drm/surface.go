@@ -18,25 +18,27 @@ type drmbuf struct {
 }
 
 type DRMSurface struct {
-	fd      int
-	width   int
-	height  int
-	crtcID  uint32
-	bufs    [2]drmbuf
-	current int
-	mu      sync.Mutex
-	active  bool
-	flipCh  chan struct{}
+	fd          int
+	width       int
+	height      int
+	crtcID      uint32
+	connectorID uint32
+	bufs        [2]drmbuf
+	current     int
+	mu          sync.Mutex
+	active      bool
+	flipCh      chan struct{}
 }
 
-func newDRMSurface(fd int, width, height int, crtcID uint32) (*DRMSurface, error) {
+func newDRMSurface(fd int, width, height int, crtcID, connectorID uint32) (*DRMSurface, error) {
 	s := &DRMSurface{
-		fd:     fd,
-		width:  width,
-		height: height,
-		crtcID: crtcID,
-		active: true,
-		flipCh: make(chan struct{}, 1),
+		fd:          fd,
+		width:       width,
+		height:      height,
+		crtcID:      crtcID,
+		connectorID: connectorID,
+		active:      true,
+		flipCh:      make(chan struct{}, 1),
 	}
 
 	for i := 0; i < 2; i++ {
@@ -154,6 +156,10 @@ func (s *DRMSurface) closeBufs(upTo int) {
 
 func (s *DRMSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return nil
+}
+
+func (s *DRMSurface) OutputID() uint32 {
+	return s.connectorID
 }
 
 var _ platform.Surface = (*DRMSurface)(nil)

@@ -12,4 +12,5 @@ type Surface interface {
 	Swap() error
 	Close() error
 	ResizeEvents() <-chan ResizeEvent
+	OutputID() uint32
 }

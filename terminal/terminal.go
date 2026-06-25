@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -14,9 +12,7 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
-	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/internal/vte"
 )
@@ -32,248 +28,163 @@ type savedCursorState struct {
 	charset charsetState
 }
 
-type scaleReq struct {
-	delta int
-}
-
 type Terminal struct {
+	mu              sync.RWMutex
 	screen          *screen.Buffer
 	cursor          *screen.Cursor
 	parser          *vte.Parser
 	pty             *os.File
 	ptyCmd          *os.Process
 	hostWriter      io.Writer
-	compositor      *render.Compositor
-	surface         platform.Surface
-	input           platform.InputSource
-	backend         platform.Backend
-	face            font.Face
-	faceCache       *font.FaceCache
-	fontData        []byte
-	initialFontSize float64
-	scaleReqCh      chan scaleReq
-	scrollOffset    int
 	mainBuf         *screen.Buffer
 	altBuf          *screen.Buffer
 	done            chan struct{}
 	closeOnce       sync.Once
 	seqCh           chan []vte.Sequence
 	eofCh           chan struct{}
-	wg              sync.WaitGroup
 	cleanupOnce     sync.Once
 	opts            Options
 	curFg           screen.Color
 	curBg           screen.Color
 	curAttr         screen.Attributes
 	saved           savedCursorState
-	resizeCh        <-chan platform.ResizeEvent
+	scrollOffset    int
 	autoWrap        bool
-	cursorKeysApp   bool
+	cursorKeysApp  bool
 	bracketedPaste  bool
 	focusReporting  bool
 	charset         charsetState
 	tabStops        []bool
-	fpsLogging      bool
+	active          bool
+	cols            int
+	rows            int
 }
 
-func New(backend platform.Backend, opts Options) (*Terminal, error) {
-	surface, err := backend.CreateSurface(opts.Width, opts.Height)
-	if err != nil {
-		return nil, fmt.Errorf("create surface: %w", err)
-	}
-
-	input, err := backend.CreateInputSource()
-	if err != nil {
-		surface.Close()
-		return nil, fmt.Errorf("create input source: %w", err)
-	}
-
-	var fontData []byte
-	if opts.FontPath != "" {
-		fontData, err = os.ReadFile(opts.FontPath)
-		if err != nil {
-			input.Close()
-			surface.Close()
-			return nil, fmt.Errorf("read font file: %w", err)
-		}
-	} else {
-		fontData = font.EmbeddedFontData()
-	}
-
-	faceCache, err := font.NewFaceCache(fontData, 72)
-	if err != nil {
-		input.Close()
-		surface.Close()
-		return nil, fmt.Errorf("load font: %w", err)
-	}
-
-	face, err := faceCache.Get(opts.FontSize)
-	if err != nil {
-		faceCache.Close()
-		input.Close()
-		surface.Close()
-		return nil, fmt.Errorf("load font: %w", err)
-	}
-
-	m := face.Metrics()
-	w, h := surface.Size()
-	cols := w / m.Width
-	rows := 0
-	if m.Height > 0 {
-		rows = h / m.Height
-	}
+func New(opts Options, cols, rows int) (*Terminal, error) {
 	if cols <= 0 {
 		cols = 80
 	}
 	if rows <= 0 {
 		rows = 24
 	}
-
 	buf := screen.NewBuffer(cols, rows)
 	altBuf := screen.NewBuffer(cols, rows)
 	altBuf.SetAltScreen(true)
-	compositor := render.NewCompositor(surface, face)
 	parser := vte.NewParser()
 
 	ptyFile, cmdProc, err := startPty(opts.Shell, rows, cols)
 	if err != nil {
-		faceCache.Close()
-		input.Close()
-		surface.Close()
 		return nil, fmt.Errorf("start pty: %w", err)
 	}
 
 	term := &Terminal{
-		screen:          buf,
-		cursor:          buf.Cursor(),
-		parser:          parser,
-		pty:             ptyFile,
-		ptyCmd:          cmdProc,
-		hostWriter:      ptyFile,
-		compositor:      compositor,
-		surface:         surface,
-		input:           input,
-		backend:         backend,
-		face:            face,
-		faceCache:       faceCache,
-		fontData:        fontData,
-		initialFontSize: opts.FontSize,
-		scaleReqCh:      make(chan scaleReq, 1),
-		done:            make(chan struct{}),
-		seqCh:           make(chan []vte.Sequence, 64),
-		eofCh:           make(chan struct{}, 1),
-		opts:            opts,
-		mainBuf:         buf,
-		altBuf:          altBuf,
-		curFg:           screen.Color{IsDefault: true},
-		curBg:           screen.Color{IsDefault: true},
-		autoWrap:        true,
-		charset:         newCharsetState(),
+		screen:     buf,
+		cursor:     buf.Cursor(),
+		parser:     parser,
+		pty:        ptyFile,
+		ptyCmd:     cmdProc,
+		hostWriter: ptyFile,
+		done:       make(chan struct{}),
+		seqCh:      make(chan []vte.Sequence, 64),
+		eofCh:      make(chan struct{}, 1),
+		opts:        opts,
+		mainBuf:     buf,
+		altBuf:      altBuf,
+		curFg:       screen.Color{IsDefault: true},
+		curBg:       screen.Color{IsDefault: true},
+		autoWrap:    true,
+		charset:     newCharsetState(),
+		active:      true,
+		cols:        cols,
+		rows:        rows,
 	}
 	term.initTabStops()
 	return term, nil
 }
 
-func (t *Terminal) Run() error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+func (t *Terminal) Apply(seqs []vte.Sequence) {
+	t.mu.Lock()
+	t.executeSequences(seqs)
+	t.mu.Unlock()
+}
 
-	if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
-		return fmt.Errorf("initial render: %w", err)
-	}
+func (t *Terminal) FeedBytes(data []byte) {
+	seqs := t.parser.FeedAll(data)
+	t.mu.Lock()
+	t.executeSequences(seqs)
+	t.mu.Unlock()
+}
 
-	t.wg.Add(3)
-	go t.ptyReadLoop()
-	go t.inputLoop()
-	go t.signalLoop()
+func (t *Terminal) Screen() *screen.Buffer {
+	return t.screen
+}
 
-	backendDone := make(chan struct{})
-	go func() {
-		t.backend.Run(func() {})
-		close(backendDone)
-	}()
+func (t *Terminal) Cursor() *screen.Cursor {
+	return t.cursor
+}
 
-	ticker := time.NewTicker(time.Second / 60)
-	defer ticker.Stop()
-	resizeCh := t.surface.ResizeEvents()
-	for {
-		select {
-		case seqs := <-t.seqCh:
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "Run: processing %d sequences\n", len(seqs))
-			}
-			t.executeSequences(seqs)
-		case <-ticker.C:
-			var frameStart time.Time
-			if t.fpsLogging {
-				frameStart = time.Now()
-			}
-			if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
-				if debugLog {
-					fmt.Fprintf(os.Stderr, "Run: render error: %v\n", err)
-				}
-				t.signalClose()
-				goto exit
-			}
-			if t.fpsLogging {
-				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
-			}
-		case ev := <-resizeCh:
-			t.handleResize(ev)
-		case req := <-t.scaleReqCh:
-			t.handleScale(req)
-		case <-t.eofCh:
-			t.signalClose()
-			goto exit
-		case <-t.done:
-			goto exit
-		case <-t.backend.Done():
-			t.signalClose()
-			goto exit
-		}
-	}
+func (t *Terminal) SeqCh() <-chan []vte.Sequence {
+	return t.seqCh
+}
 
-exit:
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "Run: wg.Wait() starting\n")
-	}
-	t.wg.Wait()
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "Run: wg.Wait() done, calling backend.Stop()\n")
-	}
-	t.backend.Stop()
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "Run: backend.Stop() done, waiting for backendDone\n")
-	}
-	<-backendDone
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "Run: backendDone, closing input\n")
-	}
-	t.input.Close()
-	t.cleanup()
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "Run: cleanup done\n")
-	}
-	return nil
+func (t *Terminal) EofCh() <-chan struct{} {
+	return t.eofCh
+}
+
+func (t *Terminal) Done() <-chan struct{} {
+	return t.done
+}
+
+func (t *Terminal) ScrollOffset() int {
+	return t.scrollOffset
+}
+
+func (t *Terminal) SetScrollOffset(n int) {
+	t.scrollOffset = n
+}
+
+func (t *Terminal) Active() bool {
+	return t.active
+}
+
+func (t *Terminal) Cols() int {
+	return t.cols
+}
+
+func (t *Terminal) Rows() int {
+	return t.rows
+}
+
+func (t *Terminal) CursorKeysApp() bool {
+	return t.cursorKeysApp
+}
+
+func (t *Terminal) Lock() {
+	t.mu.Lock()
+}
+
+func (t *Terminal) Unlock() {
+	t.mu.Unlock()
+}
+
+func (t *Terminal) RLock() {
+	t.mu.RLock()
+}
+
+func (t *Terminal) RUnlock() {
+	t.mu.RUnlock()
 }
 
 func (t *Terminal) Close() error {
-	t.signalClose()
-	t.wg.Wait()
-	if t.backend != nil {
-		t.backend.Stop()
-	}
-	if t.input != nil {
-		t.input.Close()
-	}
+	t.SignalClose()
 	t.cleanup()
 	return nil
 }
 
-func (t *Terminal) signalClose() {
+func (t *Terminal) SignalClose() {
 	t.closeOnce.Do(func() {
 		if debugLog {
-			fmt.Fprintf(os.Stderr, "signalClose: closing done and pty\n")
+			fmt.Fprintf(os.Stderr, "SignalClose: closing done and pty\n")
 		}
 		close(t.done)
 		if t.pty != nil {
@@ -282,19 +193,17 @@ func (t *Terminal) signalClose() {
 	})
 }
 
-func (t *Terminal) handleResize(ev platform.ResizeEvent) {
-	m := t.face.Metrics()
-	cols := ev.Width / m.Width
-	rows := ev.Height / m.Height
+func (t *Terminal) Resize(cols, rows int) {
 	if cols <= 0 {
 		cols = 80
 	}
 	if rows <= 0 {
 		rows = 24
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.mainBuf.Resize(cols, rows)
 	t.altBuf.Resize(cols, rows)
-	t.compositor.Resize(cols, rows)
 	if t.cursor.Row >= rows {
 		t.cursor.Row = rows - 1
 	}
@@ -303,6 +212,12 @@ func (t *Terminal) handleResize(ev platform.ResizeEvent) {
 	}
 	t.scrollOffset = 0
 	t.initTabStops()
+	t.cols = cols
+	t.rows = rows
+	t.setPtySize(rows, cols)
+}
+
+func (t *Terminal) SetPtySize(rows, cols int) {
 	t.setPtySize(rows, cols)
 }
 
@@ -311,84 +226,6 @@ func (t *Terminal) setPtySize(rows, cols int) {
 		return
 	}
 	_ = pty.Setsize(t.pty, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
-}
-
-// requestScale enqueues a font scale request. delta > 0 zooms in, < 0 zooms
-// out, 0 resets to the initial font size. Non-blocking: it drops the request
-// if a previous one is still pending (cap-1 channel), coalescing rapid input.
-func (t *Terminal) requestScale(delta int) {
-	select {
-	case t.scaleReqCh <- scaleReq{delta: delta}:
-	case <-t.done:
-	default:
-	}
-}
-
-// handleScale rebuilds the font face and recomputes the terminal grid for the
-// new font size. Runs on the main thread (render thread), so face/atlas
-// mutation is free of races with Render. The previous face is not closed — it
-// remains in the FaceCache for reuse when switching back to that size.
-func (t *Terminal) handleScale(req scaleReq) {
-	const minSize, maxSize = 6.0, 72.0
-
-	newSize := t.opts.FontSize + float64(req.delta)
-	if req.delta == 0 {
-		newSize = t.initialFontSize
-	}
-	if newSize < minSize {
-		newSize = minSize
-	}
-	if newSize > maxSize {
-		newSize = maxSize
-	}
-	if newSize == t.opts.FontSize {
-		return
-	}
-
-	newFace, err := t.faceCache.Get(newSize)
-	if err != nil {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "handleScale: face cache get failed: %v\n", err)
-		}
-		return
-	}
-
-	t.opts.FontSize = newSize
-	t.face = newFace
-	t.compositor.SetFace(newFace)
-
-	m := newFace.Metrics()
-	w, h := t.surface.Size()
-	cols := w / m.Width
-	rows := 0
-	if m.Height > 0 {
-		rows = h / m.Height
-	}
-	if cols <= 0 {
-		cols = 80
-	}
-	if rows <= 0 {
-		rows = 24
-	}
-
-	t.mainBuf.Resize(cols, rows)
-	t.altBuf.Resize(cols, rows)
-	t.compositor.Resize(cols, rows)
-	if t.cursor.Row >= rows {
-		t.cursor.Row = rows - 1
-	}
-	if t.cursor.Col >= cols {
-		t.cursor.Col = cols - 1
-	}
-	t.scrollOffset = 0
-	t.initTabStops()
-	t.setPtySize(rows, cols)
-
-	if err := t.compositor.Render(t.screen, t.scrollOffset); err != nil {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
-		}
-	}
 }
 
 func (t *Terminal) cleanup() {
@@ -414,28 +251,15 @@ func (t *Terminal) cleanup() {
 			}
 		}
 		if debugLog {
-			fmt.Fprintf(os.Stderr, "cleanup: pty done, closing compositor\n")
-		}
-		if t.compositor != nil {
-			t.compositor.Close()
-		}
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "cleanup: compositor done, closing face cache\n")
-		}
-		if t.faceCache != nil {
-			t.faceCache.Close()
-		}
-		if debugLog {
 			fmt.Fprintf(os.Stderr, "cleanup: done\n")
 		}
 	})
 }
 
-func (t *Terminal) ptyReadLoop() {
-	defer t.wg.Done()
+func (t *Terminal) PtyReadLoop() {
 	defer func() {
 		if debugLog {
-			fmt.Fprintf(os.Stderr, "ptyReadLoop: exiting\n")
+			fmt.Fprintf(os.Stderr, "PtyReadLoop: exiting\n")
 		}
 	}()
 	buf := make([]byte, 4096)
@@ -443,7 +267,7 @@ func (t *Terminal) ptyReadLoop() {
 		n, err := t.pty.Read(buf)
 		if err != nil {
 			if debugLog {
-				fmt.Fprintf(os.Stderr, "ptyReadLoop: read error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "PtyReadLoop: read error: %v\n", err)
 			}
 			select {
 			case <-t.done:
@@ -452,14 +276,14 @@ func (t *Terminal) ptyReadLoop() {
 			return
 		}
 		if debugLog {
-			fmt.Fprintf(os.Stderr, "ptyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
+			fmt.Fprintf(os.Stderr, "PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
 		}
 		if t.opts.RecordWriter != nil {
 			t.opts.RecordWriter.Write(buf[:n])
 		}
 		seqs := t.parser.FeedAll(buf[:n])
 		if debugLog && len(seqs) > 0 {
-			fmt.Fprintf(os.Stderr, "ptyReadLoop: parsed %d sequences\n", len(seqs))
+			fmt.Fprintf(os.Stderr, "PtyReadLoop: parsed %d sequences\n", len(seqs))
 		}
 		if len(seqs) > 0 {
 			select {
@@ -733,9 +557,9 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 	case vte.CSIDeviceStatusReport:
 		t.handleDSR(csi)
 	case vte.CSIDeviceAttributes:
-		t.ptyWrite([]byte("\x1b[?62;4c"))
+		t.PtyWrite([]byte("\x1b[?62;4c"))
 	case vte.CSIDeviceAttributes2:
-		t.ptyWrite([]byte("\x1b[>0;0;0c"))
+		t.PtyWrite([]byte("\x1b[>0;0;0c"))
 	case vte.CSITabClear:
 		n := csiParam(csi, 0, 0)
 		if n == 0 {
@@ -991,14 +815,14 @@ func (t *Terminal) handleDSR(csi vte.CSISequence) {
 	n := csiParam(csi, 0, 0)
 	switch n {
 	case 5:
-		t.ptyWrite([]byte("\x1b[0n"))
+		t.PtyWrite([]byte("\x1b[0n"))
 	case 6:
 		row := t.cursor.Row + 1
 		col := t.cursor.Col + 1
 		if csi.Private {
-			t.ptyWrite([]byte(fmt.Sprintf("\x1b[?%d;%d;1R", row, col)))
+			t.PtyWrite([]byte(fmt.Sprintf("\x1b[?%d;%d;1R", row, col)))
 		} else {
-			t.ptyWrite([]byte(fmt.Sprintf("\x1b[%d;%dR", row, col)))
+			t.PtyWrite([]byte(fmt.Sprintf("\x1b[%d;%dR", row, col)))
 		}
 	}
 }
@@ -1108,60 +932,7 @@ func (t *Terminal) applySGR(params []int) {
 	t.screen.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 }
 
-func (t *Terminal) inputLoop() {
-	defer t.wg.Done()
-	if debugLog {
-		defer fmt.Fprintf(os.Stderr, "inputLoop: exiting\n")
-	}
-
-	var repeatEv platform.KeyEvent
-	var delayTimer *time.Timer
-	var rateTicker *time.Ticker
-	var delayCh <-chan time.Time
-	var rateCh <-chan time.Time
-
-	stopRepeat := func() {
-		if delayTimer != nil {
-			delayTimer.Stop()
-			delayTimer = nil
-			delayCh = nil
-		}
-		if rateTicker != nil {
-			rateTicker.Stop()
-			rateTicker = nil
-			rateCh = nil
-		}
-	}
-	defer stopRepeat()
-
-	for {
-		select {
-		case ev := <-t.input.KeyEvents():
-			stopRepeat()
-			if ev.State != platform.KeyPress {
-				continue
-			}
-			t.handleKey(ev)
-			if !platform.LookupModifierCode(ev.Code) {
-				repeatEv = ev
-				delayTimer = time.NewTimer(t.opts.RepeatDelay)
-				delayCh = delayTimer.C
-			}
-		case <-delayCh:
-			delayTimer = nil
-			delayCh = nil
-			rateTicker = time.NewTicker(t.opts.RepeatRate)
-			rateCh = rateTicker.C
-			t.handleKey(repeatEv)
-		case <-rateCh:
-			t.handleKey(repeatEv)
-		case <-t.done:
-			return
-		}
-	}
-}
-
-func (t *Terminal) handleKey(ev platform.KeyEvent) {
+func (t *Terminal) HandleKey(ev platform.KeyEvent) {
 	if t.scrollOffset > 0 && !platform.LookupModifierCode(ev.Code) {
 		if !(ev.Mods&platform.ModShift != 0 && (ev.Code == 104 || ev.Code == 109)) {
 			t.scrollOffset = 0
@@ -1183,29 +954,20 @@ func (t *Terminal) handleKey(ev platform.KeyEvent) {
 				return
 			}
 		}
-		t.writeKeyEscape(ev.Code, ev.Mods)
+		t.WriteKeyEscape(ev.Code, ev.Mods)
 		return
 	}
 
 	if ev.Mods&platform.ModCtrl != 0 {
 		switch ev.Rune {
 		case 'C', 'c':
-			t.ptyWrite([]byte{0x03})
+			t.PtyWrite([]byte{0x03})
 			return
 		case 'D', 'd':
-			t.ptyWrite([]byte{0x04})
+			t.PtyWrite([]byte{0x04})
 			return
 		case 'Z', 'z':
-			t.ptyWrite([]byte{0x1a})
-			return
-		case '=':
-			t.requestScale(1)
-			return
-		case '-':
-			t.requestScale(-1)
-			return
-		case '0':
-			t.requestScale(0)
+			t.PtyWrite([]byte{0x1a})
 			return
 		}
 	}
@@ -1213,24 +975,20 @@ func (t *Terminal) handleKey(ev platform.KeyEvent) {
 	if ev.Rune != 0 {
 		var buf [4]byte
 		n := utf8.EncodeRune(buf[:], ev.Rune)
-		t.ptyWrite(buf[:n])
+		t.PtyWrite(buf[:n])
 	}
 }
 
-func (t *Terminal) ptyWrite(b []byte) {
+func (t *Terminal) PtyWrite(b []byte) {
 	if t.hostWriter == nil {
 		return
 	}
 	if _, err := t.hostWriter.Write(b); err != nil {
-		t.signalClose()
+		t.SignalClose()
 	}
 }
 
-func (t *Terminal) feedBytes(data []byte) {
-	t.executeSequences(t.parser.FeedAll(data))
-}
-
-func (t *Terminal) writeKeyEscape(code uint16, mods platform.Modifiers) {
+func (t *Terminal) WriteKeyEscape(code uint16, mods platform.Modifiers) {
 	var seq string
 	prefix := ""
 
@@ -1286,33 +1044,9 @@ func (t *Terminal) writeKeyEscape(code uint16, mods platform.Modifiers) {
 	}
 
 	if prefix != "" {
-		t.ptyWrite([]byte(prefix))
+		t.PtyWrite([]byte(prefix))
 	}
-	t.ptyWrite([]byte(seq))
-}
-
-func (t *Terminal) signalLoop() {
-	defer t.wg.Done()
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
-	defer signal.Stop(ch)
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "signalLoop: started, waiting for signal\n")
-	}
-	select {
-	case sig := <-ch:
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "signalLoop: received %v\n", sig)
-		}
-		t.signalClose()
-	case <-t.done:
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "signalLoop: done channel closed\n")
-		}
-	}
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "signalLoop: exiting\n")
-	}
+	t.PtyWrite([]byte(seq))
 }
 
 func startPty(shell string, rows, cols int) (*os.File, *os.Process, error) {

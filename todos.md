@@ -1,107 +1,185 @@
-# xterm-256 VT 支持改进计划
+# Vistty Master/Slave 多屏架构改造
 
-## 决策记录
-- terminal 层测试：提取可测试核心（`hostWriter` 字段 + `feedBytes` + `newTerminalForTest`）
-- 实现范围：P0 + P1，去除鼠标支持（?1000/?1002/?1006 不做）
-- DA1 响应身份：`ESC[?62;4c`（VT220 + SGR 颜色）
-- 字符集：DEC line drawing（`ESC ( 0`）+ G1/SO/SI 全部纳入
-- `?1004` 焦点：仅存标志位，预留平台接入
-- `?2004` 括号粘贴：仅存标志位 + 预留粘贴包裹
+## 决策汇总
 
-## 缺陷清单（全部已修复）
+| 维度 | 决策 |
+|------|------|
+| 架构 | master/slave，同进程 goroutine |
+| 模式 | `-mode mirror\|independent` 启动参数，无运行时切换 |
+| 镜像渲染 | master 集中渲染，按主屏 winsize，其他屏裁剪黑边 |
+| 独立渲染 | 每 slave 独立 compositor+faceCache，串行渲染 |
+| font 归属 | mirror 全局共享；independent 每 slave 独立 |
+| 主屏 | `-primary <名称\|索引>`，默认第一个 connected |
+| 设备范围 | 单卡多 connector |
+| GBM | P1，强制 Atomic Modesetting |
+| tabs | 仅预留接口（Slave.terms[]/active 字段就位），后期实现 |
+| scrollOffset | 暂留 Terminal，后期重做为 string 历史检索 |
+| 后台 terminal winsize | 冻结最后值 |
+| 模式切换 | 无热键，仅启动参数 |
+| 缩放热键 | Ctrl→Mod(Win)，Mod+=/-/0 |
+| 焦点切换 | Mod+1..9 / Mod+Tab（independent） |
 
-### 解析层 (`internal/vte/`)
-- [x] `csi.go` `CSI q` 不检查 intermediate → DECSCUSR/DECSCA/裸q 混淆 → 按 intermed 分发
-- [x] `sgr.go` SGR 22 只发 BoldOff，漏 DimOff → 同时返回 BoldOff + DimOff
-- [x] 缺 CSI 命令：X(ECH)、n(DSR)、c(DA1)、>c(DA2)、g(TBC) → 全部新增
-- [x] `csi.go` 私有标记 `>`/`=`/`<` 不分发 → parseCSIPrivate 按 marker 分发
-- [x] `esc.go` 不识别 `ESC ( B/0`（G0/G1 字符集）→ 新增 ESCDesignateG0/G1
-- [x] `osc.go` 缺 OSC 2（窗口标题）→ 新增
+## 架构总览
 
-### 执行层 (`terminal/terminal.go`)
-- [x] `handleMode` 仅 ?25/?1049 → 扩展 ?1/?7/?47/?1047/?1048/?1004/?2004
-- [x] DECSC/DECRC 只存行列 → savedCursorState 含 SGR/charset
-- [x] `eraseDisplay` 缺 case 3 → 新增清 scrollback
-- [x] 无响应回写通道 → hostWriter 字段 + ptyWrite 改写
-- [x] `execCSI` 缺 ECH/DSR/DA1/DA2/TBC → 全部新增
-- [x] `setTitle` 空实现 → 调用 opts.OnTitle
-- [x] `writeKeyEscape` 硬编码 → 应用光标键模式
-- [x] 无字符集状态 → charset.go + execPrint 转换 + SO/SI
+```
+cmd/vistty -mode mirror|independent -primary <name|idx>
+    └── master.New(backend, opts)
+          ├─ 枚举 outputs → 主屏标记 → 每 output 一个 Slave
+          ├─ Terminal 池（active 标志 + 绑定分配）
+          ├─ input 路由（Mod+num/Tab 焦点；Mod+=/-/0 缩放）
+          ├─ 渲染主循环（LockOSThread）
+          │    mirror:    master 持 compositor+faceCache → 渲染1次 → 裁剪分发各 slave
+          │    independent: 各 slave 自持 compositor+faceCache → 串行渲染 → commitAll
+          └─ commitAll()（dumb: per-surface Swap；GBM: AtomicCommit）
 
-## 实施阶段
+Slave {
+    output, surface, backBuf
+    terms    []*Terminal   // 绑定列表（mirror:共享单T；independent:独占T；tabs预留:多T）
+    active   int           // 焦点 T 索引（tabs 预留，当前恒 0）
+    // 独立模式独有：
+    compositor *Compositor, faceCache *FaceCache, scrollOffset int
+}
 
-### 阶段 0：测试基础设施 [x]
-- [x] `terminal.go` 新增 `hostWriter io.Writer` 字段，`ptyWrite` 改写它，`New()` 置 ptyFile
-- [x] `terminal.go` 新增 `feedBytes([]byte)` 方法
-- [x] `terminal_test.go` 新增 `newTerminalForTest(cols,rows)` 辅助
-- [x] 验证：现有测试全部通过
+Terminal（简化后，纯逻辑会话）{
+    screen(mainBuf+altBuf), cursor, parser, pty, ptyCmd
+    seqCh, eofCh, mu, active, done
+    终端状态: curFg/curBg/curAttr/saved/autoWrap/charset/tabStops/...
+    scrollOffset(暂留), cols/rows
+    方法: FeedBytes/Apply/WriteToPTY/SetPtySize/Close — 无 Render/Swap/Run/HandleKey
+}
+```
 
-### 阶段 1：vte 解析层 [x]
-- [x] 1.1 `sgr.go` SGR 22 修复 → `sgr_test.go` 测试
-- [x] 1.2 `csi.go` 新增枚举 ECH/DSR/DA1/DA2/TBC/DECSCA + q 按 intermed 分发 + 私有 > 分发 → `csi_test.go` 测试
-- [x] 1.3 `esc.go` 新增 G0/G1 字符集枚举 + `( ) * +` 识别 → `esc_test.go` 测试
-- [x] 1.4 `osc.go` 新增 OSC 2 → `osc_test.go` 测试
-- [x] 1.5 `parser_test.go` 补 intermed/私有标记/连续 OSC 测试
-- [x] 验证：86 测试全通过
+## 热键方案
 
-### 阶段 2：terminal 执行层 [x]
-- [x] 2.1 光标/擦除：ECH(X)、ED case3、TBC(g) → `terminal_csi_test.go`
-- [x] 2.2 DSR/DA 响应回写 → `terminal_response_test.go`
-- [x] 2.3 模式标志位：DECAWM(?7)、DECCKM(?1)、?2004、?47/1047/1048、?1004 → `terminal_mode_test.go`
-- [x] 2.4 DECSC/DECRC 属性保存（savedState 重构）→ `terminal_state_test.go`
-- [x] 2.5 DECSCUSR 闪烁/稳定 → `terminal_cursor_test.go`
-- [x] 2.6 字符集：charset.go + execPrint 转换 + SO/SI → `terminal_charset_test.go`
-- [x] 2.7 OSC 标题落地（OnTitle）→ `terminal_osc_test.go`
-- [x] 验证：`go vet ./... && go test ./...` 全通过
+| 快捷键 | 功能 | 适用模式 | 改动 |
+|--------|------|---------|------|
+| Mod+=/-/0 | 放大/缩小/重置字体 | 两者 | 替换 Ctrl（terminal.go:1190） |
+| Mod+1..9 | 焦点切到第 N 屏 | independent | 新增 |
+| Mod+Tab | 轮转焦点 | independent | 新增 |
+
+底层 `ModSuper`（input.go:16）已就绪，仅需 master input_route 加分支；keymap.go:37 补 126:ModSuper（右Win）。
+
+## 文件改造清单
+
+### 新增
+| 文件 | 职责 |
+|------|------|
+| `platform/output.go` | Output 接口（ID/ConnectorID/CrtcID/Mode/Size/Name） |
+| `master/master.go` | 枚举+主屏标记+Terminal池+焦点+input路由+模式(font归属) |
+| `master/render_loop.go` | 统一主循环: 镜像裁剪分发/独立串行 + commitAll |
+| `slave/slave.go` | Slave: output+surface+backBuf+terms[]+active+(独立)compositor/faceCache |
+
+### 改造
+| 文件 | 改动 |
+|------|------|
+| `terminal/terminal.go` | 剥离 surface/compositor/input/backend/font/Run/handleKey/handleScale/handleResize/fps；保留 PTY+screen+parser+状态+CSI执行+FeedBytes/Apply；增 active/mu/cols/rows |
+| `terminal/options.go` | 增 Primary string + Mode string |
+| `platform/drm/display.go` | findDisplay→findOutputs()；DisplayInfo 增 Name |
+| `platform/drm/backend.go` | 单字段→outputs+surfaces map；CreateSurfaceFor；eventLoop 按 ev.CrtcID 路由 |
+| `platform/drm/surface.go` | 增 OutputID() |
+| `platform/keymap.go:37` | 补 126:ModSuper（右Win） |
+| `cmd/vistty/main.go` | 增 -primary/-mode flag；terminal.New→master.New |
+
+### GBM（P1）
+| 文件 | 职责 |
+|------|------|
+| `platform/drm/internal/gbm/` | purego dlopen libgbm.so+libEGL.so |
+| `platform/drm/internal/atomic.go/property.go/plane.go` | 填充骨架 |
+| `platform/drm/gbm_device.go/gbm_surface.go/atomic_commit.go` | GBM 后端 |
+
+## 关键设计要点
+
+1. **eventLoop CrtcID 路由**（P0a 硬前提）：backend.go:147-149 现丢弃 ev.CrtcID，多屏 flip 串扰。改 surfaces[ev.CrtcID].notifyFlip()。
+2. **Terminal 并发保护**：pty-read goroutine 写 screen（apply 持 mu 写锁），master/View 渲染读（RLock）。镜像共享单 T 时多 slave 读同一 T，只读无竞争。
+3. **镜像裁剪**：master 渲染主屏 backBuf，各 slave 按 min(主屏cols,本屏cols)×min(主屏rows,本屏rows) 拷左上区域，超出填背景色。
+4. **scrollOffset 暂留 Terminal**：当前保留现有机制，镜像多屏共享会互相干扰滚动（已知暂时缺陷）。后期重做时移除。
+5. **Wayland 适配**：ListOutputs() 返回单虚拟输出，退化为单 slave，镜像/独立无差异。
+
+## 阶段追踪
+
+### P0a：接口 + dumb buffer 多屏路由 ✅
+- [x] platform/output.go — Output 接口
+- [x] platform/backend.go — ListOutputs/CreateSurfaceFor 接口
+- [x] platform/surface.go — 增 OutputID()
+- [x] platform/drm/display.go — findDisplay→findOutputs()；DisplayInfo 增 Name + 字段 unexported 消冲突
+- [x] platform/drm/backend.go — outputs[]+surfaces map；CreateSurfaceFor；eventLoop CrtcID 路由修复
+- [x] platform/drm/surface.go — OutputID() 实现 + connectorID 字段
+- [x] platform/keymap.go — 补 126:ModSuper
+- [x] platform/wayland/ — ListOutputs/CreateSurfaceFor/waylandOutput 适配
+- [x] go build ./... 通过
+- [x] go vet ./... 通过
+- [x] go test ./... 通过（9 包 ok）
+- **状态**: ✅ 完成
+
+### P0a 审计记录
+- eventLoop CrtcID 路由（backend.go:186-192）：优先 `b.surfaces[ev.CrtcID].notifyFlip()`，fallback `b.surface` —— 多屏正确性硬前提已修复
+- findOutputs（display.go:60）：返回所有 connected 输出，preferred mode 选择（modeTypePreferred），21 种 connector type name 映射
+- DisplayInfo 字段改 unexported（connID/crtcID/mode/savedCrtc/name）消除 field/method 同名冲突，实现 platform.Output 接口
+- DRMSurface 增 connectorID 字段，newDRMSurface 签名同步更新，CreateSurface/CreateSurfaceFor 调用处已更新
+- Wayland waylandOutput 单虚拟输出适配，WaylandSurface.OutputID() 返回 0
+- 测试 mock（terminal_test/harness/compositor_test）均已补新接口方法
+- 保留旧 CreateSurface(w,h) 兼容现有 terminal.go 单屏路径
+
+### P0b：Terminal 简化 + Slave/Master + 镜像模式 ✅
+- [x] terminal/terminal.go — 剥离 12 字段(compositor/surface/input/backend/face/faceCache/fontData/initialFontSize/scaleReqCh/resizeCh/fpsLogging/wg)；新增 mu/active/cols/rows；New(opts,cols,rows) 不依赖 backend；Apply/FeedBytes 持 mu 写锁；Screen/Cursor/HandleKey/PtyWrite 等导出
+- [x] terminal/options.go — 增 Primary/Mode 字段
+- [x] slave/slave.go — Slave 结构(output+surface+backBuf+terms[]+activeIdx)
+- [x] master/master.go — 枚举+主屏匹配+font+slaves+Terminal池+compositor+input
+- [x] master/render_loop.go — 镜像集中渲染裁剪分发(blitToSlave fillBlack+min尺寸拷贝)
+- [x] master 缩放热键 Mod+=/-/0（替换 Ctrl）
+- [x] cmd/vistty/main.go — -primary/-mode flag；master.New
+- [x] terminal/render_harness.go 适配 New 签名
+- [x] terminal/*_test.go 适配（feedBytes→FeedBytes 90处）
+- [x] master/master_test.go 迁移集成测试
+- [x] go build ./... 通过
+- [x] go vet ./... 通过
+- [x] go test ./... 通过（10 包 ok 含新 master 包）
+- **状态**: ✅ 完成
+
+### P0b 审计记录
+- Terminal 简化正确：剥离渲染/IO/主循环/字体职责，保留纯逻辑会话(PTY+screen+parser+状态+CSI执行)
+- master.New 流程：ListOutputs→主屏匹配(名称或索引)→font→CreateSurfaceFor 每 output→Terminal.New(opts,cols,rows)→绑定所有 slave→compositor 绑主屏→input
+- 镜像渲染裁剪：compositor.Render(主屏 Swap 内含)→blitToSlave 非主屏(fillBlack+min(主屏,本屏)尺寸拷左上)→Swap
+- **审计修复**：handleResize/handleScale 漏调 SetPtySize → 已补 ft.SetPtySize(rows,cols)（resize/缩放后同步 PTY winsize）
+- ModSuper 缩放热键拦截正确，Ctrl+C/D/Z 保留在 Terminal.HandleKey
+- 两阶段关闭正确（signalClose→wg.Wait→backend.Stop→input.Close→cleanup）
+- slave.backBuf 预留给 P0c 独立模式
+
+### P0c：独立模式 + 焦点路由 + tabs 预留 ✅
+- [x] slave/slave.go — 独立模式字段 compositor/faceCache/face + InitIndependent + Close 分路径
+- [x] master/master.go — New 按 opts.Mode 分支 initMirror/initIndependent + signalClose 遍历所有 terms + renderReqCh
+- [x] master/render_loop.go — renderIndependent 串行渲染跳过 !Active() + handleKey Mod+1..9/Tab 焦点切换 + setFocus renderReqCh
+- [x] Slave.terms[]/activeIdx 字段就位（tabs 预留）
+- [x] Terminal.Active() 渲染跳过 + 后台 winsize 冻结（active 恒 true，PTY 继续读但跳过渲染）
+- [x] 多 seqCh fan-in（N goroutine → unifiedSeqCh，mirror nil channel 不触发）
+- [x] go build ./... 通过
+- [x] go vet ./... 通过
+- [x] go test ./... 通过（10 包 ok 含 master）
+- **状态**: ✅ 完成
+
+### P0c 审计记录
+- 独立模式渲染（renderIndependent）：遍历所有 slave，跳过 t==nil 和 !t.Active()，各 slave 用自己的 Compositor.Render（含 Swap），串行渲染正确
+- 焦点路由：Mod+1..9（evdev code 2-10 → idx 0-8）、Mod+Tab（code 15 轮转）；setFocus 更新 focusIdx + 投递 renderReqCh 触发主线程立即渲染（避免 inputLoop 并发渲染）
+- tabs 预留字段就位：Slave.terms []*Terminal + activeIdx int，ActiveTerm 返回 terms[activeIdx]，当前恒 0
+- Terminal.Active() 访问器（terminal.go:146），active 恒 true，后台跳过渲染机制就绪
+- 多 seqCh fan-in：independent 模式 N goroutine 合并 SeqCh→unifiedSeqCh(cap=16) + EofCh/Done→termExitCh(cap=1)；mirror 模式 nil channel select 永不触发，走原 mirrorSeqCh 路径
+- slave.InitIndependent：创建 faceCache+face+compositor 绑定 slave 自身 surface；Close 按 independent/mirror 分路径（避免重复关 surface）
+- signalClose 正确遍历所有 m.terms 调 SignalClose
+- **审计修复**：handleResizeIndependent/handleScaleIndependent 漏调 SetPtySize → 已补 ft.SetPtySize(rows,cols)（4 处 SetPtySize 全部就位：mirror resize/scale + independent resize/scale）
+
+### P1：GBM + Atomic + purego dlopen（暂缓）
+- [ ] platform/drm/internal/gbm/ — purego dlopen libgbm.so+libEGL.so
+- [ ] platform/drm/internal/atomic.go — AtomicReq/AtomicCommit
+- [ ] platform/drm/internal/property.go — GetProperty/CreateBlob
+- [ ] platform/drm/internal/plane.go — GetPlaneRes/GetPlane
+- [ ] platform/drm/gbm_device.go — 共享 gbm_device+EGLDisplay
+- [ ] platform/drm/gbm_surface.go — GBMSurface implements Surface
+- [ ] platform/drm/atomic_commit.go — AtomicCommitor
+- [ ] master/render_loop.go — commitAll() GBM 分支
+- [ ] go build ./... 通过
+- [ ] go vet ./... 通过
+- **状态**: 暂缓（P0 已提交，P1 后续单独执行）
 
 ## 审计记录
 
-### 阶段 0 审计
-- 状态：通过
-- 改动：terminal.go 新增 hostWriter 字段 + feedBytes 方法；terminal_test.go 新增 newTerminalForTest
-- 测试：现有 3 测试全通过（2 SKIP 因缺字体）
-- 风险：零侵入生产代码，ptyWrite 从 t.pty.Write 改为 t.hostWriter.Write，New() 中 hostWriter=ptyFile 保持原语义
-
-### 阶段 1 审计
-- 状态：通过
-- 改动：
-  - sgr.go: case 22 返回 [BoldOff, DimOff]；parseSGRColor 无效子模式 advance 改 2
-  - csi.go: 新增 6 枚举；privateMarker 检测改为 ?/>/=/<；q 按 intermed 区分 DECSCUSR/DECSCA；新增 X/n/c/g；parseCSIPrivate 支持 ?n(DSR) 和 >c(DA2)
-  - esc.go: ESCSequence.Intermed 类型 byte→[]byte，新增 Charset 字段；识别 ( ) * + 指定 G0/G1
-  - osc.go: 新增 OSC 2
-- 测试：86 PASS / 0 FAIL（原有 65 + 新增 21）
-- 注意：TestSGRResetAttributes 原有断言因 SGR22 行为变更而更新（22 现返回 2 个 SGR）
-
-### 阶段 2 审计
-- 状态：通过
-- 改动：
-  - charset.go（新）：DEC line drawing 映射表 + charsetState（G0/G1/GL）+ Translate
-  - terminal.go: savedCursorState 结构体（含 SGR/charset）；新增字段 autoWrap/cursorKeysApp/bracketedPaste/focusReporting/charset/tabStops；saveCursor/restoreCursor 完整状态；tab stop 管理（init/set/clear/next/prev）；execCSI 新增 ECH/DSR/DA1/DA2/TBC；DECSCUSR 6 种样式含闪烁；handleMode 扩展 ?1/?7/?47/?1047/?1048/?1004/?2004；execESC 新增 G0/G1 + ESCTabSet；execPrint 字符集转换 + autoWrap；execControl SO/SI + HT tabStops；eraseDisplay case 3；eraseChars；handleDSR；writeKeyEscape 应用光标键；setTitle 落地
-  - options.go: 新增 OnTitle 字段
-- 测试：terminal 包 33 PASS / 0 FAIL（7 个新测试文件）
-- 总计：vte 86 PASS + terminal 33 PASS = 119 PASS / 0 FAIL / 3 SKIP
-
-## 文件改动总览
-
-| 文件 | 类型 | 行数变化 |
-|------|------|---------|
-| `internal/vte/csi.go` | 改 | 154→197 (+43) |
-| `internal/vte/sgr.go` | 改 | 177→177 (case 22 修改) |
-| `internal/vte/esc.go` | 改 | 56→63 (+7, Intermed 类型变更 + G0/G1) |
-| `internal/vte/osc.go` | 改 | 66→68 (+2, OSC 2) |
-| `internal/vte/csi_test.go` | 改 | 107→202 (+95) |
-| `internal/vte/sgr_test.go` | 改 | 155→219 (+64) |
-| `internal/vte/esc_test.go` | 改 | 85→133 (+48) |
-| `internal/vte/osc_test.go` | 改 | 80→91 (+11) |
-| `internal/vte/parser_test.go` | 改 | 255→307 (+52) |
-| `terminal/charset.go` | 新 | 97 行 |
-| `terminal/terminal.go` | 改 | 1078→1200+ (+~122) |
-| `terminal/options.go` | 改 | 25→27 (+2) |
-| `terminal/terminal_test.go` | 改 | 165→190 (+25, newTerminalForTest) |
-| `terminal/terminal_csi_test.go` | 新 | ~60 行 |
-| `terminal/terminal_response_test.go` | 新 | ~55 行 |
-| `terminal/terminal_mode_test.go` | 新 | ~133 行 |
-| `terminal/terminal_state_test.go` | 新 | ~50 行 |
-| `terminal/terminal_cursor_test.go` | 新 | ~45 行 |
-| `terminal/terminal_charset_test.go` | 新 | ~52 行 |
-| `terminal/terminal_osc_test.go` | 新 | ~30 行 |
+（每阶段完成后追加审计结论）

@@ -8,7 +8,7 @@ import (
 
 func TestDECSCUSRSteadyBlock(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\x1b[2 q"))
+	term.FeedBytes([]byte("\x1b[2 q"))
 	if term.cursor.Style != screen.CursorBlock {
 		t.Errorf("expected Block, got %d", term.cursor.Style)
 	}
@@ -19,7 +19,7 @@ func TestDECSCUSRSteadyBlock(t *testing.T) {
 
 func TestDECSCUSRBlinkingUnderline(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\x1b[3 q"))
+	term.FeedBytes([]byte("\x1b[3 q"))
 	if term.cursor.Style != screen.CursorUnderline {
 		t.Errorf("expected Underline, got %d", term.cursor.Style)
 	}
@@ -30,7 +30,7 @@ func TestDECSCUSRBlinkingUnderline(t *testing.T) {
 
 func TestDECSCUSRSteadyBar(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\x1b[6 q"))
+	term.FeedBytes([]byte("\x1b[6 q"))
 	if term.cursor.Style != screen.CursorBar {
 		t.Errorf("expected Bar, got %d", term.cursor.Style)
 	}
@@ -41,7 +41,7 @@ func TestDECSCUSRSteadyBar(t *testing.T) {
 
 func TestDECSCUSRDefault(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\x1b[0 q"))
+	term.FeedBytes([]byte("\x1b[0 q"))
 	if term.cursor.Style != screen.CursorBlock {
 		t.Errorf("expected Block, got %d", term.cursor.Style)
 	}

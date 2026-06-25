@@ -35,6 +35,7 @@ var modifierKeys = map[uint32]Modifiers{
 	56:  ModAlt,
 	100: ModAlt,
 	125: ModSuper,
+	126: ModSuper,
 }
 
 func LookupModifier(key uint32) (Modifiers, bool) {

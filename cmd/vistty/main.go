@@ -8,6 +8,7 @@ import (
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
+	"github.com/LaoQi/vistty/master"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -25,6 +26,8 @@ func run() error {
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
 	widthFlag := flag.Int("width", 800, "window width")
 	heightFlag := flag.Int("height", 600, "window height")
+	primaryFlag := flag.String("primary", "", "primary output name or index")
+	modeFlag := flag.String("mode", "mirror", "display mode: mirror or independent")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
@@ -41,6 +44,8 @@ func run() error {
 	opts.FontSize = *fontSizeFlag
 	opts.Width = *widthFlag
 	opts.Height = *heightFlag
+	opts.Primary = *primaryFlag
+	opts.Mode = *modeFlag
 
 	var recordFile *os.File
 	if *recordPath != "" {
@@ -95,18 +100,18 @@ func run() error {
 	}
 	defer backend.Close()
 
-	term, err := terminal.New(backend, opts)
+	m, err := master.New(backend, opts)
 	if err != nil {
-		return fmt.Errorf("failed to create terminal: %w", err)
+		return fmt.Errorf("failed to create master: %w", err)
 	}
-	defer term.Close()
+	defer m.Close()
 
 	if prof.fps {
-		term.EnableFPSLogging()
+		m.EnableFPSLogging()
 	}
 
-	if err := term.Run(); err != nil {
-		return fmt.Errorf("terminal error: %w", err)
+	if err := m.Run(); err != nil {
+		return fmt.Errorf("master error: %w", err)
 	}
 	return nil
 }

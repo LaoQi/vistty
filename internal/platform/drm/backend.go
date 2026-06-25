@@ -12,8 +12,10 @@ import (
 type DRMBackend struct {
 	fd        *os.File
 	display   *DisplayInfo
+	outputs   []*DisplayInfo
 	vt        *VTManager
 	surface   *DRMSurface
+	surfaces  map[uint32]*DRMSurface
 	doneCh    chan struct{}
 	eventDone chan struct{}
 	stopOnce  sync.Once
@@ -49,7 +51,7 @@ func NewDRMBackend() (*DRMBackend, error) {
 		return nil, fmt.Errorf("device does not support dumb buffers")
 	}
 
-	display, err := findDisplay(int(fd.Fd()))
+	outputs, err := findOutputs(int(fd.Fd()))
 	if err != nil {
 		drminternal.DropMaster(int(fd.Fd()))
 		fd.Close()
@@ -58,7 +60,9 @@ func NewDRMBackend() (*DRMBackend, error) {
 
 	b := &DRMBackend{
 		fd:        fd,
-		display:   display,
+		display:   outputs[0],
+		outputs:   outputs,
+		surfaces:  make(map[uint32]*DRMSurface),
 		doneCh:    make(chan struct{}),
 		eventDone: make(chan struct{}),
 	}
@@ -95,22 +99,58 @@ func NewDRMBackend() (*DRMBackend, error) {
 }
 
 func (b *DRMBackend) CreateSurface(width, height int) (platform.Surface, error) {
-	width = int(b.display.Mode.HDisplay)
-	height = int(b.display.Mode.VDisplay)
+	width = int(b.display.mode.HDisplay)
+	height = int(b.display.mode.VDisplay)
 
-	surf, err := newDRMSurface(int(b.fd.Fd()), width, height, b.display.CrtcID)
+	surf, err := newDRMSurface(int(b.fd.Fd()), width, height, b.display.crtcID, b.display.connID)
 	if err != nil {
 		return nil, err
 	}
 	b.surface = surf
+	b.surfaces[b.display.crtcID] = surf
 
-	connIDs := []uint32{b.display.ConnectorID}
-	if err := drminternal.SetCrtc(int(b.fd.Fd()), b.display.CrtcID, surf.bufs[surf.current].fbID, 0, 0, &b.display.Mode, connIDs); err != nil {
+	connIDs := []uint32{b.display.connID}
+	if err := drminternal.SetCrtc(int(b.fd.Fd()), b.display.crtcID, surf.bufs[surf.current].fbID, 0, 0, &b.display.mode, connIDs); err != nil {
 		surf.Close()
 		return nil, fmt.Errorf("set crtc: %w", err)
 	}
 
 	return surf, nil
+}
+
+func (b *DRMBackend) CreateSurfaceFor(out platform.Output) (platform.Surface, error) {
+	di, ok := out.(*DisplayInfo)
+	if !ok {
+		return nil, fmt.Errorf("unsupported output type: %T", out)
+	}
+
+	width := int(di.mode.HDisplay)
+	height := int(di.mode.VDisplay)
+
+	surf, err := newDRMSurface(int(b.fd.Fd()), width, height, di.crtcID, di.connID)
+	if err != nil {
+		return nil, err
+	}
+	b.surfaces[di.crtcID] = surf
+	if b.surface == nil {
+		b.surface = surf
+	}
+
+	connIDs := []uint32{di.connID}
+	if err := drminternal.SetCrtc(int(b.fd.Fd()), di.crtcID, surf.bufs[surf.current].fbID, 0, 0, &di.mode, connIDs); err != nil {
+		surf.Close()
+		return nil, fmt.Errorf("set crtc: %w", err)
+	}
+
+	return surf, nil
+}
+
+func (b *DRMBackend) ListOutputs() ([]platform.Output, error) {
+	outs := make([]platform.Output, len(b.outputs))
+	for i, o := range b.outputs {
+		outs[i] = o
+	}
+	return outs, nil
 }
 
 func (b *DRMBackend) CreateInputSource() (platform.InputSource, error) {
@@ -144,7 +184,9 @@ func (b *DRMBackend) eventLoop() {
 			}
 		}
 		if ev != nil && (ev.Type == drminternal.EventFlipComplete || ev.Type == drminternal.EventVBlank) {
-			if b.surface != nil {
+			if surf, ok := b.surfaces[ev.CrtcID]; ok {
+				surf.notifyFlip()
+			} else if b.surface != nil {
 				b.surface.notifyFlip()
 			}
 		}
@@ -154,8 +196,8 @@ func (b *DRMBackend) eventLoop() {
 func (b *DRMBackend) Close() error {
 	b.closeOnce.Do(func() {
 		b.Stop()
-		if b.display != nil && b.display.SavedCrtc != nil {
-			saved := b.display.SavedCrtc
+		if b.display != nil && b.display.savedCrtc != nil {
+			saved := b.display.savedCrtc
 			var mode *drminternal.ModeInfoPublic
 			if saved.ModeValid {
 				mode = &saved.Mode

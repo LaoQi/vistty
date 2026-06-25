@@ -4,9 +4,9 @@ import "testing"
 
 func TestEraseCharsECH(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("ABCDE"))
+	term.FeedBytes([]byte("ABCDE"))
 	term.cursor.Col = 1
-	term.feedBytes([]byte("\x1b[2X"))
+	term.FeedBytes([]byte("\x1b[2X"))
 	cell := term.screen.Cell(0, 0)
 	if cell.Rune != 'A' {
 		t.Errorf("expected 'A' at col 0, got %c", cell.Rune)
@@ -34,11 +34,11 @@ func TestEraseCharsECH(t *testing.T) {
 
 func TestEraseDisplayScrollback(t *testing.T) {
 	term, _ := newTerminalForTest(80, 3)
-	term.feedBytes([]byte("line1\nline2\nline3\nline4"))
+	term.FeedBytes([]byte("line1\nline2\nline3\nline4"))
 	if term.screen.History().Len() == 0 {
 		t.Fatal("expected history to have content after scroll")
 	}
-	term.feedBytes([]byte("\x1b[3J"))
+	term.FeedBytes([]byte("\x1b[3J"))
 	if term.screen.History().Len() != 0 {
 		t.Errorf("expected history cleared, got len %d", term.screen.History().Len())
 	}
@@ -46,13 +46,13 @@ func TestEraseDisplayScrollback(t *testing.T) {
 
 func TestTabClearAll(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\t"))
+	term.FeedBytes([]byte("\t"))
 	if term.cursor.Col != 8 {
 		t.Fatalf("expected col 8 after tab, got %d", term.cursor.Col)
 	}
-	term.feedBytes([]byte("\x1b[3g"))
+	term.FeedBytes([]byte("\x1b[3g"))
 	term.cursor.Col = 0
-	term.feedBytes([]byte("\t"))
+	term.FeedBytes([]byte("\t"))
 	if term.cursor.Col != 79 {
 		t.Errorf("expected col 79 (no tab stops), got %d", term.cursor.Col)
 	}
@@ -60,9 +60,9 @@ func TestTabClearAll(t *testing.T) {
 
 func TestTabClearCurrent(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
-	term.feedBytes([]byte("\x1b[g"))
+	term.FeedBytes([]byte("\x1b[g"))
 	term.cursor.Col = 0
-	term.feedBytes([]byte("\t"))
+	term.FeedBytes([]byte("\t"))
 	if term.cursor.Col != 8 {
 		t.Errorf("expected col 8 (col 0 cleared but 8 remains), got %d", term.cursor.Col)
 	}
@@ -72,7 +72,7 @@ func TestCursorClamp(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
 	term.cursor.Row = 5
 	term.cursor.Col = 5
-	term.feedBytes([]byte("\x1b[999A"))
+	term.FeedBytes([]byte("\x1b[999A"))
 	if term.cursor.Row != 0 {
 		t.Errorf("expected row 0, got %d", term.cursor.Row)
 	}

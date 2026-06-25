@@ -21,6 +21,7 @@ func (s *testSurface) Stride() int                                { return s.str
 func (s *testSurface) Swap() error                                { return nil }
 func (s *testSurface) Close() error                               { return nil }
 func (s *testSurface) ResizeEvents() <-chan platform.ResizeEvent  { return nil }
+func (s *testSurface) OutputID() uint32                           { return 0 }
 
 type testFace struct{}
 
