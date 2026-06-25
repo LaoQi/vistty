@@ -190,6 +190,9 @@ func (t *Terminal) SignalClose() {
 		if t.pty != nil {
 			t.pty.Close()
 		}
+		if t.ptyCmd != nil {
+			t.ptyCmd.Signal(syscall.SIGKILL)
+		}
 	})
 }
 

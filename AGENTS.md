@@ -134,7 +134,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 ```
 github.com/LaoQi/vistty/
-├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend 参数 + profiling
+├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty 参数 + profiling
 ├── master/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键
 │   ├── master.go               # Master 结构 + New(initMirror/initIndependent) + session池
 │   ├── render_loop.go           # 统一主循环（镜像裁剪分发/独立串行）+ handleKey + setFocus
@@ -255,6 +255,7 @@ go test -run=^$ -bench=BenchmarkLayers -benchmem -benchtime=5s ./internal/perf/r
 go run ./cmd/vistty                         # 自动探测后端（DRM优先，回退Wayland）
 go run ./cmd/vistty -backend drm            # 强制 DRM/KMS 直出
 go run ./cmd/vistty -backend wayland        # 强制 Wayland 窗口（开发调试）
+go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设控制终端）
 ```
 
 ## 实施状态
@@ -344,3 +345,7 @@ go-wayland 库已知 bug（已在 wire.go 中修复）：
 待完善：
 - font 包测试文件已添加（atlas_test.go, face_test.go）
 - Wayland 后端无自动化测试（需 Wayland 合成器环境）
+- ✅ 指定 TTY 绑定（-tty 参数：纯数字→/dev/ttyN、/dev/ 前缀原样；DRM 后端 setsid+TIOCSCTTY 设控制终端，Wayland 后端忽略并警告）
+- ✅ VT 管理容错降级（tty 获取失败不报错退出，打印警告并跳过 VT 管理；SSH 远程无控制终端场景仍能 DRM 渲染到物理屏，仅无 VT 切换信号）
+- ✅ GBM 绕过开关（-nogbm：跳过 GBM/EGL 初始化走 dumb buffer；DSI-1 输出 eglCreateWindowSurface 失败时可绕过，SSH 远程 -nogbm 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
+- ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(master fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）

@@ -9,12 +9,13 @@ import (
 )
 
 type DRMInput struct {
-	keyCh   chan platform.KeyEvent
-	mouseCh chan platform.MouseEvent
-	devices []*evdev.InputDevice
-	done    chan struct{}
-	mods    platform.Modifiers
-	mu      sync.Mutex
+	keyCh    chan platform.KeyEvent
+	mouseCh  chan platform.MouseEvent
+	devices  []*evdev.InputDevice
+	done     chan struct{}
+	closeOnce sync.Once
+	mods     platform.Modifiers
+	mu       sync.Mutex
 }
 
 func newDRMInput() (*DRMInput, error) {
@@ -129,11 +130,13 @@ func (i *DRMInput) MouseEvents() <-chan platform.MouseEvent {
 }
 
 func (i *DRMInput) Close() error {
-	close(i.done)
-	for _, dev := range i.devices {
-		dev.Ungrab()
-		dev.Close()
-	}
+	i.closeOnce.Do(func() {
+		close(i.done)
+		for _, dev := range i.devices {
+			dev.Ungrab()
+			dev.Close()
+		}
+	})
 	return nil
 }
 
