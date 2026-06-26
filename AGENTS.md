@@ -134,6 +134,9 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 ```
 github.com/LaoQi/vistty/
+├── README.md / README.zh-CN.md  # 项目说明（中英文，vibe 产品声明 + 功能/用法/底层支持）
+├── LICENSE                       # GPLv2
+├── work_docs/                    # 开发过程文档（optimize.md/progress.md/todos.md）
 ├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty 参数 + profiling
 ├── master/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键
 │   ├── master.go               # Master 结构 + New(initMirror/initIndependent) + session池
