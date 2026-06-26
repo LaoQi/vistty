@@ -21,7 +21,7 @@
 | 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | Go 官方扩展库，内置 Sarasa Fixed SC 子集（等宽+CJK） |
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 `go-text/typesetting/harfbuzz`（HarfBuzz 完整移植） |
 | 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer |
-| 10 | Wayland 窗口后端 | `rajveermalviya/go-wayland` | 纯 Go 无 CGO，30+ 协议，XDG Shell 完整 |
+| 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | 移除 go-wayland 依赖，自研 wl.go 实现 Wayland wire 协议最小子集（Display/Registry/Compositor/Shm/Surface/Seat/XDG Shell），零 CGO |
 
 ## 架构
 
@@ -182,7 +182,8 @@ github.com/LaoQi/vistty/
 │       │       ├── gbm.go / egl.go / gles.go
 │       └── wayland/            # Wayland 后端（单虚拟输出）
 │           ├── backend.go / surface.go / input.go
-│           ├── keymap.go / wire.go    # wire.go: 修正的 Wayland 线格式编码
+│           ├── keymap.go             # XKB keymap 解析 + evdev code 索引 + US 布局回退
+│           └── wl.go                # 自研纯 Go Wayland 协议层（conn+全部对象，替代 go-wayland）
 ```
 
 ### 依赖方向
@@ -192,7 +193,7 @@ cmd/vistty → terminal
 terminal → screen, vte, render, platform
 render → font, platform (Surface 接口)
 platform/drm → platform/drm/internal (DRM ioctl), go-evdev
-platform/wayland → go-wayland
+platform/wayland → 无外部依赖（自研 wl.go 协议层）
 screen, vte → 无外部依赖（纯逻辑）
 font → golang.org/x/image/font/opentype
 ```
@@ -228,7 +229,7 @@ font → golang.org/x/image/font/opentype
 - **liamg/darktile** — GPU 终端仿真器（已废弃，依赖 CGO），其 `termutil` 包含完整的 ANSI/CSI/OSC/Sixel 解析和 Cell/Buffer 实现，是转义序列解析和终端缓冲区的最佳参考
 - **danielgatis/go-vte** — VTE 风格转义序列解析器，接近硬件级精度
 - **holoplot/go-evdev** — 纯 Go evdev 库，含 Grab/uinput
-- **rajveermalviya/go-wayland** — 纯 Go Wayland 客户端协议绑定，30+ 协议，XDG Shell 完整
+- **rajveermalviya/go-wayland** — 已移除。原为纯 Go Wayland 客户端协议绑定，存在 ShmFormat 枚举索引 bug、PutString 长度 bug、多个 wire opcode 错误。已由自研 wl.go（727 行）完全替代
 - **s-rah/nyctal** / **fntlnz/godisplay** — 纯 Go Wayland 合成器，DRM 后端实现可参考
 
 ## 开发命令
@@ -335,17 +336,14 @@ xterm-256 VT 支持详情：
 - 测试架构：newTerminalForTest + feedBytes 无 IO 测试入口
 
 Wayland 后端实现细节：
-- 5个文件：backend.go（连接+全局绑定+事件循环+错误处理）、surface.go（双缓冲wl_shm+XDG toplevel）、input.go（wl_keyboard/wl_pointer+修饰键跟踪+keymap handler 解析）、keymap.go（XKB keymap 解析 + evdev code 索引 + US 布局回退）、wire.go（修正的Wayland线格式编码）
+- 5个文件：backend.go（连接+全局绑定+事件循环+错误处理）、surface.go（双缓冲wl_shm+XDG toplevel）、input.go（wl_keyboard/wl_pointer+修饰键跟踪+keymap handler 解析）、keymap.go（XKB keymap 解析 + evdev code 索引 + US 布局回退）、wl.go（自研纯 Go Wayland 协议层，727 行）
+- wl.go 自研协议层：conn 核心（unix.Socket 直连 + Sendmsg/Recvmsg + 事件分发 + fd SCM_RIGHTS 传递）+ 全部协议对象（Display/Registry/Callback/Compositor/Shm/ShmPool/Buffer/Surface/Seat/Keyboard/Pointer/XdgWmBase/XdgSurface/XdgToplevel），零外部依赖
 - 使用 memfd_create + mmap 创建共享内存
-- 支持 shm format 协商（通过 wl_shm.format 事件取合成器首个支持的格式）；backBuf 恒以 BGRA 字节序写入，当选中 BGR 序格式（XBGR/ABGR/BGRX/BGRA8888）时 backend 置 swapBR 标志，surface.Swap() 提交前逐像素交换 B/R 通道修正颜色
+- 支持 shm format 协商（收集所有 wl_shm.format 事件，优先选 RGB 序格式 XRGB8888/ARGB8888 避免 swapBR；niri 对 XRGB/ARGB 广播枚举索引 0/1 而非 FourCC，需同时匹配两种值，create_buffer 发送合成器广播的原值）
 - 支持窗口resize（Configure事件驱动重新分配buffer）
 - XDG toplevel 关闭事件通过 backend.Done() 通知 terminal 退出
-- Display.SetErrorHandler 捕获合成器协议错误，便于调试
-
-go-wayland 库已知 bug（已在 wire.go 中修复）：
-- PutString 写入 padded length 而非 actual length（含 NUL 终止符）到 uint32 长度字段
-- ShmFormat 枚举常量使用顺序索引（0, 1）而非 DRM FourCC 码，但事件解析 Uint32 读原始字节得到的是真实 FourCC；故 backend.go 自定义 wlFmt* 裸 FourCC 常量，不用库常量
-- wire.go 重新实现了 registryBind、toplevelSetTitle、toplevelSetAppId、shmCreatePool、shmPoolCreateBuffer、compositorCreateSurface、xdgWmBaseGetXdgSurface、xdgSurfaceGetToplevel，使用 encoding/binary 正确编码
+- setErrorHandler 捕获合成器协议错误，便于调试
+- 已修复的 wire opcode：wl_surface attach=1/damage=2/destroy=0/commit=6、wl_seat get_pointer=0/get_keyboard=1/release=3、wl_keyboard release=0、wl_pointer release=1、xdg_surface set_window_geometry=3/ack_configure=4
 
 待完善：
 - font 包测试文件已添加（atlas_test.go, face_test.go）
@@ -359,3 +357,5 @@ go-wayland 库已知 bug（已在 wire.go 中修复）：
 - ✅ EGL config 兼容修复（EGL_ALPHA_SIZE 0→8 修复 EGL_BAD_MATCH；eglGetError 加载用于精确错误码；EGL_NATIVE_VISUAL_ID 查询匹配 GBM surface 格式）
 - ✅ GBM eglMakeCurrent 修复（Swap 前未调用 eglMakeCurrent 导致 eglSwapBuffers 失败；多屏共享 context 每帧切换 current surface）
 - ✅ GBM Data() nil panic 修复（compositor.copyAllToSurface + master.blitToSlave 添加 nil 检查跳过 CPU blit）
+- ✅ 移除 go-wayland 依赖自研 wl.go 协议层（727 行纯 Go：conn 核心 + 15 个协议对象，零 CGO 零外部依赖；修复 wl_surface/wl_seat/keyboard/pointer/xdg_surface 全部 wire opcode；fd GC 回收修复用 unix.Socket 替代 net.DialUnix+File()；niri shm 格式枚举索引兼容）
+- ✅ 渲染热点优化（20s 实跑 pprof 归因：swapBR 逐像素循环 36.8%→0.3% 消除 + fillRect 逐 cell 改全屏清除 30.9%→18.7%；CPU 占用 35.89%→15.80% 降 56%；详见 optimize.md）

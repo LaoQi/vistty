@@ -5,10 +5,9 @@ import (
 	"sync"
 
 	"github.com/LaoQi/vistty/internal/platform"
-	"github.com/rajveermalviya/go-wayland/wayland/client"
-	"github.com/rajveermalviya/go-wayland/wayland/stable/xdg-shell"
 )
 
+// FourCC 格式码（Wayland wl_shm 规范值）
 const (
 	wlFmtXRGB8888 uint32 = 0x34325258
 	wlFmtARGB8888 uint32 = 0x34325241
@@ -16,16 +15,20 @@ const (
 	wlFmtABGR8888 uint32 = 0x34324241
 	wlFmtBGRX8888 uint32 = 0x34325842
 	wlFmtBGRA8888 uint32 = 0x34324142
+
+	// niri 对 XRGB8888/ARGB8888 广播枚举索引(1/0)而非 FourCC 码。
+	// 需同时匹配两种值，create_buffer 发送时用合成器广播的原值。
+	wlEnumARGB8888 uint32 = 0
+	wlEnumXRGB8888 uint32 = 1
 )
 
 type WaylandBackend struct {
-	ctx        *client.Context
-	display    *client.Display
-	registry   *client.Registry
-	compositor *client.Compositor
-	shm        *client.Shm
-	wmBase     *xdg_shell.WmBase
-	seat       *client.Seat
+	c          *conn
+	registry   *wlRegistry
+	compositor *wlCompositor
+	shm        *wlShm
+	wmBase     *wlXdgWmBase
+	seat       *wlSeat
 	shmFormat  uint32
 	swapBR     bool
 
@@ -38,72 +41,49 @@ type WaylandBackend struct {
 }
 
 func NewWaylandBackend() (*WaylandBackend, error) {
-	display, err := client.Connect("")
+	c, err := dial()
 	if err != nil {
 		return nil, fmt.Errorf("connect to wayland: %w", err)
 	}
 
 	b := &WaylandBackend{
-		ctx:        display.Context(),
-		display:    display,
-		doneCh:     make(chan struct{}),
-		shmFormat:  0xFFFFFFFF,
+		c:      c,
+		doneCh: make(chan struct{}),
 	}
 
-	display.SetErrorHandler(func(e client.DisplayErrorEvent) {
+	c.setErrorHandler(func(objID, code uint32, msg string) {
 		b.mu.Lock()
-		b.lastErr = e.Message
+		b.lastErr = fmt.Sprintf("object %d code %d: %s", objID, code, msg)
 		b.mu.Unlock()
 		b.notifyClose()
 	})
 
-	registry, err := display.GetRegistry()
-	if err != nil {
-		b.close()
-		return nil, fmt.Errorf("get registry: %w", err)
-	}
+	registry := c.getRegistry()
 	b.registry = registry
 
-	var compositorName uint32
-	var shmName uint32
-	var wmBaseName uint32
-	var seatName uint32
-	var compositorVersion uint32
-	var seatVersion uint32
+	var compositorName, shmName, wmBaseName, seatName uint32
+	var compositorVersion, seatVersion, wmBaseVersion uint32
 
-	registry.SetGlobalHandler(func(e client.RegistryGlobalEvent) {
-		switch e.Interface {
+	registry.onGlobal = func(name uint32, iface string, version uint32) {
+		switch iface {
 		case "wl_compositor":
-			compositorName = e.Name
-			compositorVersion = e.Version
+			compositorName = name
+			compositorVersion = version
 		case "wl_shm":
-			shmName = e.Name
+			shmName = name
 		case "xdg_wm_base":
-			wmBaseName = e.Name
+			wmBaseName = name
+			wmBaseVersion = version
 		case "wl_seat":
-			seatName = e.Name
-			seatVersion = e.Version
+			seatName = name
+			seatVersion = version
 		}
-	})
+	}
 
-	callback, err := display.Sync()
-	if err != nil {
+	if err := c.roundtrip(); err != nil {
 		b.close()
-		return nil, fmt.Errorf("sync: %w", err)
+		return nil, fmt.Errorf("registry roundtrip: %w", err)
 	}
-
-	done := false
-	callback.SetDoneHandler(func(client.CallbackDoneEvent) {
-		done = true
-	})
-
-	for !done {
-		if err := b.ctx.Dispatch(); err != nil {
-			b.close()
-			return nil, b.wrapDispatchErr("dispatch", err)
-		}
-	}
-	callback.Destroy()
 
 	if compositorName == 0 {
 		b.close()
@@ -128,70 +108,57 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 	if seatVersion > 5 {
 		seatVersion = 5
 	}
-
-	compositor := client.NewCompositor(b.ctx)
-	if err := registryBind(b.ctx, registry.ID(), compositorName, "wl_compositor", compositorVersion, compositor.ID()); err != nil {
-		b.close()
-		return nil, fmt.Errorf("bind compositor: %w", err)
+	if wmBaseVersion > 1 {
+		wmBaseVersion = 1
 	}
-	b.compositor = compositor
 
-	shm := client.NewShm(b.ctx)
-	if err := registryBind(b.ctx, registry.ID(), shmName, "wl_shm", 1, shm.ID()); err != nil {
-		b.close()
-		return nil, fmt.Errorf("bind shm: %w", err)
+	b.compositor = c.bindCompositor(registry, compositorName, compositorVersion)
+	b.shm = c.bindShm(registry, shmName)
+
+	formats := make(map[uint32]bool)
+	b.shm.onFormat = func(format uint32) {
+		formats[format] = true
 	}
-	b.shm = shm
 
-	shm.SetFormatHandler(func(e client.ShmFormatEvent) {
-		if b.shmFormat == 0xFFFFFFFF {
-			b.shmFormat = e.Format
+	if err := c.roundtrip(); err != nil {
+		b.close()
+		return nil, b.wrapErr("shm roundtrip", err)
+	}
+
+	// 优先 RGB 序格式以避免 Surface.Swap 中的逐像素 B/R 交换。
+	// XRGB8888 是所有 Wayland 合成器的必备格式，必然可用。
+	// niri 对 XRGB/ARGB 广播枚举索引(1/0)，需同时匹配；create_buffer 用原值发送。
+	hasFmt := func(vs ...uint32) bool {
+		for _, v := range vs {
+			if formats[v] {
+				return true
+			}
 		}
-	})
-
-	// Roundtrip after binding wl_shm to dispatch format events before buffer creation
-	syncCb, err := display.Sync()
-	if err != nil {
-		b.close()
-		return nil, fmt.Errorf("shm sync: %w", err)
+		return false
 	}
-	shmDone := false
-	syncCb.SetDoneHandler(func(client.CallbackDoneEvent) {
-		shmDone = true
-	})
-	for !shmDone {
-		if err := b.ctx.Dispatch(); err != nil {
-			b.close()
-			return nil, b.wrapDispatchErr("shm dispatch", err)
-		}
-	}
-	syncCb.Destroy()
-
-	if b.shmFormat == 0xFFFFFFFF {
+	switch {
+	case hasFmt(wlFmtXRGB8888, wlEnumXRGB8888):
+		b.shmFormat = wlEnumXRGB8888 // 用枚举值发送
+	case hasFmt(wlFmtARGB8888, wlEnumARGB8888):
+		b.shmFormat = wlEnumARGB8888
+	case formats[wlFmtXBGR8888]:
+		b.shmFormat = wlFmtXBGR8888
+		b.swapBR = true
+	case formats[wlFmtABGR8888]:
+		b.shmFormat = wlFmtABGR8888
+		b.swapBR = true
+	case formats[wlFmtBGRX8888]:
+		b.shmFormat = wlFmtBGRX8888
+		b.swapBR = true
+	case formats[wlFmtBGRA8888]:
+		b.shmFormat = wlFmtBGRA8888
+		b.swapBR = true
+	default:
 		b.shmFormat = wlFmtXRGB8888
 	}
-	switch b.shmFormat {
-	case wlFmtXBGR8888, wlFmtABGR8888, wlFmtBGRX8888, wlFmtBGRA8888:
-		b.swapBR = true
-	}
 
-	wmBaseProxy := xdg_shell.NewWmBase(b.ctx)
-	if err := registryBind(b.ctx, registry.ID(), wmBaseName, "xdg_wm_base", 1, wmBaseProxy.ID()); err != nil {
-		b.close()
-		return nil, fmt.Errorf("bind wm_base: %w", err)
-	}
-	b.wmBase = wmBaseProxy
-
-	wmBaseProxy.SetPingHandler(func(e xdg_shell.WmBasePingEvent) {
-		_ = wmBaseProxy.Pong(e.Serial)
-	})
-
-	seat := client.NewSeat(b.ctx)
-	if err := registryBind(b.ctx, registry.ID(), seatName, "wl_seat", seatVersion, seat.ID()); err != nil {
-		b.close()
-		return nil, fmt.Errorf("bind seat: %w", err)
-	}
-	b.seat = seat
+	b.wmBase = c.bindWmBase(registry, wmBaseName, wmBaseVersion)
+	b.seat = c.bindSeat(registry, seatName, seatVersion)
 
 	return b, nil
 }
@@ -201,7 +168,7 @@ func (b *WaylandBackend) CreateSurface(width, height int) (platform.Surface, err
 		width = 800
 		height = 600
 	}
-	return newWaylandSurface(b, b.ctx, b.compositor, b.shm, b.wmBase, width, height)
+	return newWaylandSurface(b, width, height)
 }
 
 type waylandOutput struct {
@@ -214,9 +181,9 @@ type waylandOutput struct {
 
 func (o *waylandOutput) ID() uint32          { return o.id }
 func (o *waylandOutput) ConnectorID() uint32 { return o.id }
-func (o *waylandOutput) CrtcID() uint32       { return o.crtcID }
-func (o *waylandOutput) Name() string         { return o.name }
-func (o *waylandOutput) Size() (int, int)     { return o.w, o.h }
+func (o *waylandOutput) CrtcID() uint32      { return o.crtcID }
+func (o *waylandOutput) Name() string        { return o.name }
+func (o *waylandOutput) Size() (int, int)    { return o.w, o.h }
 
 var _ platform.Output = (*waylandOutput)(nil)
 
@@ -230,7 +197,7 @@ func (b *WaylandBackend) CreateSurfaceFor(out platform.Output) (platform.Surface
 }
 
 func (b *WaylandBackend) CreateInputSource() (platform.InputSource, error) {
-	return newWaylandInput(b.ctx, b.seat)
+	return newWaylandInput(b.c, b.seat)
 }
 
 func (b *WaylandBackend) Run(fn func()) {
@@ -243,7 +210,7 @@ func (b *WaylandBackend) Run(fn func()) {
 		}
 		b.mu.Unlock()
 
-		if err := b.ctx.Dispatch(); err != nil {
+		if err := b.c.dispatch(); err != nil {
 			b.notifyClose()
 			return
 		}
@@ -252,8 +219,8 @@ func (b *WaylandBackend) Run(fn func()) {
 
 func (b *WaylandBackend) Stop() error {
 	b.stopOnce.Do(func() {
-		if b.ctx != nil {
-			b.ctx.Close()
+		if b.c != nil {
+			_ = b.c.close()
 		}
 	})
 	return nil
@@ -283,7 +250,7 @@ func (b *WaylandBackend) lastError() string {
 	return b.lastErr
 }
 
-func (b *WaylandBackend) wrapDispatchErr(prefix string, err error) error {
+func (b *WaylandBackend) wrapErr(prefix string, err error) error {
 	if msg := b.lastError(); msg != "" {
 		return fmt.Errorf("%s: %w (compositor error: %s)", prefix, err, msg)
 	}
@@ -303,37 +270,30 @@ func (b *WaylandBackend) notifyClose() {
 }
 
 func (b *WaylandBackend) close() error {
-	var lastErr error
 	b.closeOnce.Do(func() {
 		if b.seat != nil {
-			b.seat.Release()
+			b.seat.release()
 		}
 		if b.wmBase != nil {
-			b.wmBase.Destroy()
+			b.wmBase.destroy()
 		}
 		if b.shm != nil {
-			b.shm.Destroy()
+			b.shm.destroy()
 		}
 		if b.compositor != nil {
-			b.compositor.Destroy()
-		}
-		if b.registry != nil {
-			b.registry.Destroy()
-		}
-		if b.display != nil {
-			b.display.Destroy()
+			b.compositor.destroy()
 		}
 	})
-	return lastErr
+	return nil
 }
 
 var _ platform.Backend = (*WaylandBackend)(nil)
 
 func Probe() bool {
-	display, err := client.Connect("")
+	c, err := dial()
 	if err != nil {
 		return false
 	}
-	display.Destroy()
+	_ = c.close()
 	return true
 }

@@ -90,10 +90,8 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 
 	c.frameCount++
 
-	if offset > 0 {
-		bg := c.defColor.bg
-		fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, bg.R, bg.G, bg.B)
-	}
+	defBg := c.defColor.bg
+	fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
 
 	for row := 0; row < c.rows; row++ {
 		var line *screen.Line
@@ -132,7 +130,9 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				fgB = fgB / 2
 			}
 
-			fillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
+			if bgR != defBg.R || bgG != defBg.G || bgB != defBg.B {
+				fillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
+			}
 
 			if cell.Rune != 0 {
 				glyph, err := c.getGlyph(cell.Rune)
