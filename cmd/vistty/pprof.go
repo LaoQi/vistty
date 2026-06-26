@@ -14,7 +14,6 @@ type profileConfig struct {
 	mutexProfile  string
 	traceFile     string
 	fps           bool
-	recordPath    string
 	cpuStarted    bool
 	traceStarted  bool
 }

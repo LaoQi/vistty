@@ -119,11 +119,9 @@ func benchParser(cfg Config) Result {
 
 	for i := 0; i < iters; i++ {
 		p := vte.NewParser()
-		allocsBefore := uint64(runtime.NumGoroutine())
-		_ = allocsBefore
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		allocsBefore = m.Mallocs
+		allocsBefore := m.Mallocs
 		bytesBefore := m.TotalAlloc
 
 		p.FeedAll(data)

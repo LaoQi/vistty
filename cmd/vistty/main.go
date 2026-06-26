@@ -57,17 +57,14 @@ func run() error {
 	opts.Primary = *primaryFlag
 	opts.Mode = *modeFlag
 
-	var recordFile *os.File
 	if *recordPath != "" {
 		f, err := os.Create(*recordPath)
 		if err != nil {
 			return fmt.Errorf("create record file: %w", err)
 		}
 		defer f.Close()
-		recordFile = f
 		opts.RecordWriter = f
 	}
-	_ = recordFile
 
 	prof := &profileConfig{
 		cpuProfile:   *cpuProfile,
