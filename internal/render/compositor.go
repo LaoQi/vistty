@@ -311,6 +311,15 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				GlyphW:   float32(c.metrics.Width),
 				GlyphH:   float32(c.metrics.Height),
 			}
+			if cell.Attr&screen.AttrUnderline != 0 {
+				inst.AttrFlags += 1
+			}
+			if cell.Attr&screen.AttrCrossedOut != 0 {
+				inst.AttrFlags += 2
+			}
+			if cell.Attr&screen.AttrItalic != 0 {
+				inst.AttrFlags += 4
+			}
 
 			if cell.Rune != 0 {
 				glyph, err := c.getGlyph(cell.Rune)

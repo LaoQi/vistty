@@ -297,9 +297,9 @@ P2 可将 GBM 模式 CPU 占用从 44% 降至 <10%，帧时间从 33ms 降至 ~5
 
 ### 待完善
 
-- 渲染 23 帧后停止（EGL 状态/GBM buffer 复用问题，需进一步调试）
-- 光标简化为反转色（未实现下划线/条形光标）
-- 粗体用偏移 1px 简化（atlas 内无独立粗体字形）
-- 斜体/下划线/删除线未实现（需扩展 instance 数据或 shader 逻辑）
-- atlas LRU 淘汰未实现（1024×1024 满后 UploadGlyph 返回 false）
+- ~~渲染 23 帧后停止~~（已修复：Swap flip 同步顺序改为提交前等上次 flip，避免 EBUSY）
+- ~~光标简化为反转色~~（已实现反转色光标）
+- ~~下划线/删除线/斜体未实现~~（已实现：AttrFlags bit0=underline/bit1=crossedOut/bit2=italic，shader 内画线+skew）
+- ~~atlas LRU 淘汰未实现~~（已实现：满时重置+2048×2048 纹理存 ~10000 字形）
+- 粗体用偏移 1px 简化（atlas 内无独立粗体字形，可后续用 shader 加粗）
 

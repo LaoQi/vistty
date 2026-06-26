@@ -52,34 +52,58 @@ layout(location=4) in vec2 i_glyphSize; // glyph pixel size
 layout(location=5) in vec3 i_fg;        // fg color
 layout(location=6) in vec3 i_bg;        // bg color
 layout(location=7) in float i_hasBg;
+layout(location=8) in float i_attrFlags;
 uniform vec2 u_resolution;
 out vec2 v_tex;
+out vec2 v_cellUV;
 out vec3 v_fg;
 out vec3 v_bg;
 out float v_hasBg;
+out float v_attrFlags;
 void main() {
     vec2 pixelPos = a_quadPos * i_glyphSize + i_cellPos;
+    // italic (bit 2): x 方向 skew
+    float hasItalic = mod(floor(i_attrFlags / 4.0), 2.0);
+    if (hasItalic > 0.5) {
+        pixelPos.x += (a_quadPos.y - 0.5) * i_glyphSize.x * 0.25;
+    }
     vec2 ndc = pixelPos / u_resolution * 2.0 - 1.0;
     ndc.y = -ndc.y;
     gl_Position = vec4(ndc, 0.0, 1.0);
     v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, a_quadTex);
+    v_cellUV = a_quadTex;
     v_fg = i_fg;
     v_bg = i_bg;
     v_hasBg = i_hasBg;
+    v_attrFlags = i_attrFlags;
 }
 `
 
 const gpuFragmentSrc = `#version 300 es
 precision mediump float;
 in vec2 v_tex;
+in vec2 v_cellUV;
 in vec3 v_fg;
 in vec3 v_bg;
 in float v_hasBg;
+in float v_attrFlags;
 uniform sampler2D u_atlas;
 out vec4 fragColor;
 void main() {
     float alpha = texture(u_atlas, v_tex).r;
     vec3 color = mix(v_bg * v_hasBg, v_fg, alpha);
+    // underline (bit 0): cell 底部 ~90%
+    float hasUL = mod(floor(v_attrFlags), 2.0);
+    if (hasUL > 0.5 && v_cellUV.y > 0.85) {
+        color = v_fg;
+        alpha = 1.0;
+    }
+    // crossed out (bit 1): cell 中部 ~50%
+    float hasCO = floor(v_attrFlags / 2.0);
+    if (hasCO > 0.5 && v_cellUV.y > 0.45 && v_cellUV.y < 0.55) {
+        color = v_fg;
+        alpha = 1.0;
+    }
     float a = max(alpha, v_hasBg);
     fragColor = vec4(color, a);
 }
@@ -314,9 +338,9 @@ func (s *GBMSurface) initGPU() error {
 	s.gpuProgram = prog
 	s.resUni = gl.GetUniformLocation(prog, "u_resolution")
 
-	// 创建 atlas 纹理（R8 格式，1024x1024）
-	s.atlasW = 1024
-	s.atlasH = 1024
+	// 创建 atlas 纹理（R8 格式，2048x2048，可存 ~10000 字形）
+	s.atlasW = 2048
+	s.atlasH = 2048
 	var texs [1]uint32
 	gl.GenTextures(1, texs[:])
 	s.atlasTex = texs[0]
@@ -374,7 +398,20 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		s.shelfH = 0
 	}
 	if s.shelfY+h > s.atlasH {
-		return 0, 0, 0, 0, false // atlas 满
+		// atlas 满：重置整个 atlas，下帧重新上传可见字形
+		s.shelfX = 0
+		s.shelfY = 0
+		s.shelfH = 0
+		for k := range s.atlasCache {
+			delete(s.atlasCache, k)
+		}
+		gl := s.device.glesLoader
+		gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
+		gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
+		// 重新放置当前字形
+		if w > s.atlasW || h > s.atlasH {
+			return 0, 0, 0, 0, false
+		}
 	}
 
 	gl := s.device.glesLoader
@@ -457,10 +494,14 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	gl.EnableVertexAttribArray(7)
 	gl.VertexAttribDivisor(7, 1)
 
+	gl.VertexAttribPointer(8, 1, gbm.GL_FLOAT, false, stride, 64)      // i_attrFlags
+	gl.EnableVertexAttribArray(8)
+	gl.VertexAttribDivisor(8, 1)
+
 	gl.DrawArraysInstanced(gbm.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
 
 	// 清理 divisor
-	for i := uint32(2); i <= 7; i++ {
+	for i := uint32(2); i <= 8; i++ {
 		gl.VertexAttribDivisor(i, 0)
 	}
 
@@ -561,17 +602,21 @@ func (s *GBMSurface) Swap() error {
 			s.crtcID, s.frameCount, bo, handle, stride, fbID, modeset)
 	}
 
+	// 等 上一次 page flip 完成后再提交新帧（避免 EBUSY）
+	// 首次 modeset 不发 flip 事件，跳过等待
+	flipReceived := true
+	if s.info.modesetDone {
+		select {
+		case <-s.flipCh:
+		case <-time.After(200 * time.Millisecond):
+			flipReceived = false
+		}
+	}
+
 	if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
 		drminternal.RmFB(s.device.fd, fbID)
 		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
 		return fmt.Errorf("atomic commit: %w", err)
-	}
-
-	flipReceived := true
-	select {
-	case <-s.flipCh:
-	case <-time.After(200 * time.Millisecond):
-		flipReceived = false
 	}
 
 	if debugLog && (s.frameCount <= 3 || s.frameCount%100 == 0) {

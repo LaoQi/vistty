@@ -1,7 +1,6 @@
 package platform
 
 // CellInstance 是 GPU instanced draw 的单 cell 渲染数据。
-// 每个 cell 一个 instance，GPU shader 内做 alpha 混合。
 type CellInstance struct {
 	X, Y        float32 // cell 左上角像素位置
 	GlyphU0, V0 float32 // 字形在 atlas 纹理中的 UV 左上
@@ -14,6 +13,7 @@ type CellInstance struct {
 	BgB         float32
 	HasBg       float32 // 1.0=非默认背景, 0.0=默认
 	CellW       float32 // cell 宽度像素（1 或 2 倍 metrics.Width）
+	AttrFlags   float32 // bit0=underline, bit1=crossedOut
 }
 
 // GPURenderer 是 Surface 可选实现的 GPU 渲染接口。
