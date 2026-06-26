@@ -96,13 +96,15 @@ in float v_hasBg;
 in float v_attrFlags;
 in float v_inGlyph;
 uniform sampler2D u_atlas;
+uniform vec3 u_defBg;
 out vec4 fragColor;
 void main() {
     float alpha = 0.0;
     if (v_inGlyph > 0.5) {
         alpha = texture(u_atlas, v_tex).r;
     }
-    vec3 color = mix(v_bg * v_hasBg, v_fg, alpha);
+    vec3 bg = mix(u_defBg, v_bg, v_hasBg);
+    vec3 color = mix(bg, v_fg, alpha);
     // underline (bit 0)
     float hasUL = mod(floor(v_attrFlags), 2.0);
     if (hasUL > 0.5 && v_cellUV.y > 0.85) {
@@ -115,8 +117,7 @@ void main() {
         color = v_fg;
         alpha = 1.0;
     }
-    float a = max(alpha, v_hasBg);
-    fragColor = vec4(color, a);
+    fragColor = vec4(color, 1.0);
 }
 `
 
@@ -165,6 +166,7 @@ type GBMSurface struct {
 	quadVBO      uint32
 	instanceVBO  uint32
 	resUni       int32
+	defBgUni     int32
 	atlasCache   map[rune]atlasEntry
 	shelfX       int
 	shelfY       int
@@ -348,6 +350,7 @@ func (s *GBMSurface) initGPU() error {
 	}
 	s.gpuProgram = prog
 	s.resUni = gl.GetUniformLocation(prog, "u_resolution")
+	s.defBgUni = gl.GetUniformLocation(prog, "u_defBg")
 
 	// 创建 atlas 纹理（R8 格式，2048x2048，可存 ~10000 字形）
 	s.atlasW = 2048
@@ -474,6 +477,9 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 
 	gl.UseProgram(s.gpuProgram)
 	gl.Uniform2f(s.resUni, float32(screenW), float32(screenH))
+	if s.defBgUni >= 0 {
+		gl.Uniform3fv(s.defBgUni, 1, bgColor[:])
+	}
 
 	gl.ActiveTexture(gbm.GL_TEXTURE0)
 	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
