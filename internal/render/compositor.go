@@ -278,6 +278,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			px := float32(col * c.metrics.Width)
 			py := float32(row * c.metrics.Height)
 			cellW := float32(int(cell.Width) * c.metrics.Width)
+			cellH := float32(c.metrics.Height)
 
 			fg := c.resolveFg(cell.Fg)
 			bg := c.resolveBg(cell.Bg)
@@ -300,6 +301,12 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			inst := platform.CellInstance{
 				X:        px,
 				Y:        py,
+				CellW:    cellW,
+				CellH:    cellH,
+				GlyphOffX: float32(c.metrics.Width),
+				GlyphOffY: float32(c.metrics.Ascent),
+				GlyphW:   float32(c.metrics.Width),
+				GlyphH:   float32(c.metrics.Height),
 				FgR:      fgR,
 				FgG:      fgG,
 				FgB:      fgB,
@@ -307,9 +314,6 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				BgG:      bgG,
 				BgB:      bgB,
 				HasBg:    hasBg,
-				CellW:    cellW,
-				GlyphW:   float32(c.metrics.Width),
-				GlyphH:   float32(c.metrics.Height),
 			}
 			if cell.Attr&screen.AttrUnderline != 0 {
 				inst.AttrFlags += 1
@@ -330,11 +334,12 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 						inst.V0 = v0
 						inst.GlyphU1 = u1
 						inst.V1 = v1
+						inst.GlyphOffX = float32(glyph.XOffset)
+						inst.GlyphOffY = float32(c.metrics.Ascent + glyph.YOffset)
 						inst.GlyphW = float32(glyph.Width)
 						inst.GlyphH = float32(glyph.Height)
-						// 粗体：偏移 1px（简化处理，atlas 内无独立粗体字形）
 						if cell.Attr&screen.AttrBold != 0 {
-							inst.X += 1
+							inst.GlyphOffX += 1
 						}
 					}
 				}
@@ -353,8 +358,10 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			cx := cursor.Col
 			cy := cursor.Row
 			if cx < c.cols && cy < c.rows {
+				targetX := float32(cx * c.metrics.Width)
+				targetY := float32(cy * c.metrics.Height)
 				for i := range c.instances {
-					if int(c.instances[i].X) == cx*c.metrics.Width && int(c.instances[i].Y) == cy*c.metrics.Height {
+					if c.instances[i].X == targetX && c.instances[i].Y == targetY {
 						c.instances[i].FgR, c.instances[i].BgR = c.instances[i].BgR, c.instances[i].FgR
 						c.instances[i].FgG, c.instances[i].BgG = c.instances[i].BgG, c.instances[i].FgG
 						c.instances[i].FgB, c.instances[i].BgB = c.instances[i].BgB, c.instances[i].FgB

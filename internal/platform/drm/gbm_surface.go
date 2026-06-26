@@ -46,13 +46,15 @@ void main() {
 const gpuVertexSrc = `#version 300 es
 layout(location=0) in vec2 a_quadPos;   // 0..1 unit quad
 layout(location=1) in vec2 a_quadTex;   // 0..1 unit texcoord
-layout(location=2) in vec2 i_cellPos;   // pixel position
-layout(location=3) in vec4 i_glyphUV;   // atlas UV (u0,v0,u1,v1)
-layout(location=4) in vec2 i_glyphSize; // glyph pixel size
-layout(location=5) in vec3 i_fg;        // fg color
-layout(location=6) in vec3 i_bg;        // bg color
-layout(location=7) in float i_hasBg;
-layout(location=8) in float i_attrFlags;
+layout(location=2) in vec2 i_cellPos;   // cell pixel position
+layout(location=3) in vec2 i_cellSize;  // cellW, cellH (quad size)
+layout(location=4) in vec2 i_glyphOff;  // glyph offset in cell
+layout(location=5) in vec2 i_glyphSize; // glyph draw size
+layout(location=6) in vec4 i_glyphUV;   // atlas UV (u0,v0,u1,v1)
+layout(location=7) in vec3 i_fg;
+layout(location=8) in vec3 i_bg;
+layout(location=9) in float i_hasBg;
+layout(location=10) in float i_attrFlags;
 uniform vec2 u_resolution;
 out vec2 v_tex;
 out vec2 v_cellUV;
@@ -60,18 +62,23 @@ out vec3 v_fg;
 out vec3 v_bg;
 out float v_hasBg;
 out float v_attrFlags;
+out float v_inGlyph;
 void main() {
-    vec2 pixelPos = a_quadPos * i_glyphSize + i_cellPos;
-    // italic (bit 2): x 方向 skew
+    vec2 cellPixelPos = a_quadPos * i_cellSize + i_cellPos;
+    // italic (bit 2): x skew
     float hasItalic = mod(floor(i_attrFlags / 4.0), 2.0);
     if (hasItalic > 0.5) {
-        pixelPos.x += (a_quadPos.y - 0.5) * i_glyphSize.x * 0.25;
+        cellPixelPos.x += (a_quadPos.y - 0.5) * i_cellSize.x * 0.25;
     }
-    vec2 ndc = pixelPos / u_resolution * 2.0 - 1.0;
+    vec2 ndc = cellPixelPos / u_resolution * 2.0 - 1.0;
     ndc.y = -ndc.y;
     gl_Position = vec4(ndc, 0.0, 1.0);
-    v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, a_quadTex);
-    v_cellUV = a_quadTex;
+    // 字形在 cell 内的子区域坐标 (0..1 if in glyph, else out of range)
+    vec2 glyphCoord = (a_quadPos * i_cellSize - i_glyphOff) / i_glyphSize;
+    v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, glyphCoord);
+    v_cellUV = a_quadPos;
+    v_inGlyph = step(0.0, glyphCoord.x) * step(glyphCoord.x, 1.0)
+              * step(0.0, glyphCoord.y) * step(glyphCoord.y, 1.0);
     v_fg = i_fg;
     v_bg = i_bg;
     v_hasBg = i_hasBg;
@@ -87,18 +94,22 @@ in vec3 v_fg;
 in vec3 v_bg;
 in float v_hasBg;
 in float v_attrFlags;
+in float v_inGlyph;
 uniform sampler2D u_atlas;
 out vec4 fragColor;
 void main() {
-    float alpha = texture(u_atlas, v_tex).r;
+    float alpha = 0.0;
+    if (v_inGlyph > 0.5) {
+        alpha = texture(u_atlas, v_tex).r;
+    }
     vec3 color = mix(v_bg * v_hasBg, v_fg, alpha);
-    // underline (bit 0): cell 底部 ~90%
+    // underline (bit 0)
     float hasUL = mod(floor(v_attrFlags), 2.0);
     if (hasUL > 0.5 && v_cellUV.y > 0.85) {
         color = v_fg;
         alpha = 1.0;
     }
-    // crossed out (bit 1): cell 中部 ~50%
+    // crossed out (bit 1)
     float hasCO = floor(v_attrFlags / 2.0);
     if (hasCO > 0.5 && v_cellUV.y > 0.45 && v_cellUV.y < 0.55) {
         color = v_fg;
@@ -474,42 +485,50 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	gl.VertexAttribPointer(1, 2, gbm.GL_FLOAT, false, 16, 8)
 	gl.EnableVertexAttribArray(1)
 
-	// 绑定 instance VBO (attributes 2-7)
+	// 绑定 instance VBO (attributes 2-10)
 	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.instanceVBO)
 	stride := int32(unsafe.Sizeof(platform.CellInstance{}))
 
-	gl.VertexAttribPointer(2, 2, gbm.GL_FLOAT, false, stride, 0)       // i_cellPos
+	gl.VertexAttribPointer(2, 2, gbm.GL_FLOAT, false, stride, 0)        // i_cellPos
 	gl.EnableVertexAttribArray(2)
 	gl.VertexAttribDivisor(2, 1)
 
-	gl.VertexAttribPointer(3, 4, gbm.GL_FLOAT, false, stride, 8)       // i_glyphUV
+	gl.VertexAttribPointer(3, 2, gbm.GL_FLOAT, false, stride, 8)        // i_cellSize
 	gl.EnableVertexAttribArray(3)
 	gl.VertexAttribDivisor(3, 1)
 
-	gl.VertexAttribPointer(4, 2, gbm.GL_FLOAT, false, stride, 24)      // i_glyphSize
+	gl.VertexAttribPointer(4, 2, gbm.GL_FLOAT, false, stride, 16)       // i_glyphOff
 	gl.EnableVertexAttribArray(4)
 	gl.VertexAttribDivisor(4, 1)
 
-	gl.VertexAttribPointer(5, 3, gbm.GL_FLOAT, false, stride, 32)      // i_fg
+	gl.VertexAttribPointer(5, 2, gbm.GL_FLOAT, false, stride, 24)       // i_glyphSize
 	gl.EnableVertexAttribArray(5)
 	gl.VertexAttribDivisor(5, 1)
 
-	gl.VertexAttribPointer(6, 3, gbm.GL_FLOAT, false, stride, 44)      // i_bg
+	gl.VertexAttribPointer(6, 4, gbm.GL_FLOAT, false, stride, 32)       // i_glyphUV
 	gl.EnableVertexAttribArray(6)
 	gl.VertexAttribDivisor(6, 1)
 
-	gl.VertexAttribPointer(7, 1, gbm.GL_FLOAT, false, stride, 56)      // i_hasBg
+	gl.VertexAttribPointer(7, 3, gbm.GL_FLOAT, false, stride, 48)       // i_fg
 	gl.EnableVertexAttribArray(7)
 	gl.VertexAttribDivisor(7, 1)
 
-	gl.VertexAttribPointer(8, 1, gbm.GL_FLOAT, false, stride, 64)      // i_attrFlags
+	gl.VertexAttribPointer(8, 3, gbm.GL_FLOAT, false, stride, 60)       // i_bg
 	gl.EnableVertexAttribArray(8)
 	gl.VertexAttribDivisor(8, 1)
+
+	gl.VertexAttribPointer(9, 1, gbm.GL_FLOAT, false, stride, 72)       // i_hasBg
+	gl.EnableVertexAttribArray(9)
+	gl.VertexAttribDivisor(9, 1)
+
+	gl.VertexAttribPointer(10, 1, gbm.GL_FLOAT, false, stride, 76)      // i_attrFlags
+	gl.EnableVertexAttribArray(10)
+	gl.VertexAttribDivisor(10, 1)
 
 	gl.DrawArraysInstanced(gbm.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
 
 	// 清理 divisor
-	for i := uint32(2); i <= 8; i++ {
+	for i := uint32(2); i <= 10; i++ {
 		gl.VertexAttribDivisor(i, 0)
 	}
 

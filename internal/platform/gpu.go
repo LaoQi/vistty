@@ -1,19 +1,21 @@
 package platform
 
 // CellInstance 是 GPU instanced draw 的单 cell 渲染数据。
+// quad 大小为 cell 尺寸（背景填满 cell），字形在 cell 内通过偏移+UV 映射。
 type CellInstance struct {
-	X, Y        float32 // cell 左上角像素位置
-	GlyphU0, V0 float32 // 字形在 atlas 纹理中的 UV 左上
-	GlyphU1, V1 float32 // 字形在 atlas 纹理中的 UV 右下
-	GlyphW     float32 // 字形像素宽
-	GlyphH     float32 // 字形像素高
-	FgR, FgG    float32 // 前景色
-	FgB         float32
-	BgR, BgG    float32 // 背景色
-	BgB         float32
-	HasBg       float32 // 1.0=非默认背景, 0.0=默认
-	CellW       float32 // cell 宽度像素（1 或 2 倍 metrics.Width）
-	AttrFlags   float32 // bit0=underline, bit1=crossedOut
+	X, Y          float32 // cell 左上角像素位置
+	CellW, CellH  float32 // cell 尺寸（quad 大小）
+	GlyphOffX     float32 // 字形在 cell 内 X 偏移 (glyph.XOffset)
+	GlyphOffY     float32 // 字形在 cell 内 Y 偏移 (Ascent + YOffset)
+	GlyphW, GlyphH float32 // 字形绘制尺寸
+	GlyphU0, V0   float32 // atlas UV 左上
+	GlyphU1, V1   float32 // atlas UV 右下
+	FgR, FgG      float32 // 前景色
+	FgB           float32
+	BgR, BgG      float32 // 背景色
+	BgB           float32
+	HasBg         float32 // 1.0=非默认背景, 0.0=默认
+	AttrFlags     float32 // bit0=underline, bit1=crossedOut, bit2=italic
 }
 
 // GPURenderer 是 Surface 可选实现的 GPU 渲染接口。
