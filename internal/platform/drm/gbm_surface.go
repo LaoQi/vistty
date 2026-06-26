@@ -345,10 +345,11 @@ func (s *GBMSurface) initGPU() error {
 	gl.GenTextures(1, texs[:])
 	s.atlasTex = texs[0]
 	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
-	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MIN_FILTER, gbm.GL_LINEAR)
-	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAG_FILTER, gbm.GL_LINEAR)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MIN_FILTER, gbm.GL_NEAREST)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAG_FILTER, gbm.GL_NEAREST)
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_S, gbm.GL_CLAMP_TO_EDGE)
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_T, gbm.GL_CLAMP_TO_EDGE)
+	gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
 	gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAX_LEVEL, 0)
 
@@ -387,6 +388,9 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 	if !s.gpuReady {
 		return 0, 0, 0, 0, false
 	}
+	if w <= 0 || h <= 0 || len(bitmap) < w*h {
+		return 0, 0, 0, 0, false
+	}
 	if e, exists := s.atlasCache[r]; exists {
 		return e.u0, e.v0, e.u1, e.v1, true
 	}
@@ -407,6 +411,7 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		}
 		gl := s.device.glesLoader
 		gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
+		gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
 		gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
 		// 重新放置当前字形
 		if w > s.atlasW || h > s.atlasH {
@@ -418,10 +423,13 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
 	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(s.shelfX), int32(s.shelfY), int32(w), int32(h), gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, bitmap)
 
-	u0 = float32(s.shelfX) / float32(s.atlasW)
-	v0 = float32(s.shelfY) / float32(s.atlasH)
-	u1 = float32(s.shelfX+w) / float32(s.atlasW)
-	v1 = float32(s.shelfY+h) / float32(s.atlasH)
+	// UV 加半纹素 inset，避免 GL_NEAREST 边界越界采样到相邻字形
+	aw := float32(s.atlasW)
+	ah := float32(s.atlasH)
+	u0 = (float32(s.shelfX) + 0.5) / aw
+	v0 = (float32(s.shelfY) + 0.5) / ah
+	u1 = (float32(s.shelfX+w) - 0.5) / aw
+	v1 = (float32(s.shelfY+h) - 0.5) / ah
 
 	s.atlasCache[r] = atlasEntry{u0, v0, u1, v1}
 
