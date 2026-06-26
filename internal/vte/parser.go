@@ -405,16 +405,18 @@ func utf8Len(b byte) int {
 }
 
 func (p *Parser) FeedAll(data []byte) []Sequence {
+	return p.FeedInto(data, nil)
+}
+
+func (p *Parser) FeedInto(data []byte, dst []Sequence) []Sequence {
 	p.seqs = p.seqs[:0]
 	for _, b := range data {
 		p.dispatch(b)
 	}
 	if len(p.seqs) == 0 {
-		return nil
+		return dst[:0]
 	}
-	result := make([]Sequence, len(p.seqs))
-	copy(result, p.seqs)
-	return result
+	return append(dst[:0], p.seqs...)
 }
 
 func (p *Parser) resetSequence() {

@@ -113,8 +113,10 @@ func (m *Master) Run() error {
 			if ft := m.focusTerm(); ft != nil {
 				ft.Apply(seqs)
 			}
+			terminal.ReturnSeqPool(seqs)
 		case msg := <-unifiedSeqCh:
 			msg.term.Apply(msg.seqs)
+			terminal.ReturnSeqPool(msg.seqs)
 		case <-ticker.C:
 			var frameStart time.Time
 			if m.fpsLogging {

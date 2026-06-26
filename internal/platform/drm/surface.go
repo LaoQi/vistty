@@ -92,6 +92,10 @@ func (s *DRMSurface) Data() []byte {
 	return s.bufs[backIdx].data
 }
 
+func (s *DRMSurface) DirectRender() bool {
+	return false
+}
+
 func (s *DRMSurface) Stride() int {
 	backIdx := s.current ^ 1
 	return s.bufs[backIdx].stride

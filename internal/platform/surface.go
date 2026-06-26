@@ -13,4 +13,5 @@ type Surface interface {
 	Close() error
 	ResizeEvents() <-chan ResizeEvent
 	OutputID() uint32
+	DirectRender() bool
 }

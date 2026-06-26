@@ -125,6 +125,10 @@ func (s *WaylandSurface) Data() []byte {
 	return s.bufs[backIdx].data
 }
 
+func (s *WaylandSurface) DirectRender() bool {
+	return true
+}
+
 func (s *WaylandSurface) Stride() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

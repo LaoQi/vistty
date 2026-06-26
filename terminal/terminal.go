@@ -21,6 +21,10 @@ import (
 
 var debugLog = os.Getenv("VISTTY_DEBUG") != ""
 
+var seqPool = sync.Pool{
+	New: func() any { return make([]vte.Sequence, 0, 4096) },
+}
+
 type savedCursorState struct {
 	row     int
 	col     int
@@ -131,6 +135,10 @@ func (t *Terminal) Cursor() *screen.Cursor {
 
 func (t *Terminal) SeqCh() <-chan []vte.Sequence {
 	return t.seqCh
+}
+
+func ReturnSeqPool(seqs []vte.Sequence) {
+	seqPool.Put(seqs[:0])
 }
 
 func (t *Terminal) EofCh() <-chan struct{} {
@@ -290,7 +298,8 @@ func (t *Terminal) PtyReadLoop() {
 		if t.opts.RecordWriter != nil {
 			t.opts.RecordWriter.Write(buf[:n])
 		}
-		seqs := t.parser.FeedAll(buf[:n])
+		seqs := seqPool.Get().([]vte.Sequence)
+		seqs = t.parser.FeedInto(buf[:n], seqs)
 		if debugLog && len(seqs) > 0 {
 			fmt.Fprintf(os.Stderr, "PtyReadLoop: parsed %d sequences\n", len(seqs))
 		}
@@ -298,8 +307,11 @@ func (t *Terminal) PtyReadLoop() {
 			select {
 			case t.seqCh <- seqs:
 			case <-t.done:
+				seqPool.Put(seqs[:0])
 				return
 			}
+		} else {
+			seqPool.Put(seqs[:0])
 		}
 	}
 }

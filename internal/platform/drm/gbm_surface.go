@@ -82,6 +82,10 @@ func (s *GBMSurface) Data() []byte {
 	return s.cpuBuf
 }
 
+func (s *GBMSurface) DirectRender() bool {
+	return true
+}
+
 func (s *GBMSurface) Stride() int {
 	return s.cpuStride
 }

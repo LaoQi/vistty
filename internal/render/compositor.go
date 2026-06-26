@@ -12,18 +12,19 @@ type defaultColor struct {
 }
 
 type Compositor struct {
-	surface    platform.Surface
-	face       font.Face
-	atlas      *font.Atlas
-	metrics    font.Metrics
-	cols       int
-	rows       int
-	defColor   defaultColor
-	backBuf    []byte
-	backStride int
-	backWidth  int
-	backHeight int
-	frameCount uint64
+	surface      platform.Surface
+	face         font.Face
+	atlas        *font.Atlas
+	metrics      font.Metrics
+	cols         int
+	rows         int
+	defColor     defaultColor
+	backBuf      []byte
+	backStride   int
+	backWidth    int
+	backHeight   int
+	frameCount   uint64
+	directRender bool
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -34,7 +35,6 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 	if m.Height > 0 {
 		rows = h / m.Height
 	}
-	stride := w * 4
 	c := &Compositor{
 		surface:    surface,
 		face:       face,
@@ -42,8 +42,6 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 		metrics:    m,
 		cols:       cols,
 		rows:       rows,
-		backBuf:    make([]byte, stride*h),
-		backStride: stride,
 		backWidth:  w,
 		backHeight: h,
 		defColor: defaultColor{
@@ -51,8 +49,14 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 			fg: screen.Color{R: 204, G: 204, B: 204},
 		},
 	}
-	bg := c.defColor.bg
-	fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+	c.directRender = surface.DirectRender()
+	if !c.directRender {
+		stride := w * 4
+		c.backBuf = make([]byte, stride*h)
+		c.backStride = stride
+		bg := c.defColor.bg
+		fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+	}
 	return c
 }
 
@@ -89,6 +93,14 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	cursor := buf.Cursor()
 
 	c.frameCount++
+
+	if c.directRender {
+		c.backBuf = c.surface.Data()
+		c.backStride = c.surface.Stride()
+		if c.backBuf == nil {
+			return nil
+		}
+	}
 
 	defBg := c.defColor.bg
 	fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
@@ -205,7 +217,9 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		}
 	}
 
-	c.copyAllToSurface()
+	if !c.directRender {
+		c.copyAllToSurface()
+	}
 
 	if err := c.surface.Swap(); err != nil {
 		return err
@@ -218,13 +232,15 @@ func (c *Compositor) Resize(cols, rows int) {
 	c.cols = cols
 	c.rows = rows
 	w, h := c.surface.Size()
-	stride := w * 4
-	c.backBuf = make([]byte, stride*h)
-	c.backStride = stride
 	c.backWidth = w
 	c.backHeight = h
-	bg := c.defColor.bg
-	fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+	if !c.directRender {
+		stride := w * 4
+		c.backBuf = make([]byte, stride*h)
+		c.backStride = stride
+		bg := c.defColor.bg
+		fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+	}
 }
 
 func (c *Compositor) copyAllToSurface() {

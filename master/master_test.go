@@ -43,6 +43,7 @@ func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return s.resizeC
 }
 func (s *fakeSurface) OutputID() uint32 { return 0 }
+func (s *fakeSurface) DirectRender() bool { return true }
 
 type fakeInput struct {
 	keyCh   chan platform.KeyEvent

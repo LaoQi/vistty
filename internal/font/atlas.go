@@ -2,7 +2,6 @@ package font
 
 import (
 	"container/list"
-	"sync"
 )
 
 type Glyph struct {
@@ -16,13 +15,12 @@ type Glyph struct {
 }
 
 type atlasEntry struct {
-	key  rune
+	key   rune
 	glyph *Glyph
-	elem *list.Element
+	elem  *list.Element
 }
 
 type Atlas struct {
-	mu       sync.RWMutex
 	capacity int
 	cache    map[rune]*atlasEntry
 	order    *list.List
@@ -40,8 +38,6 @@ func NewAtlas(capacity int) *Atlas {
 }
 
 func (a *Atlas) Get(r rune) *Glyph {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	entry, ok := a.cache[r]
 	if !ok {
 		return nil
@@ -50,9 +46,6 @@ func (a *Atlas) Get(r rune) *Glyph {
 }
 
 func (a *Atlas) Put(r rune, g *Glyph) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if entry, ok := a.cache[r]; ok {
 		entry.glyph = g
 		a.order.MoveToFront(entry.elem)
@@ -72,9 +65,6 @@ func (a *Atlas) Put(r rune, g *Glyph) {
 }
 
 func (a *Atlas) Clear() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	a.cache = make(map[rune]*atlasEntry)
 	a.order.Init()
 }

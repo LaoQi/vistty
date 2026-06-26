@@ -52,6 +52,7 @@ type Surface interface {
     Close() error
     ResizeEvents() <-chan ResizeEvent
     OutputID() uint32       // 绑定的输出 ID
+    DirectRender() bool     // Data() 是否可直接渲染（堆/memfd 内存 true；dumb mmap 设备内存 false）
 }
 
 // platform/output.go
@@ -114,7 +115,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 |-----------|------|-------------|
 | main | Run() LockOSThread 绑定，承载渲染主循环（seqCh/ticker.Render/resize/scale/eof），等 done/backend.Done() | 无差异 |
 | backend-loop | backend.Run() | DRM: 空操作; Wayland: dispatch 事件循环 |
-| pty-read | PTY stdout → Read 长循环 → FeedAll → seqCh | 无差异 |
+| pty-read | PTY stdout → Read 长循环 → FeedInto → seqCh | 无差异 |
 | input | InputSource 事件 → terminal | 无差异（接口统一） |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() | 无差异 |
 | drm-event | DRM fd 事件（Page Flip 完成） | 仅 DRM |
@@ -274,7 +275,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ 渲染双缓冲（Compositor离屏backBuf + 全量拷贝到Surface）
 - ✅ Wayland 线格式修复（wire.go: 修正 PutString 字符串长度 bug + ShmFormat 枚举值协商）
 - ✅ 两阶段关闭流程（signalClose 不触碰 Wayland 对象 → backend.Stop 解锁 Run → 安全销毁）
-- ✅ ptyReadLoop 长周期化（单 goroutine 直接 Read→FeedAll→seqCh，消除每帧临时 goroutine 分配；done+pty.Close 让 Read 返回 err 退出）
+- ✅ ptyReadLoop 长周期化（单 goroutine 直接 Read→FeedInto→seqCh，消除每帧临时 goroutine 分配；done+pty.Close 让 Read 返回 err 退出）
 - ✅ 渲染主线程化（Run() LockOSThread 绑定，eventLoop select 并入 main，wg.Add(3)；CGO=0 下保证渲染 goroutine 不被线程迁移）
 - ✅ 强制初始渲染（Run() 启动前 Render 一次，确保 Wayland surface 被映射）
 - ✅ VISTTY_DEBUG 环境变量调试日志
@@ -298,8 +299,11 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ 擦除区域保留当前 SGR 背景色（EL/ED/ECH/DCH/ICH/ScrollUp/ScrollDown 新行使用 curBg 填充而非 default 黑色，符合 xterm 规范）
 - ✅ OSC 10/11 默认前景/背景色查询+设置（OSCColorQuery 拆为 OSCFgColor/OSCBgColor；Query→回写 rgb:HHHH/HHHH/HHHH 16-bit；SET→parseColorSpec 解析 rgb:H/H/H..HHHH/HHHH/HHHH + #RGB/#RRGGBB→更新 defFg/defBg→OnDefaultColor 回调→compositor.SetDefaultColors 传播渲染层；fullReset 恢复默认色；master 镜像/独立模式 per-terminal 绑定回调；修复 nvim E1568）
 - ✅ 性能评估基础设施（internal/perf/replay 三级归因 benchmark L1/L2/L3 + cmd/vistty pprof 集成 -cpuprofile/-memprofile/-trace/-mutexprofile/-fps/-record）
-- ✅ 9 项性能优化（parser 预分配 -99.6% allocs / fillRect uint32 / history 所有权移交 / blendGlyph >>8 / atlas 读路径去锁 / copyAll 整块 / rune_width ASCII 快路径 / InsertLines 批量化 / swapBR uint32）
+- ✅ 9 项性能优化（parser 预分配 -99.6% allocs / fillRect uint32 / history 所有权移交 / blendGlyph >>8 / atlas 读路径去锁（初版仅注释，真正移除 RWMutex 见下条）/ copyAll 整块 / rune_width ASCII 快路径 / InsertLines 批量化 / swapBR uint32）
 - ✅ 内存分配热点消除（Sequence.Params []int→[16]int+NParams 内嵌数组，删除 copyInts 堆分配，CSI allocs -99.7%；ParseSGR 预分配 cap=8；Parser.seqs 预分配 cap=256 消除 growslice，L1 解析提速 1.3-1.8x）
+- ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；master mirror/independent Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
+- ✅ Atlas RWMutex 真正移除（atlas.go 删除 mu 字段及所有 Lock/RLock；getGlyph→Get/Put 全在渲染主线程无并发；消除 atomic.Add 5.43% + RLock 3.49% = 8.92% CPU）
+- ✅ GBM cpuBuf 中间拷贝消除（Surface 接口新增 DirectRender() bool；GBM/Wayland 直接渲染到 Surface.Data() 跳过 copyAllToSurface，dumb buffer 保留 backBuf+copyAll 因 mmap 设备内存逐像素写极慢；GBMSurface 构造时 ensureCPUBuf；GBM memmove 2.05s→0.26s -87%，帧时间 43ms→33ms -23%）
 - ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；master 协调层枚举输出+焦点路由+渲染编排；slave 输出绑定+terms[]预留tabs）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
 - ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 master 集中渲染裁剪分发，独立每 slave 自持 compositor 串行渲染）
