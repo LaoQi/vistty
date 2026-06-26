@@ -25,6 +25,8 @@ type Compositor struct {
 	backHeight   int
 	frameCount   uint64
 	directRender bool
+	gpu          platform.GPURenderer
+	instances    []platform.CellInstance
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -83,6 +85,16 @@ func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
 }
 
 func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
+	c.frameCount++
+
+	// GPU instanced draw 路径
+	if c.gpu == nil {
+		c.gpu, _ = c.surface.(platform.GPURenderer)
+	}
+	if c.gpu != nil {
+		return c.renderGPU(buf, scrollOffset)
+	}
+
 	history := buf.History()
 	histLen := history.Len()
 	offset := scrollOffset
@@ -226,6 +238,131 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	}
 
 	return nil
+}
+
+func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
+	history := buf.History()
+	histLen := history.Len()
+	offset := scrollOffset
+	if offset > histLen {
+		offset = histLen
+	}
+	cursor := buf.Cursor()
+
+	defBg := c.defColor.bg
+
+	// 预分配 instance buffer（复用底层数组）
+	maxCells := c.cols * c.rows
+	if cap(c.instances) < maxCells {
+		c.instances = make([]platform.CellInstance, 0, maxCells)
+	}
+	c.instances = c.instances[:0]
+
+	for row := 0; row < c.rows; row++ {
+		var line *screen.Line
+		isHistory := row < offset
+		if isHistory {
+			line = history.Line(histLen - offset + row)
+		} else {
+			line = buf.Line(row - offset)
+		}
+		if line == nil {
+			continue
+		}
+		for col := 0; col < c.cols; col++ {
+			cell := line.Cell(col)
+			if cell == nil || cell.Width == 0 {
+				continue
+			}
+
+			px := float32(col * c.metrics.Width)
+			py := float32(row * c.metrics.Height)
+			cellW := float32(int(cell.Width) * c.metrics.Width)
+
+			fg := c.resolveFg(cell.Fg)
+			bg := c.resolveBg(cell.Bg)
+			fgR, fgG, fgB := float32(fg.R)/255, float32(fg.G)/255, float32(fg.B)/255
+			bgR, bgG, bgB := float32(bg.R)/255, float32(bg.G)/255, float32(bg.B)/255
+			hasBg := float32(0)
+
+			if cell.Attr&screen.AttrReverse != 0 {
+				fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
+			}
+			if cell.Attr&screen.AttrDim != 0 {
+				fgR /= 2
+				fgG /= 2
+				fgB /= 2
+			}
+			if bgR != float32(defBg.R)/255 || bgG != float32(defBg.G)/255 || bgB != float32(defBg.B)/255 {
+				hasBg = 1
+			}
+
+			inst := platform.CellInstance{
+				X:        px,
+				Y:        py,
+				FgR:      fgR,
+				FgG:      fgG,
+				FgB:      fgB,
+				BgR:      bgR,
+				BgG:      bgG,
+				BgB:      bgB,
+				HasBg:    hasBg,
+				CellW:    cellW,
+				GlyphW:   float32(c.metrics.Width),
+				GlyphH:   float32(c.metrics.Height),
+			}
+
+			if cell.Rune != 0 {
+				glyph, err := c.getGlyph(cell.Rune)
+				if err == nil && glyph != nil {
+					u0, v0, u1, v1, ok := c.gpu.UploadGlyph(cell.Rune, glyph.Bitmap, glyph.Width, glyph.Height)
+					if ok {
+						inst.GlyphU0 = u0
+						inst.V0 = v0
+						inst.GlyphU1 = u1
+						inst.V1 = v1
+						inst.GlyphW = float32(glyph.Width)
+						inst.GlyphH = float32(glyph.Height)
+						// 粗体：偏移 1px（简化处理，atlas 内无独立粗体字形）
+						if cell.Attr&screen.AttrBold != 0 {
+							inst.X += 1
+						}
+					}
+				}
+			}
+			c.instances = append(c.instances, inst)
+		}
+	}
+
+	// 光标处理（简化：反转光标 cell 的 fg/bg）
+	if cursor != nil && offset == 0 {
+		visible := cursor.Visible
+		if cursor.Blinking && c.frameCount%30 < 15 {
+			visible = false
+		}
+		if visible {
+			cx := cursor.Col
+			cy := cursor.Row
+			if cx < c.cols && cy < c.rows {
+				for i := range c.instances {
+					if int(c.instances[i].X) == cx*c.metrics.Width && int(c.instances[i].Y) == cy*c.metrics.Height {
+						c.instances[i].FgR, c.instances[i].BgR = c.instances[i].BgR, c.instances[i].FgR
+						c.instances[i].FgG, c.instances[i].BgG = c.instances[i].BgG, c.instances[i].FgG
+						c.instances[i].FgB, c.instances[i].BgB = c.instances[i].BgB, c.instances[i].FgB
+						c.instances[i].HasBg = 1
+						break
+					}
+				}
+			}
+		}
+	}
+
+	bgColor := [3]float32{float32(defBg.R) / 255, float32(defBg.G) / 255, float32(defBg.B) / 255}
+	if err := c.gpu.DrawInstances(c.instances, c.backWidth, c.backHeight, bgColor); err != nil {
+		return err
+	}
+
+	return c.surface.Swap()
 }
 
 func (c *Compositor) Resize(cols, rows int) {

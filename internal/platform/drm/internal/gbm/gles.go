@@ -43,6 +43,14 @@ const (
 	GL_TRIANGLE_STRIP               = 0x0005
 
 	GL_EXT_texture_format_BGRA8888 = "GL_EXT_texture_format_BGRA8888"
+
+	// GLES 3.0
+	GL_DYNAMIC_DRAW                = 0x88E8
+	GL_R8                          = 0x8229
+	GL_RED                         = 0x1903
+	GL_TEXTURE_BASE_LEVEL          = 0x813C
+	GL_TEXTURE_MAX_LEVEL           = 0x813D
+	GL_UNIFORM_BUFFER              = 0x8A11
 )
 
 type GLESLoader struct {
@@ -84,6 +92,16 @@ type GLESLoader struct {
 	getIntegerv         func(name uint32, params unsafe.Pointer)
 	getError           func() uint32
 	pixelStorei         func(pname uint32, param int32)
+	// GLES 3.0
+	drawArraysInstanced   func(mode uint32, first int32, count int32, primcount int32)
+	vertexAttribDivisor   func(index uint32, divisor uint32)
+	bufferSubData         func(target uint32, offset uintptr, size uintptr, data unsafe.Pointer)
+	uniform2f             func(location int32, x, y float32)
+	uniform4f             func(location int32, x, y, z, w float32)
+	uniform2i             func(location int32, x, y int32)
+	uniform3fv            func(location int32, count int32, value unsafe.Pointer)
+	uniform4fv            func(location int32, count int32, value unsafe.Pointer)
+	texStorage2D          func(target uint32, levels int32, internalFormat uint32, w, h int32)
 }
 
 func LoadGLES() (*GLESLoader, error) {
@@ -98,54 +116,67 @@ func LoadGLES() (*GLESLoader, error) {
 	l := &GLESLoader{lib: lib}
 
 	type symDef struct {
-		name string
-		fptr any
+		name     string
+		fptr     any
+		optional bool
 	}
 	syms := []symDef{
-		{"glGenTextures", &l.genTextures},
-		{"glDeleteTextures", &l.deleteTextures},
-		{"glBindTexture", &l.bindTexture},
-		{"glActiveTexture", &l.activeTexture},
-		{"glTexImage2D", &l.texImage2D},
-		{"glTexSubImage2D", &l.texSubImage2D},
-		{"glTexParameteri", &l.texParameteri},
-		{"glGetTexLevelParameteriv", &l.getTexLevelParameteriv},
-		{"glCreateShader", &l.createShader},
-		{"glDeleteShader", &l.deleteShader},
-		{"glShaderSource", &l.shaderSource},
-		{"glCompileShader", &l.compileShader},
-		{"glGetShaderiv", &l.getShaderiv},
-		{"glGetShaderInfoLog", &l.getShaderInfoLog},
-		{"glCreateProgram", &l.createProgram},
-		{"glDeleteProgram", &l.deleteProgram},
-		{"glAttachShader", &l.attachShader},
-		{"glLinkProgram", &l.linkProgram},
-		{"glGetProgramiv", &l.getProgramiv},
-		{"glGetProgramInfoLog", &l.getProgramInfoLog},
-		{"glUseProgram", &l.useProgram},
-		{"glGetUniformLocation", &l.getUniformLocation},
-		{"glGenBuffers", &l.genBuffers},
-		{"glDeleteBuffers", &l.deleteBuffers},
-		{"glBindBuffer", &l.bindBuffer},
-		{"glBufferData", &l.bufferData},
-		{"glVertexAttribPointer", &l.vertexAttribPointer},
-		{"glEnableVertexAttribArray", &l.enableVertexAttribArray},
-		{"glDrawArrays", &l.drawArrays},
-		{"glViewport", &l.viewport},
-		{"glClear", &l.clear},
-		{"glClearColor", &l.clearColor},
-		{"glUniform1i", &l.uniform1i},
-		{"glGetString", &l.getString},
-		{"glGetIntegerv", &l.getIntegerv},
-		{"glGetError", &l.getError},
-		{"glPixelStorei", &l.pixelStorei},
+		{"glGenTextures", &l.genTextures, false},
+		{"glDeleteTextures", &l.deleteTextures, false},
+		{"glBindTexture", &l.bindTexture, false},
+		{"glActiveTexture", &l.activeTexture, false},
+		{"glTexImage2D", &l.texImage2D, false},
+		{"glTexSubImage2D", &l.texSubImage2D, false},
+		{"glTexParameteri", &l.texParameteri, false},
+		{"glGetTexLevelParameteriv", &l.getTexLevelParameteriv, false},
+		{"glCreateShader", &l.createShader, false},
+		{"glDeleteShader", &l.deleteShader, false},
+		{"glShaderSource", &l.shaderSource, false},
+		{"glCompileShader", &l.compileShader, false},
+		{"glGetShaderiv", &l.getShaderiv, false},
+		{"glGetShaderInfoLog", &l.getShaderInfoLog, false},
+		{"glCreateProgram", &l.createProgram, false},
+		{"glDeleteProgram", &l.deleteProgram, false},
+		{"glAttachShader", &l.attachShader, false},
+		{"glLinkProgram", &l.linkProgram, false},
+		{"glGetProgramiv", &l.getProgramiv, false},
+		{"glGetProgramInfoLog", &l.getProgramInfoLog, false},
+		{"glUseProgram", &l.useProgram, false},
+		{"glGetUniformLocation", &l.getUniformLocation, false},
+		{"glGenBuffers", &l.genBuffers, false},
+		{"glDeleteBuffers", &l.deleteBuffers, false},
+		{"glBindBuffer", &l.bindBuffer, false},
+		{"glBufferData", &l.bufferData, false},
+		{"glVertexAttribPointer", &l.vertexAttribPointer, false},
+		{"glEnableVertexAttribArray", &l.enableVertexAttribArray, false},
+		{"glDrawArrays", &l.drawArrays, false},
+		{"glViewport", &l.viewport, false},
+		{"glClear", &l.clear, false},
+		{"glClearColor", &l.clearColor, false},
+		{"glUniform1i", &l.uniform1i, false},
+		{"glGetString", &l.getString, false},
+		{"glGetIntegerv", &l.getIntegerv, false},
+		{"glGetError", &l.getError, false},
+		{"glPixelStorei", &l.pixelStorei, false},
+		// GLES 3.0 (optional for instanced draw)
+		{"glDrawArraysInstanced", &l.drawArraysInstanced, true},
+		{"glVertexAttribDivisor", &l.vertexAttribDivisor, true},
+		{"glBufferSubData", &l.bufferSubData, true},
+		{"glUniform2f", &l.uniform2f, true},
+		{"glUniform4f", &l.uniform4f, true},
+		{"glUniform2i", &l.uniform2i, true},
+		{"glUniform3fv", &l.uniform3fv, true},
+		{"glUniform4fv", &l.uniform4fv, true},
+		{"glTexStorage2D", &l.texStorage2D, true},
 	}
 
 	var errs []error
 	for _, s := range syms {
 		addr, err := purego.Dlsym(lib, s.name)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("missing GLES symbol %s: %w", s.name, err))
+			if !s.optional {
+				errs = append(errs, fmt.Errorf("missing GLES symbol %s: %w", s.name, err))
+			}
 			continue
 		}
 		purego.RegisterFunc(s.fptr, addr)
@@ -378,4 +409,67 @@ func cGoString(ptr unsafe.Pointer) string {
 		bs = append(bs, b)
 	}
 	return string(bs)
+}
+
+// GLES 3.0 wrappers
+
+func (l *GLESLoader) HasInstancedDraw() bool {
+	return l.drawArraysInstanced != nil && l.vertexAttribDivisor != nil && l.bufferSubData != nil
+}
+
+func (l *GLESLoader) DrawArraysInstanced(mode uint32, first, count, primcount int32) {
+	l.drawArraysInstanced(mode, first, count, primcount)
+}
+
+func (l *GLESLoader) VertexAttribDivisor(index uint32, divisor uint32) {
+	l.vertexAttribDivisor(index, divisor)
+}
+
+func (l *GLESLoader) BufferSubData(target uint32, offset uintptr, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	l.bufferSubData(target, offset, uintptr(len(data)), unsafe.Pointer(&data[0]))
+}
+
+func (l *GLESLoader) Uniform2f(location int32, x, y float32) {
+	l.uniform2f(location, x, y)
+}
+
+func (l *GLESLoader) Uniform4f(location int32, x, y, z, w float32) {
+	l.uniform4f(location, x, y, z, w)
+}
+
+func (l *GLESLoader) Uniform2i(location int32, x, y int32) {
+	l.uniform2i(location, x, y)
+}
+
+func (l *GLESLoader) Uniform3fv(location int32, count int32, value []float32) {
+	l.uniform3fv(location, count, unsafe.Pointer(&value[0]))
+}
+
+func (l *GLESLoader) Uniform4fv(location int32, count int32, value []float32) {
+	l.uniform4fv(location, count, unsafe.Pointer(&value[0]))
+}
+
+func (l *GLESLoader) TexStorage2D(target uint32, levels int32, internalFormat uint32, w, h int32) {
+	l.texStorage2D(target, levels, internalFormat, w, h)
+}
+
+func (l *GLESLoader) GetGLVersion() (major, minor int) {
+	ver := l.GetString(GL_VERSION)
+	// "OpenGL ES 3.2 ..." → parse
+	if len(ver) < 12 {
+		return 2, 0
+	}
+	for i := 0; i < len(ver); i++ {
+		if ver[i] >= '0' && ver[i] <= '9' {
+			major = int(ver[i] - '0')
+			if i+2 < len(ver) && ver[i+1] == '.' && ver[i+2] >= '0' && ver[i+2] <= '9' {
+				minor = int(ver[i+2] - '0')
+			}
+			return
+		}
+	}
+	return 2, 0
 }

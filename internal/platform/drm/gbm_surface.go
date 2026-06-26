@@ -42,6 +42,53 @@ void main() {
 }
 `
 
+// GPU instanced draw shaders (GLES 3.00)
+const gpuVertexSrc = `#version 300 es
+layout(location=0) in vec2 a_quadPos;   // 0..1 unit quad
+layout(location=1) in vec2 a_quadTex;   // 0..1 unit texcoord
+layout(location=2) in vec2 i_cellPos;   // pixel position
+layout(location=3) in vec4 i_glyphUV;   // atlas UV (u0,v0,u1,v1)
+layout(location=4) in vec2 i_glyphSize; // glyph pixel size
+layout(location=5) in vec3 i_fg;        // fg color
+layout(location=6) in vec3 i_bg;        // bg color
+layout(location=7) in float i_hasBg;
+uniform vec2 u_resolution;
+out vec2 v_tex;
+out vec3 v_fg;
+out vec3 v_bg;
+out float v_hasBg;
+void main() {
+    vec2 pixelPos = a_quadPos * i_glyphSize + i_cellPos;
+    vec2 ndc = pixelPos / u_resolution * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+    gl_Position = vec4(ndc, 0.0, 1.0);
+    v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, a_quadTex);
+    v_fg = i_fg;
+    v_bg = i_bg;
+    v_hasBg = i_hasBg;
+}
+`
+
+const gpuFragmentSrc = `#version 300 es
+precision mediump float;
+in vec2 v_tex;
+in vec3 v_fg;
+in vec3 v_bg;
+in float v_hasBg;
+uniform sampler2D u_atlas;
+out vec4 fragColor;
+void main() {
+    float alpha = texture(u_atlas, v_tex).r;
+    vec3 color = mix(v_bg * v_hasBg, v_fg, alpha);
+    float a = max(alpha, v_hasBg);
+    fragColor = vec4(color, a);
+}
+`
+
+type atlasEntry struct {
+	u0, v0, u1, v1 float32
+}
+
 type GBMSurface struct {
 	device      *GBMDevice
 	commitor    *AtomicCommitor
@@ -72,6 +119,21 @@ type GBMSurface struct {
 	vbo       uint32
 	texUni    int32
 	hasBGRA   bool
+
+	// GPU instanced draw
+	gpuReady     bool
+	gpuDrawn     bool
+	gpuProgram   uint32
+	atlasTex     uint32
+	atlasW       int
+	atlasH       int
+	quadVBO      uint32
+	instanceVBO  uint32
+	resUni       int32
+	atlasCache   map[rune]atlasEntry
+	shelfX       int
+	shelfY       int
+	shelfH       int
 }
 
 func (s *GBMSurface) Size() (int, int) {
@@ -191,6 +253,218 @@ func (s *GBMSurface) initGL() error {
 	gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
 
 	s.glInitDone = true
+
+	// 尝试初始化 GPU instanced draw
+	if gl.HasInstancedDraw() {
+		if err := s.initGPU(); err != nil {
+			if os.Getenv("VISTTY_DEBUG") != "" {
+				fmt.Fprintf(os.Stderr, "GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *GBMSurface) initGPU() error {
+	gl := s.device.glesLoader
+
+	// 编译 GPU shader
+	vs := gl.CreateShader(gbm.GL_VERTEX_SHADER)
+	if vs == 0 {
+		return fmt.Errorf("glCreateShader(vertex) failed")
+	}
+	gl.ShaderSource(vs, gpuVertexSrc)
+	gl.CompileShader(vs)
+	var status [1]int32
+	gl.GetShaderiv(vs, gbm.GL_COMPILE_STATUS, status[:])
+	if status[0] == 0 {
+		log := gl.GetShaderInfoLog(vs, 512)
+		gl.DeleteShader(vs)
+		return fmt.Errorf("GPU vertex shader compile: %s", log)
+	}
+
+	fs := gl.CreateShader(gbm.GL_FRAGMENT_SHADER)
+	if fs == 0 {
+		gl.DeleteShader(vs)
+		return fmt.Errorf("glCreateShader(fragment) failed")
+	}
+	gl.ShaderSource(fs, gpuFragmentSrc)
+	gl.CompileShader(fs)
+	gl.GetShaderiv(fs, gbm.GL_COMPILE_STATUS, status[:])
+	if status[0] == 0 {
+		log := gl.GetShaderInfoLog(fs, 512)
+		gl.DeleteShader(vs)
+		gl.DeleteShader(fs)
+		return fmt.Errorf("GPU fragment shader compile: %s", log)
+	}
+
+	prog := gl.CreateProgram()
+	gl.AttachShader(prog, vs)
+	gl.AttachShader(prog, fs)
+	gl.LinkProgram(prog)
+	gl.GetProgramiv(prog, gbm.GL_LINK_STATUS, status[:])
+	gl.DeleteShader(vs)
+	gl.DeleteShader(fs)
+	if status[0] == 0 {
+		log := gl.GetProgramInfoLog(prog, 512)
+		gl.DeleteProgram(prog)
+		return fmt.Errorf("GPU program link: %s", log)
+	}
+	s.gpuProgram = prog
+	s.resUni = gl.GetUniformLocation(prog, "u_resolution")
+
+	// 创建 atlas 纹理（R8 格式，1024x1024）
+	s.atlasW = 1024
+	s.atlasH = 1024
+	var texs [1]uint32
+	gl.GenTextures(1, texs[:])
+	s.atlasTex = texs[0]
+	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MIN_FILTER, gbm.GL_LINEAR)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAG_FILTER, gbm.GL_LINEAR)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_S, gbm.GL_CLAMP_TO_EDGE)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_T, gbm.GL_CLAMP_TO_EDGE)
+	gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAX_LEVEL, 0)
+
+	s.atlasCache = make(map[rune]atlasEntry)
+
+	// 创建单位 quad VBO（4 顶点：pos.xy + tex.xy）
+	var vbos [2]uint32
+	gl.GenBuffers(2, vbos[:])
+	s.quadVBO = vbos[0]
+	s.instanceVBO = vbos[1]
+
+	quadVerts := []float32{
+		0, 0, 0, 0,
+		1, 0, 1, 0,
+		0, 1, 0, 1,
+		1, 1, 1, 1,
+	}
+	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.quadVBO)
+	gl.BufferData(gbm.GL_ARRAY_BUFFER, float32ToBytes(quadVerts), gbm.GL_STATIC_DRAW)
+
+	// instance VBO（预分配，后续 BufferSubData 更新）
+	maxInstances := s.width * s.height // 上限
+	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.instanceVBO)
+	gl.BufferData(gbm.GL_ARRAY_BUFFER, make([]byte, maxInstances*int(unsafe.Sizeof(platform.CellInstance{}))), gbm.GL_DYNAMIC_DRAW)
+
+	s.gpuReady = true
+	if os.Getenv("VISTTY_DEBUG") != "" {
+		major, minor := gl.GetGLVersion()
+		fmt.Fprintf(os.Stderr, "GBM: GPU instanced draw ready (GLES %d.%d, atlas %dx%d R8)\n", major, minor, s.atlasW, s.atlasH)
+	}
+	return nil
+}
+
+// UploadGlyph implements platform.GPURenderer
+func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+	if !s.gpuReady {
+		return 0, 0, 0, 0, false
+	}
+	if e, exists := s.atlasCache[r]; exists {
+		return e.u0, e.v0, e.u1, e.v1, true
+	}
+
+	// Shelf packing
+	if s.shelfX+w > s.atlasW {
+		s.shelfX = 0
+		s.shelfY += s.shelfH
+		s.shelfH = 0
+	}
+	if s.shelfY+h > s.atlasH {
+		return 0, 0, 0, 0, false // atlas 满
+	}
+
+	gl := s.device.glesLoader
+	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
+	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(s.shelfX), int32(s.shelfY), int32(w), int32(h), gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, bitmap)
+
+	u0 = float32(s.shelfX) / float32(s.atlasW)
+	v0 = float32(s.shelfY) / float32(s.atlasH)
+	u1 = float32(s.shelfX+w) / float32(s.atlasW)
+	v1 = float32(s.shelfY+h) / float32(s.atlasH)
+
+	s.atlasCache[r] = atlasEntry{u0, v0, u1, v1}
+
+	s.shelfX += w
+	if h > s.shelfH {
+		s.shelfH = h
+	}
+	return u0, v0, u1, v1, true
+}
+
+// DrawInstances implements platform.GPURenderer
+func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
+	if !s.gpuReady || len(instances) == 0 {
+		return nil
+	}
+
+	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
+		return fmt.Errorf("eglMakeCurrent: %w", err)
+	}
+
+	gl := s.device.glesLoader
+
+	// 上传 instance data
+	instanceBytes := (*[1 << 28]byte)(unsafe.Pointer(&instances[0]))[:len(instances)*int(unsafe.Sizeof(platform.CellInstance{}))]
+	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.instanceVBO)
+	gl.BufferSubData(gbm.GL_ARRAY_BUFFER, 0, instanceBytes)
+
+	gl.Viewport(0, 0, int32(screenW), int32(screenH))
+	gl.ClearColor(bgColor[0], bgColor[1], bgColor[2], 1)
+	gl.Clear(gbm.GL_COLOR_BUFFER_BIT)
+
+	gl.UseProgram(s.gpuProgram)
+	gl.Uniform2f(s.resUni, float32(screenW), float32(screenH))
+
+	gl.ActiveTexture(gbm.GL_TEXTURE0)
+	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
+
+	// 绑定 quad VBO (attributes 0,1)
+	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.quadVBO)
+	gl.VertexAttribPointer(0, 2, gbm.GL_FLOAT, false, 16, 0)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(1, 2, gbm.GL_FLOAT, false, 16, 8)
+	gl.EnableVertexAttribArray(1)
+
+	// 绑定 instance VBO (attributes 2-7)
+	gl.BindBuffer(gbm.GL_ARRAY_BUFFER, s.instanceVBO)
+	stride := int32(unsafe.Sizeof(platform.CellInstance{}))
+
+	gl.VertexAttribPointer(2, 2, gbm.GL_FLOAT, false, stride, 0)       // i_cellPos
+	gl.EnableVertexAttribArray(2)
+	gl.VertexAttribDivisor(2, 1)
+
+	gl.VertexAttribPointer(3, 4, gbm.GL_FLOAT, false, stride, 8)       // i_glyphUV
+	gl.EnableVertexAttribArray(3)
+	gl.VertexAttribDivisor(3, 1)
+
+	gl.VertexAttribPointer(4, 2, gbm.GL_FLOAT, false, stride, 24)      // i_glyphSize
+	gl.EnableVertexAttribArray(4)
+	gl.VertexAttribDivisor(4, 1)
+
+	gl.VertexAttribPointer(5, 3, gbm.GL_FLOAT, false, stride, 32)      // i_fg
+	gl.EnableVertexAttribArray(5)
+	gl.VertexAttribDivisor(5, 1)
+
+	gl.VertexAttribPointer(6, 3, gbm.GL_FLOAT, false, stride, 44)      // i_bg
+	gl.EnableVertexAttribArray(6)
+	gl.VertexAttribDivisor(6, 1)
+
+	gl.VertexAttribPointer(7, 1, gbm.GL_FLOAT, false, stride, 56)      // i_hasBg
+	gl.EnableVertexAttribArray(7)
+	gl.VertexAttribDivisor(7, 1)
+
+	gl.DrawArraysInstanced(gbm.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
+
+	// 清理 divisor
+	for i := uint32(2); i <= 7; i++ {
+		gl.VertexAttribDivisor(i, 0)
+	}
+
+	s.gpuDrawn = true
 	return nil
 }
 
@@ -252,7 +526,10 @@ func (s *GBMSurface) Swap() error {
 		}
 	}
 
-	s.drawTexturedQuad()
+	if !s.gpuDrawn {
+		s.drawTexturedQuad()
+	}
+	s.gpuDrawn = false
 
 	if err := s.device.eglLoader.SwapBuffers(s.device.eglDisplay, s.eglSurface); err != nil {
 		errCode := s.device.eglLoader.GetError()

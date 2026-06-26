@@ -304,6 +304,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；master mirror/independent Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
 - ✅ Atlas RWMutex 真正移除（atlas.go 删除 mu 字段及所有 Lock/RLock；getGlyph→Get/Put 全在渲染主线程无并发；消除 atomic.Add 5.43% + RLock 3.49% = 8.92% CPU）
 - ✅ GBM cpuBuf 中间拷贝消除（Surface 接口新增 DirectRender() bool；GBM/Wayland 直接渲染到 Surface.Data() 跳过 copyAllToSurface，dumb buffer 保留 backBuf+copyAll 因 mmap 设备内存逐像素写极慢；GBMSurface 构造时 ensureCPUBuf；GBM memmove 2.05s→0.26s -87%，帧时间 43ms→33ms -23%）
+- 🔧 GPU Glyph Atlas + Instanced Draw（P2 进行中）：EGL ES3 context + GLES 3.0 函数加载（glDrawArraysInstanced/VertexAttribDivisor/BufferSubData）；platform.GPURenderer 接口（UploadGlyph+DrawInstances）；GBMSurface 1024×1024 R8 atlas 纹理 shelf packing 按需上传；Compositor.renderGPU 构建 CellInstance buffer + instanced draw shader（GLES 3.00 vertex/fragment alpha 混合）；blendGlyph/fillRect 53%→0% 消除，CPU 44%→12% -72%，帧时间 33ms→16ms -52%；待完善：渲染稳定性调试 + 属性支持（斜体/下划线/删除线）
 - ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；master 协调层枚举输出+焦点路由+渲染编排；slave 输出绑定+terms[]预留tabs）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
 - ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 master 集中渲染裁剪分发，独立每 slave 自持 compositor 串行渲染）

@@ -272,3 +272,34 @@ GPU 侧（shader）:
 
 P2 可将 GBM 模式 CPU 占用从 44% 降至 <10%，帧时间从 33ms 降至 ~5ms。但实施复杂度高（6 天），且仅 GBM 模式受益。当前 GBM 33ms 帧率（~30fps）已可满足终端交互需求，P2 建议作为后续优化储备，优先级低于功能完善（文本整形、Sixel、配置系统等）。
 
+## P2 实施：GPU Glyph Atlas + Instanced Draw
+
+### 已完成
+
+1. **GLES 3.0 context**（gbm_device.go）：EGL context 从 ES2 升级到 ES3，失败自动回退 ES2
+2. **GLES 3.0 函数加载**（gles.go）：`glDrawArraysInstanced`/`glVertexAttribDivisor`/`glBufferSubData`/`glUniform2f/4f/2i/3fv/4fv`/`glTexStorage2D`，optional 容错加载
+3. **GPU Glyph Atlas 纹理**（gbm_surface.go）：1024×1024 R8 格式纹理，shelf packing 按需上传字形 alpha 位图
+4. **Instance Buffer**（compositor.go renderGPU）：遍历 cell grid 构建 `[]CellInstance`（位置/atlasUV/fg/bg/flags），`BufferSubData` 上传（~112KB vs 14.7MB 全屏）
+5. **Instanced Draw Shader**（GLES 3.00）：vertex shader 用 instance 属性计算 quad 位置+atlas UV，fragment shader 采样 atlas alpha + fg/bg 混合
+6. **GPURenderer 接口**（platform/gpu.go）：Compositor 类型断言 Surface 是否实现 GPURenderer，是则走 GPU 路径，否则 CPU 路径
+
+### 性能验证（稳态 profile）
+
+| 指标 | GBM CPU 模式 | GBM GPU 模式 | 变化 |
+|------|-------------|-------------|------|
+| blendGlyph | 30.21% (3.00s) | **0%** | -100% |
+| fillRect | 32.73% (3.25s) | **0%** | -100% |
+| memmove | 2.62% | **0%** | -100% |
+| cgocall | 17.52% | 55.00% (220ms) | 含 glDrawArraysInstanced |
+| DrawInstances | — | 7.50% (30ms) | GPU draw 开销极小 |
+| CPU 占用 | 44.24% | **12.49%** | **-72%** |
+| 帧时间 | ~33ms | ~16ms | **-52%** |
+
+### 待完善
+
+- 渲染 23 帧后停止（EGL 状态/GBM buffer 复用问题，需进一步调试）
+- 光标简化为反转色（未实现下划线/条形光标）
+- 粗体用偏移 1px 简化（atlas 内无独立粗体字形）
+- 斜体/下划线/删除线未实现（需扩展 instance 数据或 shader 逻辑）
+- atlas LRU 淘汰未实现（1024×1024 满后 UploadGlyph 返回 false）
+

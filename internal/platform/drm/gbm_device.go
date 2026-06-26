@@ -99,13 +99,23 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	}
 
 	ctxAttribs := gbm.EGLAttribList(
-		gbm.EGL_CONTEXT_CLIENT_VERSION, 2,
+		gbm.EGL_CONTEXT_CLIENT_VERSION, 3,
 	)
 	eglContext := eglLoader.CreateContext(eglDisplay, eglConfig, gbm.EGL_NO_CONTEXT, ctxAttribs)
 	if eglContext == 0 || eglContext == gbm.EGL_NO_CONTEXT {
-		eglLoader.Terminate(eglDisplay)
-		gbmLoader.DeviceDestroy(gbmDev)
-		return nil, fmt.Errorf("eglCreateContext failed")
+		// 回退 GLES 2.0
+		ctxAttribs2 := gbm.EGLAttribList(
+			gbm.EGL_CONTEXT_CLIENT_VERSION, 2,
+		)
+		eglContext = eglLoader.CreateContext(eglDisplay, eglConfig, gbm.EGL_NO_CONTEXT, ctxAttribs2)
+		if eglContext == 0 || eglContext == gbm.EGL_NO_CONTEXT {
+			eglLoader.Terminate(eglDisplay)
+			gbmLoader.DeviceDestroy(gbmDev)
+			return nil, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
+		}
+		if debugLog {
+			fmt.Fprintf(os.Stderr, "GBM: GLES 3.0 context failed, fallback to 2.0\n")
+		}
 	}
 
 	glesLoader, err := gbm.LoadGLES()
