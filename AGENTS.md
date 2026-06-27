@@ -152,6 +152,8 @@ github.com/LaoQi/vistty/
 │   ├── render_harness.go       # 导出桥接 API：NewRenderHarness/FeedBytes/RenderFrame（性能测量用）
 │   └── rune_width.go           # 宽度判断（ASCII 快路径 + x/text/width）
 ├── internal/
+│   ├── debug/                  # 调试日志（VISTTY_DEBUG 开关 + 文件输出，全包共用）
+│   │   └── debug.go            # Debugf/Enabled/Configure（init 从环境变量自动配置）
 │   ├── vte/                    # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go           # 状态机（9 状态 + privateMarker 分发）
 │   │   ├── csi.go              # CSI 语义：privateMarker ?/>/=/</ + intermed SP/" 分发
@@ -201,15 +203,17 @@ github.com/LaoQi/vistty/
 ### 依赖方向
 
 ```
-cmd/vistty → terminal
-terminal → screen, vte, render, platform
+cmd/vistty → terminal, debug
+terminal → screen, vte, render, platform, debug
+master → render, font, platform, terminal, slave, debug
 render → font, platform (Surface 接口)
-platform/drm → platform/drm/internal (DRM ioctl), platform/gl, platform/gpu, go-evdev
-platform/gpu → platform/gl (GLES/EGL loader), platform (CellInstance/GPURenderer)
+platform/drm → platform/drm/internal (DRM ioctl), platform/gl, platform/gpu, go-evdev, debug
+platform/gpu → platform/gl (GLES/EGL loader), platform (CellInstance/GPURenderer), debug
 platform/gl → purego（无内部依赖）
 platform/wayland → 无外部依赖（自研 wl.go 协议层）
 screen, vte → 无外部依赖（纯逻辑）
 font → golang.org/x/image/font/opentype
+debug → 无内部依赖（纯逻辑）
 ```
 
 **依赖规则：** `platform/drm/internal` 不依赖任何其他内部包；`vte` 和 `screen` 无外部依赖；上层通过接口解耦，不依赖具体后端实现。
@@ -265,6 +269,18 @@ go test -run=^$ -bench=BenchmarkLayers -benchmem -benchtime=5s ./internal/perf/r
 ./vistty -record session.bin   # 录制 PTY 输出用于回放
 ```
 
+调试日志：
+```bash
+# VISTTY_DEBUG=1 开启调试日志（默认输出到 stderr）
+VISTTY_DEBUG=1 ./vistty -backend drm
+
+# 输出到文件（同时保留 stderr，便于实时观察）
+VISTTY_DEBUG=1 VISTTY_DEBUG_FILE=/tmp/vistty.log ./vistty -backend drm
+
+# 仅输出到文件，不输出到 stderr（减少终端干扰）
+VISTTY_DEBUG=1 VISTTY_DEBUG_FILE=/tmp/vistty.log VISTTY_DEBUG_STDERR=0 ./vistty -backend drm
+```
+
 运行：
 ```bash
 go run ./cmd/vistty                         # 自动探测后端（DRM优先，回退Wayland）
@@ -290,7 +306,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ ptyReadLoop 长周期化（单 goroutine 直接 Read→FeedInto→seqCh，消除每帧临时 goroutine 分配；done+pty.Close 让 Read 返回 err 退出）
 - ✅ 渲染主线程化（Run() LockOSThread 绑定，eventLoop select 并入 main，wg.Add(3)；CGO=0 下保证渲染 goroutine 不被线程迁移）
 - ✅ 强制初始渲染（Run() 启动前 Render 一次，确保 Wayland surface 被映射）
-- ✅ VISTTY_DEBUG 环境变量调试日志
+- ✅ VISTTY_DEBUG 环境变量调试日志（internal/debug 包：Debugf/Enabled/Configure 统一入口；init 从 VISTTY_DEBUG/VISTTY_DEBUG_FILE/VISTTY_DEBUG_STDERR 自动配置；支持同时输出 stderr+文件或仅文件；全量迁移 terminal/master/gpu/drm 各包 fmt.Fprintf(os.Stderr) 调用点）
 - ✅ 自动后端探测（DRM优先轻量探测 → 回退Wayland，-backend auto 默认）
 - ✅ 内置 Sarasa Fixed SC 字体（子集化 6.7MB，等宽+CJK，无需系统字体）
 - ✅ 按键长按支持（terminal 层 delay timer + rate ticker，DRM 过滤内核 autorepeat）

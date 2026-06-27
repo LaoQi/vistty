@@ -2,9 +2,9 @@ package gpu
 
 import (
 	"fmt"
-	"os"
 	"unsafe"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	glLib "github.com/LaoQi/vistty/internal/platform/gl"
 )
@@ -124,10 +124,8 @@ func (c *Renderer) Init() error {
 
 	c.atlasCache = make(map[rune]atlasEntry)
 
-	if os.Getenv("VISTTY_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "initGPU: atlasTex=%d atlasUni=%d resUni=%d defBgUni=%d TexImage2D glErr=0x%x\n",
-			c.atlasTex, c.atlasUni, c.resUni, c.defBgUni, texImgErr)
-	}
+	debug.Debugf("initGPU: atlasTex=%d atlasUni=%d resUni=%d defBgUni=%d TexImage2D glErr=0x%x\n",
+		c.atlasTex, c.atlasUni, c.resUni, c.defBgUni, texImgErr)
 
 	var vbos [2]uint32
 	gl.GenBuffers(2, vbos[:])
@@ -151,10 +149,8 @@ func (c *Renderer) Init() error {
 	gl.BufferData(glLib.GL_ARRAY_BUFFER, make([]byte, maxInstances*int(unsafe.Sizeof(platform.CellInstance{}))), glLib.GL_DYNAMIC_DRAW)
 
 	c.gpuReady = true
-	if os.Getenv("VISTTY_DEBUG") != "" {
-		major, minor := gl.GetGLVersion()
-		fmt.Fprintf(os.Stderr, "GPU: instanced draw ready (GLES %d.%d, atlas %dx%d)\n", major, minor, c.atlasW, c.atlasH)
-	}
+	major, minor := gl.GetGLVersion()
+	debug.Debugf("GPU: instanced draw ready (GLES %d.%d, atlas %dx%d)\n", major, minor, c.atlasW, c.atlasH)
 	return nil
 }
 
@@ -237,14 +233,14 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 	gl.TexSubImage2D(glLib.GL_TEXTURE_2D, 0, int32(placeX), int32(placeY), int32(w), int32(h), glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, c.rgbaBuf)
 	subErr := gl.GetError()
 
-	if os.Getenv("VISTTY_DEBUG") != "" && c.frameCount <= 3 {
+	if debug.Enabled() && c.frameCount <= 3 {
 		maxA := 0
 		for _, b := range bitmap {
 			if int(b) > maxA {
 				maxA = int(b)
 			}
 		}
-		fmt.Fprintf(os.Stderr, "UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
+		debug.Debugf("UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
 			r, c.atlasTex, placeX, placeY, w, h, maxA, len(c.rgbaBuf), subErr)
 	}
 
@@ -345,11 +341,11 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 
 	c.frameCount++
 
-	if os.Getenv("VISTTY_DEBUG") != "" && c.frameCount <= 3 && len(instances) > 0 {
+	if debug.Enabled() && c.frameCount <= 3 && len(instances) > 0 {
 		inst := instances[0]
 		px := make([]byte, 4)
 		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, px)
-		fmt.Fprintf(os.Stderr, "DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) hasBg=%v centerPx=(%d,%d,%d,%d)\n",
+		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) hasBg=%v centerPx=(%d,%d,%d,%d)\n",
 			len(instances), c.atlasUni, c.atlasTex, drawErr,
 			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
 			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,

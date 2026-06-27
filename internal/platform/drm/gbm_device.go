@@ -2,8 +2,8 @@ package drm
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform/drm/internal/gbm"
 	"github.com/LaoQi/vistty/internal/platform/gl"
@@ -65,8 +65,6 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		return nil, fmt.Errorf("eglBindAPI: %w", err)
 	}
 
-	debugLog := os.Getenv("VISTTY_DEBUG") != ""
-
 	configAttribs := gl.EGLAttribList(
 		gl.EGL_SURFACE_TYPE, gl.EGL_WINDOW_BIT,
 		gl.EGL_RED_SIZE, 8,
@@ -90,14 +88,12 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		return nil, fmt.Errorf("query EGL_NATIVE_VISUAL_ID: %w", err)
 	}
 
-	if debugLog {
-		rSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_RED_SIZE)
-		gSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_GREEN_SIZE)
-		bSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_BLUE_SIZE)
-		aSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_ALPHA_SIZE)
-		fmt.Fprintf(os.Stderr, "GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)\n",
-			rSize, gSize, bSize, aSize, uint32(nativeVisual), visualName(uint32(nativeVisual)))
-	}
+	rSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_RED_SIZE)
+	gSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_GREEN_SIZE)
+	bSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_BLUE_SIZE)
+	aSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_ALPHA_SIZE)
+	debug.Debugf("GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)\n",
+		rSize, gSize, bSize, aSize, uint32(nativeVisual), visualName(uint32(nativeVisual)))
 
 	ctxAttribs := gl.EGLAttribList(
 		gl.EGL_CONTEXT_CLIENT_VERSION, 3,
@@ -114,9 +110,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 			gbmLoader.DeviceDestroy(gbmDev)
 			return nil, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
 		}
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "GBM: GLES 3.0 context failed, fallback to 2.0\n")
-		}
+		debug.Debugf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
 	}
 
 	glesLoader, err := gl.LoadGLES()
@@ -141,8 +135,6 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 }
 
 func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32, mode *drminternal.ModeInfoPublic, commitor *AtomicCommitor) (*GBMSurface, error) {
-	debugLog := os.Getenv("VISTTY_DEBUG") != ""
-
 	gbmFormat := d.nativeVisualID
 	if gbmFormat == 0 {
 		gbmFormat = gbm.GBM_FORMAT_XRGB8888
@@ -158,9 +150,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		errCode := d.eglLoader.GetError()
 		return nil, fmt.Errorf("gbm_surface_create failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "GBM: surface created %dx%d fmt=0x%x (%s)\n", width, height, gbmFormat, visualName(gbmFormat))
-	}
+	debug.Debugf("GBM: surface created %dx%d fmt=0x%x (%s)\n", width, height, gbmFormat, visualName(gbmFormat))
 
 	eglSurface := d.eglLoader.CreateWindowSurface(d.eglDisplay, d.eglConfig, gbmSurface)
 	if eglSurface == 0 || eglSurface == gl.EGL_NO_SURFACE {
@@ -168,9 +158,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		d.gbmLoader.SurfaceDestroy(gbmSurface)
 		return nil, fmt.Errorf("eglCreateWindowSurface failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
-	if debugLog {
-		fmt.Fprintf(os.Stderr, "GBM: eglCreateWindowSurface succeeded\n")
-	}
+	debug.Debugf("GBM: eglCreateWindowSurface succeeded\n")
 
 	info, err := commitor.Register(crtcID, connectorID, width, height, mode)
 	if err != nil {

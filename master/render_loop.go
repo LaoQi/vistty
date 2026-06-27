@@ -9,6 +9,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/vte"
 	"github.com/LaoQi/vistty/slave"
@@ -132,9 +133,7 @@ func (m *Master) Run() error {
 				frameStart = time.Now()
 			}
 			if err := m.renderFrame(); err != nil {
-				if debugLog() {
-					fmt.Fprintf(os.Stderr, "Run: render error: %v\n", err)
-				}
+				debug.Debugf("Run: render error: %v\n", err)
 				m.signalClose()
 				goto exit
 			}
@@ -148,9 +147,7 @@ func (m *Master) Run() error {
 			m.handleScale(req)
 		case <-m.renderReqCh:
 			if err := m.renderFrame(); err != nil {
-				if debugLog() {
-					fmt.Fprintf(os.Stderr, "Run: render request error: %v\n", err)
-				}
+				debug.Debugf("Run: render request error: %v\n", err)
 				m.signalClose()
 				goto exit
 			}
@@ -172,26 +169,16 @@ func (m *Master) Run() error {
 	}
 
 exit:
-	if debugLog() {
-		fmt.Fprintf(os.Stderr, "Run: wg.Wait() starting\n")
-	}
+	debug.Debugf("Run: wg.Wait() starting\n")
 	m.wg.Wait()
-	if debugLog() {
-		fmt.Fprintf(os.Stderr, "Run: wg.Wait() done, calling backend.Stop()\n")
-	}
+	debug.Debugf("Run: wg.Wait() done, calling backend.Stop()\n")
 	m.backend.Stop()
-	if debugLog() {
-		fmt.Fprintf(os.Stderr, "Run: backend.Stop() done, waiting for backendDone\n")
-	}
+	debug.Debugf("Run: backend.Stop() done, waiting for backendDone\n")
 	<-backendDone
-	if debugLog() {
-		fmt.Fprintf(os.Stderr, "Run: backendDone, closing input\n")
-	}
+	debug.Debugf("Run: backendDone, closing input\n")
 	m.input.Close()
 	m.cleanup()
-	if debugLog() {
-		fmt.Fprintf(os.Stderr, "Run: cleanup done\n")
-	}
+	debug.Debugf("Run: cleanup done\n")
 	return nil
 }
 
@@ -350,9 +337,7 @@ func (m *Master) handleScale(req scaleReq) {
 
 	newFace, err := m.faceCache.Get(newSize)
 	if err != nil {
-		if debugLog() {
-			fmt.Fprintf(os.Stderr, "handleScale: face cache get failed: %v\n", err)
-		}
+		debug.Debugf("handleScale: face cache get failed: %v\n", err)
 		return
 	}
 
@@ -381,9 +366,7 @@ func (m *Master) handleScale(req scaleReq) {
 	ft.SetPtySize(rows, cols)
 
 	if err := m.renderFrame(); err != nil {
-		if debugLog() {
-			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
-		}
+		debug.Debugf("handleScale: render error: %v\n", err)
 	}
 	m.dirty = false
 }
@@ -406,9 +389,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	}
 	newFace, err := s.FaceCache().Get(newSize)
 	if err != nil {
-		if debugLog() {
-			fmt.Fprintf(os.Stderr, "handleScale: face cache get failed: %v\n", err)
-		}
+		debug.Debugf("handleScale: face cache get failed: %v\n", err)
 		return
 	}
 	m.opts.FontSize = newSize
@@ -435,9 +416,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 		ft.SetPtySize(rows, cols)
 	}
 	if err := m.renderFrame(); err != nil {
-		if debugLog() {
-			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
-		}
+		debug.Debugf("handleScale: render error: %v\n", err)
 	}
 	m.dirty = false
 }
@@ -561,8 +540,4 @@ func fillBlack(data []byte, stride, w, h int) {
 			}
 		}
 	}
-}
-
-func debugLog() bool {
-	return os.Getenv("VISTTY_DEBUG") != ""
 }

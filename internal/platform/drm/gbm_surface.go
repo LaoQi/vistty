@@ -2,11 +2,11 @@ package drm
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 	"unsafe"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform/gl"
@@ -200,9 +200,7 @@ func (s *GBMSurface) initGL() error {
 	if gles.HasInstancedDraw() {
 		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.device.eglContext, s.width, s.height)
 		if err := s.gpu.Init(); err != nil {
-			if os.Getenv("VISTTY_DEBUG") != "" {
-				fmt.Fprintf(os.Stderr, "GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
-			}
+			debug.Debugf("GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
 			s.gpu = nil
 		}
 	}
@@ -285,9 +283,8 @@ func (s *GBMSurface) Swap() error {
 	s.ensureCPUBuf()
 
 	s.frameCount++
-	debugLog := os.Getenv("VISTTY_DEBUG") != ""
-	if debugLog && (s.frameCount <= 3 || s.frameCount%100 == 0) {
-		fmt.Fprintf(os.Stderr, "GBM Swap: crtc=%d frame=%d\n", s.crtcID, s.frameCount)
+	if s.frameCount <= 3 || s.frameCount%100 == 0 {
+		debug.Debugf("GBM Swap: crtc=%d frame=%d\n", s.crtcID, s.frameCount)
 	}
 
 	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
@@ -299,9 +296,7 @@ func (s *GBMSurface) Swap() error {
 		if err := s.initGL(); err != nil {
 			return fmt.Errorf("initGL: %w", err)
 		}
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "GBM Swap: crtc=%d GL initialized (hasBGRA=%v)\n", s.crtcID, s.hasBGRA)
-		}
+		debug.Debugf("GBM Swap: crtc=%d GL initialized (hasBGRA=%v)\n", s.crtcID, s.hasBGRA)
 	}
 
 	if !s.gpuDrawn {
@@ -334,8 +329,8 @@ func (s *GBMSurface) Swap() error {
 	}
 
 	modeset := !s.info.modesetDone
-	if debugLog && (s.frameCount <= 3 || s.frameCount%100 == 0) {
-		fmt.Fprintf(os.Stderr, "GBM Swap: crtc=%d frame=%d bo=0x%x handle=%d stride=%d fbID=%d modeset=%v\n",
+	if s.frameCount <= 3 || s.frameCount%100 == 0 {
+		debug.Debugf("GBM Swap: crtc=%d frame=%d bo=0x%x handle=%d stride=%d fbID=%d modeset=%v\n",
 			s.crtcID, s.frameCount, bo, handle, stride, fbID, modeset)
 	}
 
@@ -358,8 +353,8 @@ func (s *GBMSurface) Swap() error {
 		}
 	}
 
-	if debugLog && (s.frameCount <= 3 || s.frameCount%100 == 0) {
-		fmt.Fprintf(os.Stderr, "GBM Swap: crtc=%d frame=%d flipReceived=%v\n",
+	if s.frameCount <= 3 || s.frameCount%100 == 0 {
+		debug.Debugf("GBM Swap: crtc=%d frame=%d flipReceived=%v\n",
 			s.crtcID, s.frameCount, flipReceived)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
@@ -41,11 +42,9 @@ func run() error {
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
 	flag.Parse()
 
-	debugLog := os.Getenv("VISTTY_DEBUG") != ""
-
 	resolvedTty := resolveTtyPath(*ttyFlag)
-	if resolvedTty != "" && debugLog {
-		fmt.Fprintf(os.Stderr, "resolved tty path: %s\n", resolvedTty)
+	if resolvedTty != "" {
+		debug.Debugf("resolved tty path: %s\n", resolvedTty)
 	}
 
 	opts := terminal.DefaultOptions()
@@ -83,14 +82,10 @@ func run() error {
 	switch *backendFlag {
 	case "auto":
 		if drm.Probe() {
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "auto: DRM probe succeeded, using DRM backend\n")
-			}
+			debug.Debugf("auto: DRM probe succeeded, using DRM backend\n")
 			backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
 		} else if wayland.Probe() {
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
-			}
+			debug.Debugf("auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
 			if resolvedTty != "" {
 				fmt.Fprintf(os.Stderr, "warning: -tty is ignored by wayland backend\n")
 			}

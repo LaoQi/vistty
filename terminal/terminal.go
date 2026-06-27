@@ -14,12 +14,11 @@ import (
 
 	"github.com/creack/pty"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/internal/vte"
 )
-
-var debugLog = os.Getenv("VISTTY_DEBUG") != ""
 
 var seqPool = sync.Pool{
 	New: func() any { return make([]vte.Sequence, 0, 4096) },
@@ -197,9 +196,7 @@ func (t *Terminal) Close() error {
 
 func (t *Terminal) SignalClose() {
 	t.closeOnce.Do(func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "SignalClose: closing done and pty\n")
-		}
+		debug.Debugf("SignalClose: closing done and pty\n")
 		close(t.done)
 		if t.pty != nil {
 			t.pty.Close()
@@ -247,9 +244,7 @@ func (t *Terminal) setPtySize(rows, cols int) {
 
 func (t *Terminal) cleanup() {
 	t.cleanupOnce.Do(func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "cleanup: starting\n")
-		}
+		debug.Debugf("cleanup: starting\n")
 		if t.ptyCmd != nil {
 			t.ptyCmd.Signal(syscall.SIGTERM)
 			ch := make(chan struct{})
@@ -260,48 +255,38 @@ func (t *Terminal) cleanup() {
 			select {
 			case <-ch:
 			case <-time.After(2 * time.Second):
-				if debugLog {
-					fmt.Fprintf(os.Stderr, "cleanup: SIGTERM timeout, sending SIGKILL\n")
-				}
+				debug.Debugf("cleanup: SIGTERM timeout, sending SIGKILL\n")
 				t.ptyCmd.Signal(syscall.SIGKILL)
 				<-ch
 			}
 		}
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "cleanup: done\n")
-		}
+		debug.Debugf("cleanup: done\n")
 	})
 }
 
 func (t *Terminal) PtyReadLoop() {
 	defer func() {
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "PtyReadLoop: exiting\n")
-		}
+		debug.Debugf("PtyReadLoop: exiting\n")
 	}()
 	buf := make([]byte, 4096)
 	for {
 		n, err := t.pty.Read(buf)
 		if err != nil {
-			if debugLog {
-				fmt.Fprintf(os.Stderr, "PtyReadLoop: read error: %v\n", err)
-			}
+			debug.Debugf("PtyReadLoop: read error: %v\n", err)
 			select {
 			case <-t.done:
 			case t.eofCh <- struct{}{}:
 			}
 			return
 		}
-		if debugLog {
-			fmt.Fprintf(os.Stderr, "PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
-		}
+		debug.Debugf("PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
 		if t.opts.RecordWriter != nil {
 			t.opts.RecordWriter.Write(buf[:n])
 		}
 		seqs := seqPool.Get().([]vte.Sequence)
 		seqs = t.parser.FeedInto(buf[:n], seqs)
-		if debugLog && len(seqs) > 0 {
-			fmt.Fprintf(os.Stderr, "PtyReadLoop: parsed %d sequences\n", len(seqs))
+		if len(seqs) > 0 {
+			debug.Debugf("PtyReadLoop: parsed %d sequences\n", len(seqs))
 		}
 		if len(seqs) > 0 {
 			select {
