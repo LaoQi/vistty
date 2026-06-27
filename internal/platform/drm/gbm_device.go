@@ -110,7 +110,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 			gbmLoader.DeviceDestroy(gbmDev)
 			return nil, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
 		}
-		debug.Debugf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
+		debug.Warningf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
 	}
 
 	glesLoader, err := gl.LoadGLES()

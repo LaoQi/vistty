@@ -138,7 +138,7 @@ github.com/LaoQi/vistty/
 ├── README.md / README.zh-CN.md  # 项目说明（中英文，vibe 产品声明 + 功能/用法/底层支持）
 ├── LICENSE                       # GPLv2
 ├── work_docs/                    # 开发过程文档（optimize.md/progress.md/todos.md）
-├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty 参数 + profiling
+├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并
 ├── master/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键
 │   ├── master.go               # Master 结构 + New(initMirror/initIndependent) + session池
 │   ├── render_loop.go           # 统一主循环（镜像裁剪分发/独立串行）+ handleKey + setFocus
@@ -152,8 +152,13 @@ github.com/LaoQi/vistty/
 │   ├── render_harness.go       # 导出桥接 API：NewRenderHarness/FeedBytes/RenderFrame（性能测量用）
 │   └── rune_width.go           # 宽度判断（ASCII 快路径 + x/text/width）
 ├── internal/
-│   ├── debug/                  # 调试日志（VISTTY_DEBUG 开关 + 文件输出，全包共用）
-│   │   └── debug.go            # Debugf/Enabled/Configure（init 从环境变量自动配置）
+│   ├── config/                 # JSONC 配置文件（Config 结构 + Load/Save/DefaultPath/Generate + stripComments）
+│   │   ├── config.go           # Config + Default + Load + Save + DefaultPath + Generate（JSONC 带注释输出）+ stripComments（// 行 + /* 块 */ 注释剥离）
+│   │   └── config_test.go      # 9 项测试（默认值/不存在/往返/Generate注释/JSONC注释解析/XDG路径/损坏/部分字段）
+│   ├── debug/                  # 日志（Debugf 调试日志 + Errorf/Warningf 错误日志，全包共用）
+│   │   ├── debug.go            # Debugf/Errorf/Warningf/Configure/ConfigureError（init 从环境变量自动配置）
+│   │   ├── debug_test.go       # 调试日志测试
+│   │   └── error_test.go       # 错误日志测试
 │   ├── vte/                    # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go           # 状态机（9 状态 + privateMarker 分发）
 │   │   ├── csi.go              # CSI 语义：privateMarker ?/>/=/</ + intermed SP/" 分发
@@ -203,7 +208,7 @@ github.com/LaoQi/vistty/
 ### 依赖方向
 
 ```
-cmd/vistty → terminal, debug
+cmd/vistty → terminal, config, debug
 terminal → screen, vte, render, platform, debug
 master → render, font, platform, terminal, slave, debug
 render → font, platform (Surface 接口)
@@ -213,6 +218,7 @@ platform/gl → purego（无内部依赖）
 platform/wayland → 无外部依赖（自研 wl.go 协议层）
 screen, vte → 无外部依赖（纯逻辑）
 font → golang.org/x/image/font/opentype
+config → 无内部依赖（纯逻辑）
 debug → 无内部依赖（纯逻辑）
 ```
 
@@ -401,3 +407,6 @@ Wayland 后端实现细节：
 - ✅ GPU atlasCache SetFace 同步清理（GPURenderer 接口新增 BeginFrame/ResetAtlas；compositor.SetFace 调 ResetAtlas 清 GPU atlasCache+TexImage2D 重置纹理+shelf 归零；修复 SetFace 仅重建 CPU font.Atlas 而未清 GPU atlasCache 导致缩放字号后同 rune 命中旧字号 UV 渲染旧尺寸字形 bug）
 - ✅ eglMakeCurrent 帧级单次化 + RGBA scratch 复用（UploadGlyph 删除每次内联 eglMakeCurrent，改由 compositor.renderGPU 开头调 BeginFrame 一次保证整帧 context current；Renderer.rgbaBuf 复用消除冷帧每字形 make([]byte,w*h*4) 临时分配；冷帧 GL 调用与堆分配显著降低）
 - ✅ dirty 跳帧 + 帧率预留 + 光标时间戳闪烁（Master 新增 frameInterval/dirty/tickCount 字段，New 默认 60fps，SetFrameRate 预留动态帧率；render_loop ticker 用 m.frameInterval；PTY Apply 后置 dirty=true，ticker case 检查 dirty||tickCount%15==0 才渲染（无数据时每 ~250ms 兜底渲染一次）；光标闪烁从 frameCount%30 改为 time.Since(lastBlink)>=500ms 时间戳驱动，与 frameCount 解耦，跳帧下仍正确闪烁；空闲 CPU 从 60fps 全量重绘降到 4fps 兜底）
+- ✅ error log 日志文件（debug 包扩展 Errorf/Warningf + ConfigureError + configureErrorLocked；默认开启写入 ~/.local/share/vistty/error.log（XDG_DATA_HOME 规范，HOME 不可用回退仅 stderr）；tee stderr+文件（VISTTY_ERROR_STDERR=0 关 stderr）；时间戳前缀 2006-01-02 15:04:05.000；-errorlog flag / VISTTY_ERROR_LOG env 覆盖路径；运行期错误 render error/PtyReadLoop error/SIGTERM timeout + 警告 vt manager 降级/GBM GPU fallback/-tty ignored + 顶层 fatal 从 Debugf/fmt.Fprintf 迁移至 Errorf/Warningf；路径创建失败回退仅 stderr 不 panic；O_APPEND 追加模式保留历史）
+
+- ✅ 配置文件支持（internal/config 包：Config 结构 + Load/Save/DefaultPath；-config flag 指定路径默认 ~/.config/vistty/config.jsonc（XDG_CONFIG_HOME 规范）；-gen-config 输出默认 JSONC 配置到 stdout（含字段注释，不写入文件）；配置优先级：命令行显式 flag > 配置文件 > 内置默认值，flag.Visit 检测显式设置未设置的字段才用配置文件值覆盖；文件不存在静默回退 Default 无错误；JSONC 解析支持 `//` 行注释和 `/* */` 块注释（stripComments 去注释后标准 json.Unmarshal）；字段含 backend/shell/font/fontsize/primary/mode/nogbm/record/error_log（排除 profiling/list-outputs/tty/fps/repeat/repeat/width/height — tty/fps/repeat 保留 CLI flag 但不进配置文件，width/height 完全移除）；error_log 路径三层优先级 flag>config>env>默认；9 项测试覆盖默认值/不存在/往返/Generate 注释/JSONC 注释解析/XDG路径/损坏/部分字段）

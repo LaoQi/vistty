@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LaoQi/vistty/internal/config"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
@@ -17,7 +18,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		debug.Errorf("fatal: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -27,8 +28,6 @@ func run() error {
 	shellFlag := flag.String("shell", "/bin/bash", "shell to run")
 	fontFlag := flag.String("font", "", "font file path")
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
-	widthFlag := flag.Int("width", 800, "window width")
-	heightFlag := flag.Int("height", 600, "window height")
 	primaryFlag := flag.String("primary", "", "primary output name or index")
 	modeFlag := flag.String("mode", "independent", "display mode: mirror or independent")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
@@ -40,7 +39,67 @@ func run() error {
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
 	noGBMFlag := flag.Bool("nogbm", false, "disable GBM/EGL, use dumb buffer (DRM only)")
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
+	errorLogFlag := flag.String("errorlog", "", "error log file path (default ~/.local/share/vistty/error.log)")
+	configFlag := flag.String("config", "", "config file path (default ~/.config/vistty/config.jsonc)")
+	genConfigFlag := flag.Bool("gen-config", false, "print default config to stdout and exit")
 	flag.Parse()
+
+	if *genConfigFlag {
+		fmt.Print(config.Default().Generate())
+		return nil
+	}
+
+	configPath := *configFlag
+	if configPath == "" {
+		if p, err := config.DefaultPath(); err == nil {
+			configPath = p
+		}
+	}
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+
+	if !explicit["backend"] && cfg.Backend != "" {
+		*backendFlag = cfg.Backend
+	}
+	if !explicit["shell"] && cfg.Shell != "" {
+		*shellFlag = cfg.Shell
+	}
+	if !explicit["font"] {
+		*fontFlag = cfg.Font
+	}
+	if !explicit["fontsize"] && cfg.FontSize != 0 {
+		*fontSizeFlag = cfg.FontSize
+	}
+	if !explicit["primary"] {
+		*primaryFlag = cfg.Primary
+	}
+	if !explicit["mode"] && cfg.Mode != "" {
+		*modeFlag = cfg.Mode
+	}
+	if !explicit["nogbm"] {
+		*noGBMFlag = cfg.NoGBM
+	}
+	if !explicit["record"] {
+		*recordPath = cfg.Record
+	}
+
+	if explicit["errorlog"] {
+		if *errorLogFlag != "" {
+			if err := debug.ConfigureError(*errorLogFlag, true); err != nil {
+				fmt.Fprintf(os.Stderr, "configure error log: %v\n", err)
+			}
+		}
+	} else if cfg.ErrorLog != "" {
+		if err := debug.ConfigureError(cfg.ErrorLog, true); err != nil {
+			fmt.Fprintf(os.Stderr, "configure error log: %v\n", err)
+		}
+	}
 
 	resolvedTty := resolveTtyPath(*ttyFlag)
 	if resolvedTty != "" {
@@ -51,8 +110,6 @@ func run() error {
 	opts.Shell = *shellFlag
 	opts.FontPath = *fontFlag
 	opts.FontSize = *fontSizeFlag
-	opts.Width = *widthFlag
-	opts.Height = *heightFlag
 	opts.Primary = *primaryFlag
 	opts.Mode = *modeFlag
 
@@ -78,7 +135,6 @@ func run() error {
 	defer prof.stop()
 
 	var backend platform.Backend
-	var err error
 	switch *backendFlag {
 	case "auto":
 		if drm.Probe() {
@@ -87,7 +143,7 @@ func run() error {
 		} else if wayland.Probe() {
 			debug.Debugf("auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
 			if resolvedTty != "" {
-				fmt.Fprintf(os.Stderr, "warning: -tty is ignored by wayland backend\n")
+				debug.Warningf("-tty is ignored by wayland backend\n")
 			}
 			backend, err = wayland.NewWaylandBackend()
 		} else {
@@ -97,7 +153,7 @@ func run() error {
 		backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
 	case "wayland":
 		if resolvedTty != "" {
-			fmt.Fprintf(os.Stderr, "warning: -tty is ignored by wayland backend\n")
+			debug.Warningf("-tty is ignored by wayland backend\n")
 		}
 		backend, err = wayland.NewWaylandBackend()
 	default:

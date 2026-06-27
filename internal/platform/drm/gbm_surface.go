@@ -200,7 +200,7 @@ func (s *GBMSurface) initGL() error {
 	if gles.HasInstancedDraw() {
 		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.device.eglContext, s.width, s.height)
 		if err := s.gpu.Init(); err != nil {
-			debug.Debugf("GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
+			debug.Warningf("GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
 			s.gpu = nil
 		}
 	}

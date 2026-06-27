@@ -133,7 +133,7 @@ func (m *Master) Run() error {
 				frameStart = time.Now()
 			}
 			if err := m.renderFrame(); err != nil {
-				debug.Debugf("Run: render error: %v\n", err)
+				debug.Errorf("Run: render error: %v\n", err)
 				m.signalClose()
 				goto exit
 			}
@@ -147,7 +147,7 @@ func (m *Master) Run() error {
 			m.handleScale(req)
 		case <-m.renderReqCh:
 			if err := m.renderFrame(); err != nil {
-				debug.Debugf("Run: render request error: %v\n", err)
+				debug.Errorf("Run: render request error: %v\n", err)
 				m.signalClose()
 				goto exit
 			}
@@ -337,7 +337,7 @@ func (m *Master) handleScale(req scaleReq) {
 
 	newFace, err := m.faceCache.Get(newSize)
 	if err != nil {
-		debug.Debugf("handleScale: face cache get failed: %v\n", err)
+		debug.Errorf("handleScale: face cache get failed: %v\n", err)
 		return
 	}
 
@@ -366,7 +366,7 @@ func (m *Master) handleScale(req scaleReq) {
 	ft.SetPtySize(rows, cols)
 
 	if err := m.renderFrame(); err != nil {
-		debug.Debugf("handleScale: render error: %v\n", err)
+		debug.Errorf("handleScale: render error: %v\n", err)
 	}
 	m.dirty = false
 }
@@ -389,7 +389,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	}
 	newFace, err := s.FaceCache().Get(newSize)
 	if err != nil {
-		debug.Debugf("handleScale: face cache get failed: %v\n", err)
+		debug.Errorf("handleScale: face cache get failed: %v\n", err)
 		return
 	}
 	m.opts.FontSize = newSize
@@ -416,7 +416,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 		ft.SetPtySize(rows, cols)
 	}
 	if err := m.renderFrame(); err != nil {
-		debug.Debugf("handleScale: render error: %v\n", err)
+		debug.Errorf("handleScale: render error: %v\n", err)
 	}
 	m.dirty = false
 }

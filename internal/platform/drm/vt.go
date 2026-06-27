@@ -7,6 +7,8 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+
+	"github.com/LaoQi/vistty/internal/debug"
 )
 
 const (
@@ -52,7 +54,7 @@ type VTManager struct {
 func newVTManager(callbacks VTCallbacks, ttyPath string) (*VTManager, error) {
 	ttyFd, err := syscallOpenTty(ttyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: vt manager: %v; running without VT switch support\n", err)
+		debug.Warningf("vt manager: %v; running without VT switch support\n", err)
 		return nil, nil
 	}
 

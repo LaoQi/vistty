@@ -255,7 +255,7 @@ func (t *Terminal) cleanup() {
 			select {
 			case <-ch:
 			case <-time.After(2 * time.Second):
-				debug.Debugf("cleanup: SIGTERM timeout, sending SIGKILL\n")
+				debug.Errorf("cleanup: SIGTERM timeout, sending SIGKILL\n")
 				t.ptyCmd.Signal(syscall.SIGKILL)
 				<-ch
 			}
@@ -272,7 +272,7 @@ func (t *Terminal) PtyReadLoop() {
 	for {
 		n, err := t.pty.Read(buf)
 		if err != nil {
-			debug.Debugf("PtyReadLoop: read error: %v\n", err)
+			debug.Errorf("PtyReadLoop: read error: %v\n", err)
 			select {
 			case <-t.done:
 			case t.eofCh <- struct{}{}:

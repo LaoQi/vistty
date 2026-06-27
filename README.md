@@ -54,6 +54,12 @@ go run ./cmd/vistty -backend wayland
 
 # Bind to tty2 (setsid + TIOCSCTTY to acquire the controlling terminal)
 go run ./cmd/vistty -backend drm -tty 2
+
+# Generate default config (prints JSONC with comments to stdout)
+go run ./cmd/vistty -gen-config > ~/.config/vistty/config.jsonc
+
+# Use a custom config file
+go run ./cmd/vistty -config ./my-config.jsonc
 ```
 
 ### Common flags
@@ -69,6 +75,9 @@ go run ./cmd/vistty -backend drm -tty 2
 | `-tty`          | bind to a TTY, e.g. `2` or `/dev/tty2` (DRM only)                 |
 | `-nogbm`        | disable GBM/EGL, use dumb buffer (DRM only)                       |
 | `-list-outputs` | list all display outputs and exit                                 |
+| `-errorlog`     | error log file path (default `~/.local/share/vistty/error.log`)   |
+| `-config`       | config file path (default `~/.config/vistty/config.jsonc`)       |
+| `-gen-config`   | print default config (JSONC with comments) to stdout and exit   |
 | `-cpuprofile`   | write a CPU profile to file                                       |
 | `-memprofile`   | write a heap profile to file                                      |
 | `-trace`        | write an execution trace to file                                  |

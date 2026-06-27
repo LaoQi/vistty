@@ -151,8 +151,6 @@ func benchScreen(cfg Config) Result {
 	surf := newFakeSurface(cfg.Cols*8, cfg.Rows*16)
 	opts := terminal.DefaultOptions()
 	opts.FontSize = cfg.FontSize
-	opts.Width = cfg.Cols * 8
-	opts.Height = cfg.Rows * 16
 
 	var totalAllocs uint64
 	var totalBytes uint64
@@ -198,8 +196,6 @@ func benchRender(cfg Config) Result {
 	surf := newFakeSurface(cfg.Cols*8, cfg.Rows*16)
 	opts := terminal.DefaultOptions()
 	opts.FontSize = cfg.FontSize
-	opts.Width = cfg.Cols * 8
-	opts.Height = cfg.Rows * 16
 
 	term, err := terminal.NewRenderHarness(surf, opts)
 	if err != nil {
