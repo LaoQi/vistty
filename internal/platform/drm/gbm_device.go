@@ -178,7 +178,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		crtcID:      crtcID,
 		connectorID: connectorID,
 		active:      true,
-		flipCh:      make(chan struct{}, 1),
+		commitErr:   make(chan error, 1),
 	}
 	s.ensureCPUBuf()
 

@@ -3,7 +3,6 @@ package drm
 import (
 	"fmt"
 	"sync"
-	"time"
 	"unsafe"
 
 	"github.com/LaoQi/vistty/internal/debug"
@@ -43,6 +42,12 @@ void main() {
 }
 `
 
+type pendingFrame struct {
+	bo     uintptr
+	fbID   uint32
+	stride uint32
+}
+
 type GBMSurface struct {
 	device      *GBMDevice
 	commitor    *AtomicCommitor
@@ -56,13 +61,16 @@ type GBMSurface struct {
 
 	mu     sync.Mutex
 	active bool
-	flipCh chan struct{}
+	closed bool
 
-	currentBO     uintptr
-	currentFB     uint32
-	currentStride uint32
-	closed        bool
-	frameCount    uint64
+	commitMu    sync.Mutex
+	mailbox     *pendingFrame
+	committed   *pendingFrame
+	releaseBO   *pendingFrame
+	flipPending bool
+	commitErr   chan error
+
+	frameCount uint64
 
 	cpuBuf    []byte
 	cpuStride int
@@ -273,6 +281,12 @@ func (s *GBMSurface) drawTexturedQuad() {
 }
 
 func (s *GBMSurface) Swap() error {
+	select {
+	case err := <-s.commitErr:
+		return err
+	default:
+	}
+
 	s.mu.Lock()
 	if !s.active || s.closed {
 		s.mu.Unlock()
@@ -281,7 +295,6 @@ func (s *GBMSurface) Swap() error {
 	s.mu.Unlock()
 
 	s.ensureCPUBuf()
-
 	s.frameCount++
 	if s.frameCount <= 3 || s.frameCount%100 == 0 {
 		debug.Debugf("GBM Swap: crtc=%d frame=%d\n", s.crtcID, s.frameCount)
@@ -334,54 +347,67 @@ func (s *GBMSurface) Swap() error {
 			s.crtcID, s.frameCount, bo, handle, stride, fbID, modeset)
 	}
 
-	if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
-		drminternal.RmFB(s.device.fd, fbID)
-		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
-		return fmt.Errorf("atomic commit: %w", err)
-	}
+	frame := &pendingFrame{bo, fbID, stride}
 
-	// 提交后等待本次 page flip 完成，再释放旧 BO。
-	// 释放时旧 BO 已下屏，下一帧 EGL 复用安全（无撕裂）；
-	// 下一帧 commit 时本次 flip 已完成，无 EBUSY。
-	// 首次 modeset 不发 flip 事件，跳过等待。
-	flipReceived := true
-	if !modeset {
-		select {
-		case <-s.flipCh:
-		case <-time.After(200 * time.Millisecond):
-			flipReceived = false
+	s.commitMu.Lock()
+	if s.flipPending {
+		if old := s.mailbox; old != nil {
+			drminternal.RmFB(s.device.fd, old.fbID)
+			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, old.bo)
 		}
-	}
-
-	if s.frameCount <= 3 || s.frameCount%100 == 0 {
-		debug.Debugf("GBM Swap: crtc=%d frame=%d flipReceived=%v\n",
-			s.crtcID, s.frameCount, flipReceived)
-	}
-
-	oldBO := s.currentBO
-	oldFB := s.currentFB
-
-	s.mu.Lock()
-	s.currentBO = bo
-	s.currentFB = fbID
-	s.currentStride = stride
-	s.mu.Unlock()
-
-	if oldBO != 0 {
-		if oldFB != 0 {
-			drminternal.RmFB(s.device.fd, oldFB)
+		s.mailbox = frame
+		s.commitMu.Unlock()
+	} else {
+		s.commitMu.Unlock()
+		if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
+			drminternal.RmFB(s.device.fd, fbID)
+			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
+			return fmt.Errorf("atomic commit: %w", err)
 		}
-		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, oldBO)
+		s.commitMu.Lock()
+		s.committed = frame
+		s.flipPending = true
+		s.commitMu.Unlock()
 	}
 
 	return nil
 }
 
-func (s *GBMSurface) notifyFlip() {
-	select {
-	case s.flipCh <- struct{}{}:
-	default:
+func (s *GBMSurface) onFlipComplete() {
+	s.commitMu.Lock()
+	if s.closed {
+		s.commitMu.Unlock()
+		return
 	}
+
+	if s.releaseBO != nil {
+		drminternal.RmFB(s.device.fd, s.releaseBO.fbID)
+		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, s.releaseBO.bo)
+		s.releaseBO = nil
+	}
+
+	s.releaseBO = s.committed
+	s.committed = nil
+	s.flipPending = false
+
+	if s.mailbox != nil {
+		frame := s.mailbox
+		s.mailbox = nil
+		modeset := !s.info.modesetDone
+		if err := s.commitor.CommitSingle(s.info, frame.fbID, modeset); err != nil {
+			drminternal.RmFB(s.device.fd, frame.fbID)
+			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
+			select {
+			case s.commitErr <- fmt.Errorf("atomic commit: %w", err):
+			default:
+			}
+		} else {
+			s.committed = frame
+			s.flipPending = true
+		}
+	}
+
+	s.commitMu.Unlock()
 }
 
 func (s *GBMSurface) SetActive(active bool) {
@@ -400,16 +426,21 @@ func (s *GBMSurface) Close() error {
 	s.active = false
 	s.mu.Unlock()
 
-	if s.currentBO != 0 {
-		if s.currentFB != 0 {
-			drminternal.RmFB(s.device.fd, s.currentFB)
-			s.currentFB = 0
+	s.commitMu.Lock()
+	for _, frame := range []*pendingFrame{s.mailbox, s.committed, s.releaseBO} {
+		if frame != nil {
+			if frame.fbID != 0 {
+				drminternal.RmFB(s.device.fd, frame.fbID)
+			}
+			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
 		}
-		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, s.currentBO)
-		s.currentBO = 0
 	}
+	s.mailbox = nil
+	s.committed = nil
+	s.releaseBO = nil
+	s.flipPending = false
+	s.commitMu.Unlock()
 
-	// EGL context 仍 current（eglSurface 尚未销毁），释放 GL 资源
 	_ = s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext)
 	if s.gpu != nil {
 		s.gpu.Close()

@@ -238,7 +238,7 @@ func (b *DRMBackend) eventLoop() {
 		}
 		if ev != nil && (ev.Type == drminternal.EventFlipComplete || ev.Type == drminternal.EventVBlank) {
 			if gbmSurf, ok := b.gbmSurfaces[ev.CrtcID]; ok {
-				gbmSurf.notifyFlip()
+				gbmSurf.onFlipComplete()
 			} else if surf, ok := b.surfaces[ev.CrtcID]; ok {
 				surf.notifyFlip()
 			} else if b.surface != nil {
