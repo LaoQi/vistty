@@ -230,6 +230,22 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	return nil
 }
 
+// BeginFrame implements platform.GPURenderer
+func (s *GBMSurface) BeginFrame() error {
+	if s.gpu == nil {
+		return nil
+	}
+	return s.gpu.BeginFrame()
+}
+
+// ResetAtlas implements platform.GPURenderer
+func (s *GBMSurface) ResetAtlas() {
+	if s.gpu == nil {
+		return
+	}
+	s.gpu.ResetAtlas()
+}
+
 func (s *GBMSurface) drawTexturedQuad() {
 	gles := s.device.glesLoader
 
@@ -323,21 +339,23 @@ func (s *GBMSurface) Swap() error {
 			s.crtcID, s.frameCount, bo, handle, stride, fbID, modeset)
 	}
 
-	// 等 上一次 page flip 完成后再提交新帧（避免 EBUSY）
-	// 首次 modeset 不发 flip 事件，跳过等待
+	if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
+		drminternal.RmFB(s.device.fd, fbID)
+		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
+		return fmt.Errorf("atomic commit: %w", err)
+	}
+
+	// 提交后等待本次 page flip 完成，再释放旧 BO。
+	// 释放时旧 BO 已下屏，下一帧 EGL 复用安全（无撕裂）；
+	// 下一帧 commit 时本次 flip 已完成，无 EBUSY。
+	// 首次 modeset 不发 flip 事件，跳过等待。
 	flipReceived := true
-	if s.info.modesetDone {
+	if !modeset {
 		select {
 		case <-s.flipCh:
 		case <-time.After(200 * time.Millisecond):
 			flipReceived = false
 		}
-	}
-
-	if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
-		drminternal.RmFB(s.device.fd, fbID)
-		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
-		return fmt.Errorf("atomic commit: %w", err)
 	}
 
 	if debugLog && (s.frameCount <= 3 || s.frameCount%100 == 0) {

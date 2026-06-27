@@ -128,6 +128,10 @@ func (f *fakeGPUSurface) DrawInstances(instances []platform.CellInstance, screen
 	return nil
 }
 
+func (f *fakeGPUSurface) BeginFrame() error { return nil }
+
+func (f *fakeGPUSurface) ResetAtlas() {}
+
 func newGPUCompositor() (*Compositor, *fakeGPUSurface) {
 	// 80×32 → cols=10, rows=2 (metrics 8×16)
 	surf := newFakeGPUSurface(80, 32)

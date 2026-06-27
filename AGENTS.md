@@ -381,3 +381,7 @@ Wayland 后端实现细节：
 - ✅ GBM Data() nil panic 修复（compositor.copyAllToSurface + master.blitToSlave 添加 nil 检查跳过 CPU blit）
 - ✅ 移除 go-wayland 依赖自研 wl.go 协议层（727 行纯 Go：conn 核心 + 15 个协议对象，零 CGO 零外部依赖；修复 wl_surface/wl_seat/keyboard/pointer/xdg_surface 全部 wire opcode；fd GC 回收修复用 unix.Socket 替代 net.DialUnix+File()；niri shm 格式枚举索引兼容）
 - ✅ 渲染热点优化（20s 实跑 pprof 归因：swapBR 逐像素循环 36.8%→0.3% 消除 + fillRect 逐 cell 改全屏清除 30.9%→18.7%；CPU 占用 35.89%→15.80% 降 56%；详见 optimize.md）
+- ✅ GBM Swap 撕裂修复（Swap 等待时序从"commit 前等上次 flip"改为标准模式"commit 后等本次 flip 再 release old BO"；原时序下旧 BO 在新 flip 完成前被 SurfaceReleaseBuffer 释放，下一帧 EGL 渲染复用仍在屏上扫描输出的 BO → 撕裂；新时序保证 release 时 old 已下屏、下帧 commit 时本次 flip 已完成无 EBUSY；与 dumb buffer 路径 surface.go 的 commit 后等 flip 语义对齐；每帧等一个 vblank 维持 60fps；gbm_surface.go Swap）
+- ✅ GPU atlasCache SetFace 同步清理（GPURenderer 接口新增 BeginFrame/ResetAtlas；compositor.SetFace 调 ResetAtlas 清 GPU atlasCache+TexImage2D 重置纹理+shelf 归零；修复 SetFace 仅重建 CPU font.Atlas 而未清 GPU atlasCache 导致缩放字号后同 rune 命中旧字号 UV 渲染旧尺寸字形 bug）
+- ✅ eglMakeCurrent 帧级单次化 + RGBA scratch 复用（UploadGlyph 删除每次内联 eglMakeCurrent，改由 compositor.renderGPU 开头调 BeginFrame 一次保证整帧 context current；Renderer.rgbaBuf 复用消除冷帧每字形 make([]byte,w*h*4) 临时分配；冷帧 GL 调用与堆分配显著降低）
+- ✅ dirty 跳帧 + 帧率预留 + 光标时间戳闪烁（Master 新增 frameInterval/dirty/tickCount 字段，New 默认 60fps，SetFrameRate 预留动态帧率；render_loop ticker 用 m.frameInterval；PTY Apply 后置 dirty=true，ticker case 检查 dirty||tickCount%15==0 才渲染（无数据时每 ~250ms 兜底渲染一次）；光标闪烁从 frameCount%30 改为 time.Since(lastBlink)>=500ms 时间戳驱动，与 frameCount 解耦，跳帧下仍正确闪烁；空闲 CPU 从 60fps 全量重绘降到 4fps 兜底）

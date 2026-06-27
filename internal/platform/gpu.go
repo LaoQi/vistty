@@ -26,4 +26,10 @@ type GPURenderer interface {
 	UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
 	// DrawInstances 用 instanced draw 渲染所有 cell。
 	DrawInstances(instances []CellInstance, screenW, screenH int, bgColor [3]float32) error
+	// BeginFrame 确保本帧 GL context 已 current。每帧调用一次，
+	// 后续 UploadGlyph/DrawInstances 不再各自 MakeCurrent。
+	BeginFrame() error
+	// ResetAtlas 清空字形 atlas 缓存并重置纹理。字号变更后调用，
+	// 使所有字形重新上传，避免命中旧字号字形的 UV。
+	ResetAtlas()
 }

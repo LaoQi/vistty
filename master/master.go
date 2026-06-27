@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -38,6 +39,9 @@ type Master struct {
 	scaleReqCh      chan scaleReq
 	renderReqCh     chan struct{}
 	fpsLogging      bool
+	frameInterval   time.Duration
+	dirty           bool
+	tickCount       uint64
 
 	done            chan struct{}
 	closeOnce       sync.Once
@@ -108,6 +112,7 @@ func New(backend platform.Backend, opts terminal.Options) (*Master, error) {
 		focusIdx:        0,
 		scaleReqCh:      make(chan scaleReq, 1),
 		renderReqCh:     make(chan struct{}, 1),
+		frameInterval:   time.Second / 60,
 		done:            make(chan struct{}),
 	}
 
@@ -225,6 +230,16 @@ func (m *Master) focusTerm() *terminal.Terminal {
 
 func (m *Master) EnableFPSLogging() {
 	m.fpsLogging = true
+}
+
+// SetFrameRate 设置渲染帧率，预留动态帧率调整。
+// 注意：当前 ticker 在 Run 启动时读取 frameInterval 一次性创建，
+// 运行中调用本方法不会重建已运行的 ticker；预留供后续动态帧率实现。
+func (m *Master) SetFrameRate(rate int) {
+	if rate <= 0 {
+		rate = 60
+	}
+	m.frameInterval = time.Second / time.Duration(rate)
 }
 
 func (m *Master) Close() error {

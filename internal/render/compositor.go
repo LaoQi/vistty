@@ -1,6 +1,8 @@
 package render
 
 import (
+	"time"
+
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/screen"
@@ -24,6 +26,8 @@ type Compositor struct {
 	backWidth    int
 	backHeight   int
 	frameCount   uint64
+	blinkOn      bool
+	lastBlink    time.Time
 	directRender bool
 	gpu          platform.GPURenderer
 	instances    []platform.CellInstance
@@ -50,6 +54,7 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 			bg: screen.Color{R: 0, G: 0, B: 0},
 			fg: screen.Color{R: 204, G: 204, B: 204},
 		},
+		blinkOn: true,
 	}
 	c.directRender = surface.DirectRender()
 	if !c.directRender {
@@ -70,6 +75,12 @@ func (c *Compositor) SetFace(face font.Face) {
 	c.face = face
 	c.atlas = font.NewAtlas(8192)
 	c.metrics = face.Metrics()
+	if c.gpu == nil {
+		c.gpu, _ = c.surface.(platform.GPURenderer)
+	}
+	if c.gpu != nil {
+		c.gpu.ResetAtlas()
+	}
 }
 
 func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
@@ -82,6 +93,22 @@ func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
 	}
 	c.atlas.Put(r, g)
 	return g, nil
+}
+
+// cursorVisible 返回光标是否应当绘制。闪烁基于真实时间戳，
+// 与 frameCount 解耦，使 dirty 跳帧时光标仍能正确闪烁。
+func (c *Compositor) cursorVisible(cursor *screen.Cursor) bool {
+	visible := cursor.Visible
+	if cursor.Blinking {
+		if time.Since(c.lastBlink) >= 500*time.Millisecond {
+			c.blinkOn = !c.blinkOn
+			c.lastBlink = time.Now()
+		}
+		if !c.blinkOn {
+			visible = false
+		}
+	}
+	return visible
 }
 
 func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
@@ -206,10 +233,7 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	}
 
 	if cursor != nil && offset == 0 {
-		visible := cursor.Visible
-		if cursor.Blinking && c.frameCount%30 < 15 {
-			visible = false
-		}
+		visible := c.cursorVisible(cursor)
 		if visible {
 			cx := cursor.Col * c.metrics.Width
 			cy := cursor.Row * c.metrics.Height
@@ -241,6 +265,9 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 }
 
 func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
+	if err := c.gpu.BeginFrame(); err != nil {
+		return err
+	}
 	history := buf.History()
 	histLen := history.Len()
 	offset := scrollOffset
@@ -350,10 +377,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 
 	// 光标处理（简化：反转光标 cell 的 fg/bg）
 	if cursor != nil && offset == 0 {
-		visible := cursor.Visible
-		if cursor.Blinking && c.frameCount%30 < 15 {
-			visible = false
-		}
+		visible := c.cursorVisible(cursor)
 		if visible {
 			cx := cursor.Col
 			cy := cursor.Row

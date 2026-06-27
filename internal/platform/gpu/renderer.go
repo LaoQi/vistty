@@ -36,6 +36,7 @@ type Renderer struct {
 	shelfX      int
 	shelfY      int
 	shelfH      int
+	rgbaBuf     []byte
 }
 
 // NewRenderer 创建渲染核心。width/height 用于预分配 instance VBO 上限。
@@ -157,6 +158,37 @@ func (c *Renderer) Init() error {
 	return nil
 }
 
+// BeginFrame implements platform.GPURenderer
+func (c *Renderer) BeginFrame() error {
+	if !c.gpuReady {
+		return nil
+	}
+	if err := c.egl.MakeCurrent(c.display, c.surface, c.surface, c.context); err != nil {
+		return fmt.Errorf("eglMakeCurrent: %w", err)
+	}
+	return nil
+}
+
+// ResetAtlas implements platform.GPURenderer
+func (c *Renderer) ResetAtlas() {
+	if !c.gpuReady {
+		return
+	}
+	if err := c.egl.MakeCurrent(c.display, c.surface, c.surface, c.context); err != nil {
+		return
+	}
+	c.shelfX = 0
+	c.shelfY = 0
+	c.shelfH = 0
+	for k := range c.atlasCache {
+		delete(c.atlasCache, k)
+	}
+	gl := c.gles
+	gl.BindTexture(glLib.GL_TEXTURE_2D, c.atlasTex)
+	gl.PixelStorei(glLib.GL_UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(glLib.GL_TEXTURE_2D, 0, glLib.GL_RGBA, int32(c.atlasW), int32(c.atlasH), 0, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, nil)
+}
+
 // UploadGlyph implements platform.GPURenderer
 func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	if !c.gpuReady {
@@ -167,10 +199,6 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 	}
 	if e, exists := c.atlasCache[r]; exists {
 		return e.u0, e.v0, e.u1, e.v1, true
-	}
-
-	if err := c.egl.MakeCurrent(c.display, c.surface, c.surface, c.context); err != nil {
-		return 0, 0, 0, 0, false
 	}
 
 	placeX, placeY, nextShelfX, nextShelfY, nextShelfH, gu0, gv0, gu1, gv1, reset, pok := packGlyph(c.shelfX, c.shelfY, c.shelfH, c.atlasW, c.atlasH, w, h)
@@ -191,17 +219,22 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 		gl.TexImage2D(glLib.GL_TEXTURE_2D, 0, glLib.GL_RGBA, int32(c.atlasW), int32(c.atlasH), 0, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, nil)
 	}
 
-	rgbaBitmap := make([]byte, w*h*4)
+	need := w * h * 4
+	if cap(c.rgbaBuf) < need {
+		c.rgbaBuf = make([]byte, need)
+	} else {
+		c.rgbaBuf = c.rgbaBuf[:need]
+	}
 	for i := 0; i < w*h; i++ {
-		rgbaBitmap[i*4] = bitmap[i]
-		rgbaBitmap[i*4+3] = 255
+		c.rgbaBuf[i*4] = bitmap[i]
+		c.rgbaBuf[i*4+3] = 255
 	}
 
 	gl := c.gles
 	gl.BindTexture(glLib.GL_TEXTURE_2D, c.atlasTex)
 	gl.PixelStorei(glLib.GL_UNPACK_ALIGNMENT, 1)
 	gl.GetError()
-	gl.TexSubImage2D(glLib.GL_TEXTURE_2D, 0, int32(placeX), int32(placeY), int32(w), int32(h), glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, rgbaBitmap)
+	gl.TexSubImage2D(glLib.GL_TEXTURE_2D, 0, int32(placeX), int32(placeY), int32(w), int32(h), glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, c.rgbaBuf)
 	subErr := gl.GetError()
 
 	if os.Getenv("VISTTY_DEBUG") != "" && c.frameCount <= 3 {
@@ -212,7 +245,7 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 			}
 		}
 		fmt.Fprintf(os.Stderr, "UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
-			r, c.atlasTex, placeX, placeY, w, h, maxA, len(rgbaBitmap), subErr)
+			r, c.atlasTex, placeX, placeY, w, h, maxA, len(c.rgbaBuf), subErr)
 	}
 
 	if subErr != glLib.GL_NO_ERROR {

@@ -31,6 +31,7 @@ func (m *Master) Run() error {
 	if err := m.renderFrame(); err != nil {
 		return fmt.Errorf("initial render: %w", err)
 	}
+	m.dirty = false
 
 	m.wg.Add(len(m.terms))
 	for _, t := range m.terms {
@@ -94,7 +95,7 @@ func (m *Master) Run() error {
 		close(backendDone)
 	}()
 
-	ticker := time.NewTicker(time.Second / 60)
+	ticker := time.NewTicker(m.frameInterval)
 	defer ticker.Stop()
 	resizeCh := m.slaves[m.primaryIdx].Surface().ResizeEvents()
 
@@ -114,10 +115,18 @@ func (m *Master) Run() error {
 				ft.Apply(seqs)
 			}
 			terminal.ReturnSeqPool(seqs)
+			m.dirty = true
 		case msg := <-unifiedSeqCh:
 			msg.term.Apply(msg.seqs)
 			terminal.ReturnSeqPool(msg.seqs)
+			m.dirty = true
 		case <-ticker.C:
+			m.tickCount++
+			// 无变化时跳过渲染以省 CPU；每 15 tick（~250ms）兜底渲染一次，
+			// 保证光标闪烁（光标 500ms 翻转，250ms 兜底足以捕捉）。
+			if !m.dirty && m.tickCount%15 != 0 {
+				continue
+			}
 			var frameStart time.Time
 			if m.fpsLogging {
 				frameStart = time.Now()
@@ -129,6 +138,7 @@ func (m *Master) Run() error {
 				m.signalClose()
 				goto exit
 			}
+			m.dirty = false
 			if m.fpsLogging {
 				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
 			}
@@ -144,6 +154,7 @@ func (m *Master) Run() error {
 				m.signalClose()
 				goto exit
 			}
+			m.dirty = false
 		case <-mirrorEofCh:
 			m.signalClose()
 			goto exit
@@ -374,6 +385,7 @@ func (m *Master) handleScale(req scaleReq) {
 			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
 		}
 	}
+	m.dirty = false
 }
 
 func (m *Master) handleScaleIndependent(req scaleReq) {
@@ -427,6 +439,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 			fmt.Fprintf(os.Stderr, "handleScale: render error: %v\n", err)
 		}
 	}
+	m.dirty = false
 }
 
 func (m *Master) inputLoop() {
