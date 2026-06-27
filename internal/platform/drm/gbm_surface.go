@@ -167,6 +167,7 @@ type GBMSurface struct {
 	instanceVBO  uint32
 	resUni       int32
 	defBgUni     int32
+	atlasUni     int32
 	atlasCache   map[rune]atlasEntry
 	shelfX       int
 	shelfY       int
@@ -351,8 +352,9 @@ func (s *GBMSurface) initGPU() error {
 	s.gpuProgram = prog
 	s.resUni = gl.GetUniformLocation(prog, "u_resolution")
 	s.defBgUni = gl.GetUniformLocation(prog, "u_defBg")
+	s.atlasUni = gl.GetUniformLocation(prog, "u_atlas")
 
-	// 创建 atlas 纹理（R8 格式，2048x2048，可存 ~10000 字形）
+	// 创建 atlas 纹理（RGBA 格式，2048x2048，可存 ~10000 字形）
 	s.atlasW = 2048
 	s.atlasH = 2048
 	var texs [1]uint32
@@ -364,10 +366,17 @@ func (s *GBMSurface) initGPU() error {
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_S, gbm.GL_CLAMP_TO_EDGE)
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_WRAP_T, gbm.GL_CLAMP_TO_EDGE)
 	gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
+	gl.GetError() // 清除残留错误
+	gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_RGBA, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, nil)
+	texImgErr := gl.GetError()
 	gl.TexParameteri(gbm.GL_TEXTURE_2D, gbm.GL_TEXTURE_MAX_LEVEL, 0)
 
 	s.atlasCache = make(map[rune]atlasEntry)
+
+	if os.Getenv("VISTTY_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "initGPU: atlasTex=%d atlasUni=%d resUni=%d defBgUni=%d TexImage2D glErr=0x%x\n",
+			s.atlasTex, s.atlasUni, s.resUni, s.defBgUni, texImgErr)
+	}
 
 	// 创建单位 quad VBO（4 顶点：pos.xy + tex.xy）
 	var vbos [2]uint32
@@ -409,6 +418,11 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		return e.u0, e.v0, e.u1, e.v1, true
 	}
 
+	// 确保 EGL context 绑定（UploadGlyph 可能在 DrawInstances/Swap 之前调用）
+	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
+		return 0, 0, 0, 0, false
+	}
+
 	// Shelf packing
 	if s.shelfX+w > s.atlasW {
 		s.shelfX = 0
@@ -426,16 +440,37 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		gl := s.device.glesLoader
 		gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
 		gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
-		gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_R8, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, nil)
+		gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_RGBA, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, nil)
 		// 重新放置当前字形
 		if w > s.atlasW || h > s.atlasH {
 			return 0, 0, 0, 0, false
 		}
 	}
 
+	// bitmap 是 R8 alpha，转换为 RGBA (R=alpha, G=0, B=0, A=255)
+	rgbaBitmap := make([]byte, w*h*4)
+	for i := 0; i < w*h; i++ {
+		rgbaBitmap[i*4] = bitmap[i]
+		rgbaBitmap[i*4+3] = 255
+	}
+
 	gl := s.device.glesLoader
 	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
-	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(s.shelfX), int32(s.shelfY), int32(w), int32(h), gbm.GL_RED, gbm.GL_UNSIGNED_BYTE, bitmap)
+	gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
+	gl.GetError() // 清除残留错误
+	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(s.shelfX), int32(s.shelfY), int32(w), int32(h), gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, rgbaBitmap)
+	subErr := gl.GetError()
+
+	if os.Getenv("VISTTY_DEBUG") != "" && s.frameCount <= 3 {
+		maxA := 0
+		for _, b := range bitmap {
+			if int(b) > maxA {
+				maxA = int(b)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "UploadGlyph: rune=%q atlasTex=%d shelf=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
+			r, s.atlasTex, s.shelfX, s.shelfY, w, h, maxA, len(rgbaBitmap), subErr)
+	}
 
 	// UV 加半纹素 inset，避免 GL_NEAREST 边界越界采样到相邻字形
 	aw := float32(s.atlasW)
@@ -479,6 +514,9 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	gl.Uniform2f(s.resUni, float32(screenW), float32(screenH))
 	if s.defBgUni >= 0 {
 		gl.Uniform3fv(s.defBgUni, 1, bgColor[:])
+	}
+	if s.atlasUni >= 0 {
+		gl.Uniform1i(s.atlasUni, 0)
 	}
 
 	gl.ActiveTexture(gbm.GL_TEXTURE0)
@@ -532,6 +570,7 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	gl.VertexAttribDivisor(10, 1)
 
 	gl.DrawArraysInstanced(gbm.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
+	drawErr := gl.GetError()
 
 	// 清理 divisor
 	for i := uint32(2); i <= 10; i++ {
@@ -539,6 +578,17 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	}
 
 	s.gpuDrawn = true
+
+	if os.Getenv("VISTTY_DEBUG") != "" && s.frameCount <= 3 && len(instances) > 0 {
+		inst := instances[0]
+		px := make([]byte, 4)
+		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, px)
+		fmt.Fprintf(os.Stderr, "DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) hasBg=%v centerPx=(%d,%d,%d,%d)\n",
+			len(instances), s.atlasUni, s.atlasTex, drawErr,
+			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
+			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,
+			inst.FgR, inst.FgG, inst.FgB, inst.HasBg, px[0], px[1], px[2], px[3])
+	}
 	return nil
 }
 

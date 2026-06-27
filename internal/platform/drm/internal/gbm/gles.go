@@ -102,6 +102,7 @@ type GLESLoader struct {
 	uniform3fv            func(location int32, count int32, value unsafe.Pointer)
 	uniform4fv            func(location int32, count int32, value unsafe.Pointer)
 	texStorage2D          func(target uint32, levels int32, internalFormat uint32, w, h int32)
+	readPixels            func(x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
 }
 
 func LoadGLES() (*GLESLoader, error) {
@@ -168,6 +169,7 @@ func LoadGLES() (*GLESLoader, error) {
 		{"glUniform3fv", &l.uniform3fv, true},
 		{"glUniform4fv", &l.uniform4fv, true},
 		{"glTexStorage2D", &l.texStorage2D, true},
+		{"glReadPixels", &l.readPixels, true},
 	}
 
 	var errs []error
@@ -472,4 +474,15 @@ func (l *GLESLoader) GetGLVersion() (major, minor int) {
 		}
 	}
 	return 2, 0
+}
+
+func (l *GLESLoader) ReadPixels(x, y, w, h int32, format, typ uint32, data []byte) {
+	if l.readPixels == nil || len(data) == 0 {
+		return
+	}
+	l.readPixels(x, y, w, h, format, typ, unsafe.Pointer(&data[0]))
+}
+
+func (l *GLESLoader) GetTexLevelParameteriv(target uint32, level int32, pname uint32, params []int32) {
+	l.getTexLevelParameteriv(target, level, pname, unsafe.Pointer(&params[0]))
 }
