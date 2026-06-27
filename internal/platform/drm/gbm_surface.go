@@ -62,7 +62,7 @@ out vec3 v_fg;
 out vec3 v_bg;
 out float v_hasBg;
 out float v_attrFlags;
-out float v_inGlyph;
+out vec2 v_glyphCoord;
 void main() {
     vec2 cellPixelPos = a_quadPos * i_cellSize + i_cellPos;
     // italic (bit 2): x skew
@@ -77,8 +77,7 @@ void main() {
     vec2 glyphCoord = (a_quadPos * i_cellSize - i_glyphOff) / i_glyphSize;
     v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, glyphCoord);
     v_cellUV = a_quadPos;
-    v_inGlyph = step(0.0, glyphCoord.x) * step(glyphCoord.x, 1.0)
-              * step(0.0, glyphCoord.y) * step(glyphCoord.y, 1.0);
+    v_glyphCoord = glyphCoord;
     v_fg = i_fg;
     v_bg = i_bg;
     v_hasBg = i_hasBg;
@@ -94,13 +93,15 @@ in vec3 v_fg;
 in vec3 v_bg;
 in float v_hasBg;
 in float v_attrFlags;
-in float v_inGlyph;
+in vec2 v_glyphCoord;
 uniform sampler2D u_atlas;
 uniform vec3 u_defBg;
 out vec4 fragColor;
 void main() {
     float alpha = 0.0;
-    if (v_inGlyph > 0.5) {
+    float inGlyph = step(0.0, v_glyphCoord.x) * step(v_glyphCoord.x, 1.0)
+                  * step(0.0, v_glyphCoord.y) * step(v_glyphCoord.y, 1.0);
+    if (inGlyph > 0.5) {
         alpha = texture(u_atlas, v_tex).r;
     }
     vec3 bg = mix(u_defBg, v_bg, v_hasBg);
@@ -406,6 +407,53 @@ func (s *GBMSurface) initGPU() error {
 	return nil
 }
 
+// packGlyph 计算字形在 atlas 中的放置位置与 UV（含 0.5 纹素 inset，
+// 避免 GL_NEAREST 边界越界采样到相邻字形）。
+//
+// 输入当前 shelf 状态 (shelfX, shelfY, shelfH) 与字形尺寸 (w,h)，
+// 返回放置左上角 (placeX,placeY)、更新后的 shelf 状态、UV、reset 与 ok。
+//
+// reset=true 表示 atlas 已满，调用方需清空 cache 并重新 TexImage2D，
+// 此时返回的 placeX/placeY 为重置后的 (0,0) 起点。
+// ok=false 表示 w/h 非法或超过 atlas 尺寸。
+func packGlyph(shelfX, shelfY, shelfH, atlasW, atlasH, w, h int) (
+	placeX, placeY, nextShelfX, nextShelfY, nextShelfH int,
+	u0, v0, u1, v1 float32, reset, ok bool,
+) {
+	if w <= 0 || h <= 0 || w > atlasW || h > atlasH {
+		return 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false
+	}
+	px, py := shelfX, shelfY
+	curShelfH := shelfH
+	// 当前行放不下 → 换行
+	if shelfX+w > atlasW {
+		px = 0
+		py = shelfY + shelfH
+		curShelfH = 0
+	}
+	// atlas 纵向已满 → 重置
+	if py+h > atlasH {
+		px = 0
+		py = 0
+		curShelfH = 0
+		reset = true
+	}
+	aw := float32(atlasW)
+	ah := float32(atlasH)
+	u0 = (float32(px) + 0.5) / aw
+	v0 = (float32(py) + 0.5) / ah
+	u1 = (float32(px+w) - 0.5) / aw
+	v1 = (float32(py+h) - 0.5) / ah
+	nextShelfX = px + w
+	nextShelfY = py
+	if h > curShelfH {
+		nextShelfH = h
+	} else {
+		nextShelfH = curShelfH
+	}
+	return px, py, nextShelfX, nextShelfY, nextShelfH, u0, v0, u1, v1, reset, true
+}
+
 // UploadGlyph implements platform.GPURenderer
 func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	if !s.gpuReady {
@@ -423,13 +471,12 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		return 0, 0, 0, 0, false
 	}
 
-	// Shelf packing
-	if s.shelfX+w > s.atlasW {
-		s.shelfX = 0
-		s.shelfY += s.shelfH
-		s.shelfH = 0
+	placeX, placeY, nextShelfX, nextShelfY, nextShelfH, gu0, gv0, gu1, gv1, reset, pok := packGlyph(s.shelfX, s.shelfY, s.shelfH, s.atlasW, s.atlasH, w, h)
+	if !pok {
+		return 0, 0, 0, 0, false
 	}
-	if s.shelfY+h > s.atlasH {
+
+	if reset {
 		// atlas 满：重置整个 atlas，下帧重新上传可见字形
 		s.shelfX = 0
 		s.shelfY = 0
@@ -441,10 +488,6 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 		gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
 		gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
 		gl.TexImage2D(gbm.GL_TEXTURE_2D, 0, gbm.GL_RGBA, int32(s.atlasW), int32(s.atlasH), 0, gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, nil)
-		// 重新放置当前字形
-		if w > s.atlasW || h > s.atlasH {
-			return 0, 0, 0, 0, false
-		}
 	}
 
 	// bitmap 是 R8 alpha，转换为 RGBA (R=alpha, G=0, B=0, A=255)
@@ -458,7 +501,7 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 	gl.BindTexture(gbm.GL_TEXTURE_2D, s.atlasTex)
 	gl.PixelStorei(gbm.GL_UNPACK_ALIGNMENT, 1)
 	gl.GetError() // 清除残留错误
-	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(s.shelfX), int32(s.shelfY), int32(w), int32(h), gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, rgbaBitmap)
+	gl.TexSubImage2D(gbm.GL_TEXTURE_2D, 0, int32(placeX), int32(placeY), int32(w), int32(h), gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, rgbaBitmap)
 	subErr := gl.GetError()
 
 	if os.Getenv("VISTTY_DEBUG") != "" && s.frameCount <= 3 {
@@ -468,25 +511,20 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 				maxA = int(b)
 			}
 		}
-		fmt.Fprintf(os.Stderr, "UploadGlyph: rune=%q atlasTex=%d shelf=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
-			r, s.atlasTex, s.shelfX, s.shelfY, w, h, maxA, len(rgbaBitmap), subErr)
+		fmt.Fprintf(os.Stderr, "UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
+			r, s.atlasTex, placeX, placeY, w, h, maxA, len(rgbaBitmap), subErr)
 	}
 
-	// UV 加半纹素 inset，避免 GL_NEAREST 边界越界采样到相邻字形
-	aw := float32(s.atlasW)
-	ah := float32(s.atlasH)
-	u0 = (float32(s.shelfX) + 0.5) / aw
-	v0 = (float32(s.shelfY) + 0.5) / ah
-	u1 = (float32(s.shelfX+w) - 0.5) / aw
-	v1 = (float32(s.shelfY+h) - 0.5) / ah
-
-	s.atlasCache[r] = atlasEntry{u0, v0, u1, v1}
-
-	s.shelfX += w
-	if h > s.shelfH {
-		s.shelfH = h
+	// 上传失败则不缓存 UV，避免采样到空白纹理却以为有效
+	if subErr != gbm.GL_NO_ERROR {
+		return 0, 0, 0, 0, false
 	}
-	return u0, v0, u1, v1, true
+
+	s.atlasCache[r] = atlasEntry{gu0, gv0, gu1, gv1}
+	s.shelfX = nextShelfX
+	s.shelfY = nextShelfY
+	s.shelfH = nextShelfH
+	return gu0, gv0, gu1, gv1, true
 }
 
 // DrawInstances implements platform.GPURenderer

@@ -303,7 +303,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				Y:        py,
 				CellW:    cellW,
 				CellH:    cellH,
-				GlyphOffX: float32(c.metrics.Width),
+				GlyphOffX: 0,
 				GlyphOffY: float32(c.metrics.Ascent),
 				GlyphW:   float32(c.metrics.Width),
 				GlyphH:   float32(c.metrics.Height),
