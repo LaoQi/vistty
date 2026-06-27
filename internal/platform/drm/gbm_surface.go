@@ -63,6 +63,7 @@ out vec3 v_bg;
 out float v_hasBg;
 out float v_attrFlags;
 out vec2 v_glyphCoord;
+out float v_hasGlyph;
 void main() {
     vec2 cellPixelPos = a_quadPos * i_cellSize + i_cellPos;
     // italic (bit 2): x skew
@@ -82,6 +83,8 @@ void main() {
     v_bg = i_bg;
     v_hasBg = i_hasBg;
     v_attrFlags = i_attrFlags;
+    // UV 退化 (u0>=u1 或 v0>=v1) 表示无字形（空字符 UV=0），避免采样 atlas (0,0) 残留
+    v_hasGlyph = sign(max(i_glyphUV.z - i_glyphUV.x, 0.0)) * sign(max(i_glyphUV.w - i_glyphUV.y, 0.0));
 }
 `
 
@@ -94,6 +97,7 @@ in vec3 v_bg;
 in float v_hasBg;
 in float v_attrFlags;
 in vec2 v_glyphCoord;
+in float v_hasGlyph;
 uniform sampler2D u_atlas;
 uniform vec3 u_defBg;
 out vec4 fragColor;
@@ -101,7 +105,7 @@ void main() {
     float alpha = 0.0;
     float inGlyph = step(0.0, v_glyphCoord.x) * step(v_glyphCoord.x, 1.0)
                   * step(0.0, v_glyphCoord.y) * step(v_glyphCoord.y, 1.0);
-    if (inGlyph > 0.5) {
+    if (inGlyph > 0.5 && v_hasGlyph > 0.5) {
         alpha = texture(u_atlas, v_tex).r;
     }
     vec3 bg = mix(u_defBg, v_bg, v_hasBg);
