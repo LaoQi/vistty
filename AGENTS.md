@@ -182,9 +182,17 @@ github.com/LaoQi/vistty/
 │       │       ├── device.go / master.go / mode.go / dumb.go
 │       │       ├── flip.go / mmap.go / event.go
 │       │       ├── atomic.go / property.go / plane.go  # Atomic Modesetting ioctl 封装
-│       │   └── gbm/            # GBM + EGL + GLES purego dlopen（github.com/ebitengine/purego，跨架构支持 amd64/arm64）
-│       │       ├── gbm.go / egl.go / gles.go
-│       └── wayland/            # Wayland 后端（单虚拟输出）
+│       │   └── gbm/            # GBM purego dlopen（仅 GBMLoader + GBM 常量；EGL/GLES loader 已提升至 platform/gl）
+│       │       └── gbm.go
+│       ├── gl/                 # GLES + EGL purego dlopen（从 drm/internal/gbm 提升，跨后端共享）
+│       │   ├── gles.go         # GLESLoader（40+ GLES 函数 + HasBGRA/HasInstancedDraw/GetGLVersion）
+│       │   └── egl.go          # EGLLoader（Display/Context/Surface/MakeCurrent/SwapBuffers + EGL_PLATFORM_GBM_KHR 等常量）
+│       ├── gpu/                # GPU instanced draw 渲染核心（后端无关，GBM 组合复用）
+│       │   ├── renderer.go     # Renderer: NewRenderer+Init+UploadGlyph+DrawInstances+Close+Ready
+│       │   ├── shader.go       # gpuVertexSrc/gpuFragmentSrc（GLES 3.00 instanced draw shader）
+│       │   ├── atlas.go        # atlasEntry + packGlyph（shelf packing 纯函数 + 0.5 纹素 inset）
+│       │   └── renderer_test.go # L1 packGlyph + L3 shader 契约/CellInstance 布局测试
+│       └── wayland/            # Wayland 后端（单虚拟输出，wl_shm CPU 渲染）
 │           ├── backend.go / surface.go / input.go
 │           ├── keymap.go             # XKB keymap 解析 + evdev code 索引 + US 布局回退
 │           └── wl.go                # 自研纯 Go Wayland 协议层（conn+全部对象，替代 go-wayland）
@@ -196,7 +204,9 @@ github.com/LaoQi/vistty/
 cmd/vistty → terminal
 terminal → screen, vte, render, platform
 render → font, platform (Surface 接口)
-platform/drm → platform/drm/internal (DRM ioctl), go-evdev
+platform/drm → platform/drm/internal (DRM ioctl), platform/gl, platform/gpu, go-evdev
+platform/gpu → platform/gl (GLES/EGL loader), platform (CellInstance/GPURenderer)
+platform/gl → purego（无内部依赖）
 platform/wayland → 无外部依赖（自研 wl.go 协议层）
 screen, vte → 无外部依赖（纯逻辑）
 font → golang.org/x/image/font/opentype
@@ -264,6 +274,8 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 ```
 
 ## 实施状态
+
+- ✅ GPU 渲染核心抽取共享（`platform/gpu.Renderer`：shader+atlas+packGlyph+UploadGlyph+DrawInstances 后端无关；GLESLoader/EGLLoader 从 `drm/internal/gbm` 提升至 `platform/gl` 跨后端共享；GBMSurface 改组合 `gpu.Renderer`，删除内联 GPU 资源管理（gpuProgram/atlasTex/quadVBO/instanceVBO/shelf 状态全移入 core）；L1 packGlyph + L3 shader/CellInstance 测试随迁至 `gpu/renderer_test.go`；放弃 Wayland GPU 路径——wayland-egl 需 libwayland-client 的 `wl_proxy*`，自研 wl.go 纯 socket+协议 id 无法提供，Wayland 保留 wl_shm CPU 调试路径）
 
 全部三个阶段已完成：
 

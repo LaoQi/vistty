@@ -1,4 +1,4 @@
-package gbm
+package gl
 
 import (
 	"errors"
@@ -9,100 +9,100 @@ import (
 )
 
 const (
-	GL_TEXTURE_2D                   = 0x0DE1
-	GL_TEXTURE_WRAP_S               = 0x2802
-	GL_TEXTURE_WRAP_T               = 0x2803
-	GL_TEXTURE_MIN_FILTER           = 0x2801
-	GL_TEXTURE_MAG_FILTER           = 0x2800
-	GL_NEAREST                      = 0x2600
-	GL_LINEAR                       = 0x2601
-	GL_CLAMP_TO_EDGE                = 0x812F
-	GL_RGBA                         = 0x1908
-	GL_BGRA_EXT                     = 0x80E1
-	GL_UNSIGNED_BYTE                = 0x1401
-	GL_FLOAT                       = 0x1406
-	GL_RGB                          = 0x1907
-	GL_STATIC_DRAW                  = 0x88E4
-	GL_ARRAY_BUFFER                 = 0x8892
-	GL_VERTEX_SHADER                = 0x8B31
-	GL_FRAGMENT_SHADER              = 0x8B30
-	GL_COMPILE_STATUS               = 0x8B81
-	GL_LINK_STATUS                  = 0x8B82
-	GL_TEXTURE0                     = 0x84C0
-	GL_NO_ERROR                     = 0
-	GL_EXTENSIONS                   = 0x1F03
-	GL_RENDERER                     = 0x1F01
-	GL_VERSION                      = 0x1F02
-	GL_NUM_EXTENSIONS               = 0x821D
-	GL_COLOR_BUFFER_BIT             = 0x4000
-	GL_TEXTURE_WIDTH                = 0x1000
-	GL_TEXTURE_HEIGHT               = 0x1001
-	GL_UNPACK_ALIGNMENT             = 0x0CF5
+	GL_TEXTURE_2D         = 0x0DE1
+	GL_TEXTURE_WRAP_S     = 0x2802
+	GL_TEXTURE_WRAP_T     = 0x2803
+	GL_TEXTURE_MIN_FILTER = 0x2801
+	GL_TEXTURE_MAG_FILTER = 0x2800
+	GL_NEAREST            = 0x2600
+	GL_LINEAR             = 0x2601
+	GL_CLAMP_TO_EDGE      = 0x812F
+	GL_RGBA               = 0x1908
+	GL_BGRA_EXT           = 0x80E1
+	GL_UNSIGNED_BYTE      = 0x1401
+	GL_FLOAT              = 0x1406
+	GL_RGB                = 0x1907
+	GL_STATIC_DRAW        = 0x88E4
+	GL_ARRAY_BUFFER       = 0x8892
+	GL_VERTEX_SHADER      = 0x8B31
+	GL_FRAGMENT_SHADER    = 0x8B30
+	GL_COMPILE_STATUS     = 0x8B81
+	GL_LINK_STATUS        = 0x8B82
+	GL_TEXTURE0           = 0x84C0
+	GL_NO_ERROR           = 0
+	GL_EXTENSIONS         = 0x1F03
+	GL_RENDERER           = 0x1F01
+	GL_VERSION            = 0x1F02
+	GL_NUM_EXTENSIONS     = 0x821D
+	GL_COLOR_BUFFER_BIT   = 0x4000
+	GL_TEXTURE_WIDTH      = 0x1000
+	GL_TEXTURE_HEIGHT     = 0x1001
+	GL_UNPACK_ALIGNMENT   = 0x0CF5
 
-	GL_TRIANGLES                    = 0x0004
-	GL_TRIANGLE_STRIP               = 0x0005
+	GL_TRIANGLES      = 0x0004
+	GL_TRIANGLE_STRIP = 0x0005
 
 	GL_EXT_texture_format_BGRA8888 = "GL_EXT_texture_format_BGRA8888"
 
 	// GLES 3.0
-	GL_DYNAMIC_DRAW                = 0x88E8
-	GL_R8                          = 0x8229
-	GL_RED                         = 0x1903
-	GL_TEXTURE_BASE_LEVEL          = 0x813C
-	GL_TEXTURE_MAX_LEVEL           = 0x813D
-	GL_UNIFORM_BUFFER              = 0x8A11
+	GL_DYNAMIC_DRAW       = 0x88E8
+	GL_R8                 = 0x8229
+	GL_RED                = 0x1903
+	GL_TEXTURE_BASE_LEVEL = 0x813C
+	GL_TEXTURE_MAX_LEVEL  = 0x813D
+	GL_UNIFORM_BUFFER     = 0x8A11
 )
 
 type GLESLoader struct {
-	lib                 uintptr
-	genTextures         func(n int32, textures unsafe.Pointer)
-	deleteTextures      func(n int32, textures unsafe.Pointer)
-	bindTexture         func(target uint32, texture uint32)
-	activeTexture      func(unit uint32)
-	texImage2D         func(target uint32, level int32, internalFormat int32, w, h int32, border int32, format, typ uint32, data unsafe.Pointer)
-	texSubImage2D      func(target uint32, level int32, x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
-	texParameteri      func(target uint32, pname uint32, param int32)
-	getTexLevelParameteriv func(target uint32, level int32, pname uint32, params unsafe.Pointer)
-	createShader        func(shaderType uint32) uint32
-	deleteShader        func(shader uint32)
-	shaderSource        func(shader uint32, count int32, srcs unsafe.Pointer, lengths unsafe.Pointer)
-	compileShader       func(shader uint32)
-	getShaderiv         func(shader uint32, pname uint32, params unsafe.Pointer)
-	getShaderInfoLog    func(shader uint32, maxLength int32, length unsafe.Pointer, infoLog unsafe.Pointer)
-	createProgram       func() uint32
-	deleteProgram       func(program uint32)
-	attachShader        func(program, shader uint32)
-	linkProgram         func(program uint32)
-	getProgramiv        func(program uint32, pname uint32, params unsafe.Pointer)
-	getProgramInfoLog   func(program uint32, maxLength int32, length unsafe.Pointer, infoLog unsafe.Pointer)
-	useProgram          func(program uint32)
-	getUniformLocation  func(program uint32, name unsafe.Pointer) int32
-	genBuffers          func(n int32, buffers unsafe.Pointer)
-	deleteBuffers       func(n int32, buffers unsafe.Pointer)
-	bindBuffer          func(target uint32, buffer uint32)
-	bufferData          func(target uint32, size uintptr, data unsafe.Pointer, usage uint32)
-	vertexAttribPointer func(index uint32, size int32, typ uint32, normalized bool, stride int32, pointer unsafe.Pointer)
+	lib                     uintptr
+	genTextures             func(n int32, textures unsafe.Pointer)
+	deleteTextures          func(n int32, textures unsafe.Pointer)
+	bindTexture             func(target uint32, texture uint32)
+	activeTexture           func(unit uint32)
+	texImage2D              func(target uint32, level int32, internalFormat int32, w, h int32, border int32, format, typ uint32, data unsafe.Pointer)
+	texSubImage2D           func(target uint32, level int32, x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
+	texParameteri           func(target uint32, pname uint32, param int32)
+	getTexLevelParameteriv  func(target uint32, level int32, pname uint32, params unsafe.Pointer)
+	createShader            func(shaderType uint32) uint32
+	deleteShader            func(shader uint32)
+	shaderSource            func(shader uint32, count int32, srcs unsafe.Pointer, lengths unsafe.Pointer)
+	compileShader           func(shader uint32)
+	getShaderiv             func(shader uint32, pname uint32, params unsafe.Pointer)
+	getShaderInfoLog        func(shader uint32, maxLength int32, length unsafe.Pointer, infoLog unsafe.Pointer)
+	createProgram           func() uint32
+	deleteProgram           func(program uint32)
+	attachShader            func(program, shader uint32)
+	linkProgram             func(program uint32)
+	getProgramiv            func(program uint32, pname uint32, params unsafe.Pointer)
+	getProgramInfoLog       func(program uint32, maxLength int32, length unsafe.Pointer, infoLog unsafe.Pointer)
+	useProgram              func(program uint32)
+	getUniformLocation      func(program uint32, name unsafe.Pointer) int32
+	genBuffers              func(n int32, buffers unsafe.Pointer)
+	deleteBuffers           func(n int32, buffers unsafe.Pointer)
+	bindBuffer              func(target uint32, buffer uint32)
+	bufferData              func(target uint32, size uintptr, data unsafe.Pointer, usage uint32)
+	vertexAttribPointer     func(index uint32, size int32, typ uint32, normalized bool, stride int32, pointer unsafe.Pointer)
 	enableVertexAttribArray func(index uint32)
-	drawArrays          func(mode uint32, first int32, count int32)
-	viewport            func(x, y int32, w, h int32)
-	clear               func(mask uint32)
-	clearColor          func(r, g, b, a float32)
-	uniform1i           func(location int32, v0 int32)
-	getString           func(name uint32) unsafe.Pointer
-	getIntegerv         func(name uint32, params unsafe.Pointer)
-	getError           func() uint32
-	pixelStorei         func(pname uint32, param int32)
+	drawArrays              func(mode uint32, first int32, count int32)
+	viewport                func(x, y int32, w, h int32)
+	clear                   func(mask uint32)
+	clearColor              func(r, g, b, a float32)
+	uniform1i               func(location int32, v0 int32)
+	getString               func(name uint32) unsafe.Pointer
+	getIntegerv             func(name uint32, params unsafe.Pointer)
+	getError                func() uint32
+	pixelStorei             func(pname uint32, param int32)
 	// GLES 3.0
-	drawArraysInstanced   func(mode uint32, first int32, count int32, primcount int32)
-	vertexAttribDivisor   func(index uint32, divisor uint32)
-	bufferSubData         func(target uint32, offset uintptr, size uintptr, data unsafe.Pointer)
-	uniform2f             func(location int32, x, y float32)
-	uniform4f             func(location int32, x, y, z, w float32)
-	uniform2i             func(location int32, x, y int32)
-	uniform3fv            func(location int32, count int32, value unsafe.Pointer)
-	uniform4fv            func(location int32, count int32, value unsafe.Pointer)
-	texStorage2D          func(target uint32, levels int32, internalFormat uint32, w, h int32)
-	readPixels            func(x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
+	drawArraysInstanced func(mode uint32, first int32, count int32, primcount int32)
+	vertexAttribDivisor func(index uint32, divisor uint32)
+	bufferSubData       func(target uint32, offset uintptr, size uintptr, data unsafe.Pointer)
+	uniform2f           func(location int32, x, y float32)
+	uniform4f           func(location int32, x, y, z, w float32)
+	uniform2i           func(location int32, x, y int32)
+	uniform3fv          func(location int32, count int32, value unsafe.Pointer)
+	uniform4fv          func(location int32, count int32, value unsafe.Pointer)
+	texStorage2D        func(target uint32, levels int32, internalFormat uint32, w, h int32)
+	readPixels          func(x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
 }
 
 func LoadGLES() (*GLESLoader, error) {

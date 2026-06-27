@@ -6,13 +6,14 @@ import (
 
 	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform/drm/internal/gbm"
+	"github.com/LaoQi/vistty/internal/platform/gl"
 )
 
 type GBMDevice struct {
 	fd             int
 	gbmLoader      *gbm.GBMLoader
-	eglLoader      *gbm.EGLLoader
-	glesLoader     *gbm.GLESLoader
+	eglLoader      *gl.EGLLoader
+	glesLoader     *gl.GLESLoader
 	gbmDev         uintptr
 	eglDisplay     uintptr
 	eglContext     uintptr
@@ -33,7 +34,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		return nil, fmt.Errorf("load GBM: %w", err)
 	}
 
-	eglLoader, err := gbm.LoadEGL()
+	eglLoader, err := gl.LoadEGL()
 	if err != nil {
 		return nil, fmt.Errorf("load EGL: %w", err)
 	}
@@ -44,11 +45,11 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	}
 
 	var eglDisplay uintptr
-	eglDisplay = eglLoader.GetPlatformDisplay(gbm.EGL_PLATFORM_GBM_KHR, gbmDev)
-	if eglDisplay == 0 || eglDisplay == gbm.EGL_NO_DISPLAY {
+	eglDisplay = eglLoader.GetPlatformDisplay(gl.EGL_PLATFORM_GBM_KHR, gbmDev)
+	if eglDisplay == 0 || eglDisplay == gl.EGL_NO_DISPLAY {
 		eglDisplay = eglLoader.GetDisplay(gbmDev)
 	}
-	if eglDisplay == 0 || eglDisplay == gbm.EGL_NO_DISPLAY {
+	if eglDisplay == 0 || eglDisplay == gl.EGL_NO_DISPLAY {
 		gbmLoader.DeviceDestroy(gbmDev)
 		return nil, fmt.Errorf("eglGetDisplay failed")
 	}
@@ -58,7 +59,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		return nil, fmt.Errorf("eglInitialize: %w", err)
 	}
 
-	if err := eglLoader.BindAPI(gbm.EGL_OPENGL_ES_API); err != nil {
+	if err := eglLoader.BindAPI(gl.EGL_OPENGL_ES_API); err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
 		return nil, fmt.Errorf("eglBindAPI: %w", err)
@@ -66,13 +67,13 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 
 	debugLog := os.Getenv("VISTTY_DEBUG") != ""
 
-	configAttribs := gbm.EGLAttribList(
-		gbm.EGL_SURFACE_TYPE, gbm.EGL_WINDOW_BIT,
-		gbm.EGL_RED_SIZE, 8,
-		gbm.EGL_GREEN_SIZE, 8,
-		gbm.EGL_BLUE_SIZE, 8,
-		gbm.EGL_ALPHA_SIZE, 8,
-		gbm.EGL_RENDERABLE_TYPE, gbm.EGL_OPENGL_ES2_BIT,
+	configAttribs := gl.EGLAttribList(
+		gl.EGL_SURFACE_TYPE, gl.EGL_WINDOW_BIT,
+		gl.EGL_RED_SIZE, 8,
+		gl.EGL_GREEN_SIZE, 8,
+		gl.EGL_BLUE_SIZE, 8,
+		gl.EGL_ALPHA_SIZE, 8,
+		gl.EGL_RENDERABLE_TYPE, gl.EGL_OPENGL_ES2_BIT,
 	)
 
 	eglConfig, err := eglLoader.ChooseConfig(eglDisplay, configAttribs)
@@ -82,7 +83,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		return nil, fmt.Errorf("eglChooseConfig: %w", err)
 	}
 
-	nativeVisual, err := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gbm.EGL_NATIVE_VISUAL_ID)
+	nativeVisual, err := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_NATIVE_VISUAL_ID)
 	if err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
@@ -90,25 +91,25 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	}
 
 	if debugLog {
-		rSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gbm.EGL_RED_SIZE)
-		gSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gbm.EGL_GREEN_SIZE)
-		bSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gbm.EGL_BLUE_SIZE)
-		aSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gbm.EGL_ALPHA_SIZE)
+		rSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_RED_SIZE)
+		gSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_GREEN_SIZE)
+		bSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_BLUE_SIZE)
+		aSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_ALPHA_SIZE)
 		fmt.Fprintf(os.Stderr, "GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)\n",
 			rSize, gSize, bSize, aSize, uint32(nativeVisual), visualName(uint32(nativeVisual)))
 	}
 
-	ctxAttribs := gbm.EGLAttribList(
-		gbm.EGL_CONTEXT_CLIENT_VERSION, 3,
+	ctxAttribs := gl.EGLAttribList(
+		gl.EGL_CONTEXT_CLIENT_VERSION, 3,
 	)
-	eglContext := eglLoader.CreateContext(eglDisplay, eglConfig, gbm.EGL_NO_CONTEXT, ctxAttribs)
-	if eglContext == 0 || eglContext == gbm.EGL_NO_CONTEXT {
+	eglContext := eglLoader.CreateContext(eglDisplay, eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs)
+	if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
 		// 回退 GLES 2.0
-		ctxAttribs2 := gbm.EGLAttribList(
-			gbm.EGL_CONTEXT_CLIENT_VERSION, 2,
+		ctxAttribs2 := gl.EGLAttribList(
+			gl.EGL_CONTEXT_CLIENT_VERSION, 2,
 		)
-		eglContext = eglLoader.CreateContext(eglDisplay, eglConfig, gbm.EGL_NO_CONTEXT, ctxAttribs2)
-		if eglContext == 0 || eglContext == gbm.EGL_NO_CONTEXT {
+		eglContext = eglLoader.CreateContext(eglDisplay, eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs2)
+		if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
 			eglLoader.Terminate(eglDisplay)
 			gbmLoader.DeviceDestroy(gbmDev)
 			return nil, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
@@ -118,7 +119,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		}
 	}
 
-	glesLoader, err := gbm.LoadGLES()
+	glesLoader, err := gl.LoadGLES()
 	if err != nil {
 		eglLoader.DestroyContext(eglDisplay, eglContext)
 		eglLoader.Terminate(eglDisplay)
@@ -155,17 +156,17 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 	)
 	if gbmSurface == 0 {
 		errCode := d.eglLoader.GetError()
-		return nil, fmt.Errorf("gbm_surface_create failed (eglErr=%s)", gbm.EGLErrorString(errCode))
+		return nil, fmt.Errorf("gbm_surface_create failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
 	if debugLog {
 		fmt.Fprintf(os.Stderr, "GBM: surface created %dx%d fmt=0x%x (%s)\n", width, height, gbmFormat, visualName(gbmFormat))
 	}
 
 	eglSurface := d.eglLoader.CreateWindowSurface(d.eglDisplay, d.eglConfig, gbmSurface)
-	if eglSurface == 0 || eglSurface == gbm.EGL_NO_SURFACE {
+	if eglSurface == 0 || eglSurface == gl.EGL_NO_SURFACE {
 		errCode := d.eglLoader.GetError()
 		d.gbmLoader.SurfaceDestroy(gbmSurface)
-		return nil, fmt.Errorf("eglCreateWindowSurface failed (eglErr=%s)", gbm.EGLErrorString(errCode))
+		return nil, fmt.Errorf("eglCreateWindowSurface failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
 	if debugLog {
 		fmt.Fprintf(os.Stderr, "GBM: eglCreateWindowSurface succeeded\n")
@@ -212,8 +213,8 @@ func (d *GBMDevice) Close() {
 }
 
 func (d *GBMDevice) GBMLoader() *gbm.GBMLoader  { return d.gbmLoader }
-func (d *GBMDevice) EGLLoader() *gbm.EGLLoader  { return d.eglLoader }
-func (d *GBMDevice) GLESLoader() *gbm.GLESLoader { return d.glesLoader }
+func (d *GBMDevice) EGLLoader() *gl.EGLLoader  { return d.eglLoader }
+func (d *GBMDevice) GLESLoader() *gl.GLESLoader { return d.glesLoader }
 func (d *GBMDevice) EGLDisplay() uintptr         { return d.eglDisplay }
 func (d *GBMDevice) EGLContext() uintptr          { return d.eglContext }
 func (d *GBMDevice) FD() int                      { return d.fd }

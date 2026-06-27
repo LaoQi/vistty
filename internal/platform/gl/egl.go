@@ -1,4 +1,4 @@
-package gbm
+package gl
 
 import (
 	"errors"

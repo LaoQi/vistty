@@ -10,6 +10,8 @@ import (
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm/internal/gbm"
+	"github.com/LaoQi/vistty/internal/platform/gl"
+	"github.com/LaoQi/vistty/internal/platform/gpu"
 )
 
 // L4: 真实 GL 集成测试（GBM 平台 + DRM render node）。
@@ -28,8 +30,8 @@ import (
 // eglMakeCurrent 间歇失败）。NoUVDegraded 用采样 atlas 空白区域避免占位污染。
 
 type glEnv struct {
-	egl          *gbm.EGLLoader
-	gles         *gbm.GLESLoader
+	egl          *gl.EGLLoader
+	gles         *gl.GLESLoader
 	gbmL         *gbm.GBMLoader
 	disp         uintptr
 	ctx          uintptr
@@ -46,7 +48,7 @@ var (
 
 func getGLEnv() {
 	glEnvOnce.Do(func() {
-		egl, err := gbm.LoadEGL()
+		egl, err := gl.LoadEGL()
 		if err != nil {
 			glEnvSkip = "LoadEGL: " + err.Error()
 			return
@@ -56,7 +58,7 @@ func getGLEnv() {
 			glEnvSkip = "LoadGBM: " + err.Error()
 			return
 		}
-		gles, err := gbm.LoadGLES()
+		gles, err := gl.LoadGLES()
 		if err != nil {
 			glEnvSkip = "LoadGLES: " + err.Error()
 			return
@@ -71,11 +73,11 @@ func getGLEnv() {
 			glEnvSkip = "gbm_create_device failed"
 			return
 		}
-		disp := egl.GetPlatformDisplay(gbm.EGL_PLATFORM_GBM_KHR, gbmDev)
-		if disp == 0 || disp == gbm.EGL_NO_DISPLAY {
+		disp := egl.GetPlatformDisplay(gl.EGL_PLATFORM_GBM_KHR, gbmDev)
+		if disp == 0 || disp == gl.EGL_NO_DISPLAY {
 			disp = egl.GetDisplay(gbmDev)
 		}
-		if disp == 0 || disp == gbm.EGL_NO_DISPLAY {
+		if disp == 0 || disp == gl.EGL_NO_DISPLAY {
 			glEnvSkip = "eglGetDisplay(GBM) failed"
 			return
 		}
@@ -83,28 +85,28 @@ func getGLEnv() {
 			glEnvSkip = "eglInitialize: " + err.Error()
 			return
 		}
-		if err := egl.BindAPI(gbm.EGL_OPENGL_ES_API); err != nil {
+		if err := egl.BindAPI(gl.EGL_OPENGL_ES_API); err != nil {
 			glEnvSkip = "eglBindAPI: " + err.Error()
 			return
 		}
-		cfg, err := egl.ChooseConfig(disp, gbm.EGLAttribList(
-			gbm.EGL_SURFACE_TYPE, gbm.EGL_WINDOW_BIT,
-			gbm.EGL_RED_SIZE, 8, gbm.EGL_GREEN_SIZE, 8, gbm.EGL_BLUE_SIZE, 8, gbm.EGL_ALPHA_SIZE, 8,
-			gbm.EGL_RENDERABLE_TYPE, gbm.EGL_OPENGL_ES2_BIT,
+		cfg, err := egl.ChooseConfig(disp, gl.EGLAttribList(
+			gl.EGL_SURFACE_TYPE, gl.EGL_WINDOW_BIT,
+			gl.EGL_RED_SIZE, 8, gl.EGL_GREEN_SIZE, 8, gl.EGL_BLUE_SIZE, 8, gl.EGL_ALPHA_SIZE, 8,
+			gl.EGL_RENDERABLE_TYPE, gl.EGL_OPENGL_ES2_BIT,
 		))
 		if err != nil {
 			glEnvSkip = "eglChooseConfig: " + err.Error()
 			return
 		}
-		ctx := egl.CreateContext(disp, cfg, gbm.EGL_NO_CONTEXT, gbm.EGLAttribList(gbm.EGL_CONTEXT_CLIENT_VERSION, 3))
+		ctx := egl.CreateContext(disp, cfg, gl.EGL_NO_CONTEXT, gl.EGLAttribList(gl.EGL_CONTEXT_CLIENT_VERSION, 3))
 		if ctx == 0 {
-			ctx = egl.CreateContext(disp, cfg, gbm.EGL_NO_CONTEXT, gbm.EGLAttribList(gbm.EGL_CONTEXT_CLIENT_VERSION, 2))
+			ctx = egl.CreateContext(disp, cfg, gl.EGL_NO_CONTEXT, gl.EGLAttribList(gl.EGL_CONTEXT_CLIENT_VERSION, 2))
 		}
 		if ctx == 0 {
-			glEnvSkip = "eglCreateContext: " + gbm.EGLErrorString(egl.GetError())
+			glEnvSkip = "eglCreateContext: " + gl.EGLErrorString(egl.GetError())
 			return
 		}
-		nv, _ := egl.GetConfigAttrib(disp, cfg, gbm.EGL_NATIVE_VISUAL_ID)
+		nv, _ := egl.GetConfigAttrib(disp, cfg, gl.EGL_NATIVE_VISUAL_ID)
 		glEnvInst = &glEnv{
 			egl: egl, gles: gles, gbmL: gbmL,
 			disp: disp, ctx: ctx, cfg: cfg,
@@ -115,9 +117,9 @@ func getGLEnv() {
 
 // readPixel 读 GL 窗口坐标 (x,y)，原点左下角。
 // compositor 坐标 y 向下，GL 窗口 y 向上，需 Y 翻转: winY = height-1-compY。
-func readPixel(gles *gbm.GLESLoader, x, y int) (r, g, b, a byte) {
+func readPixel(gles *gl.GLESLoader, x, y int) (r, g, b, a byte) {
 	px := make([]byte, 4)
-	gles.ReadPixels(int32(x), int32(y), 1, 1, gbm.GL_RGBA, gbm.GL_UNSIGNED_BYTE, px)
+	gles.ReadPixels(int32(x), int32(y), 1, 1, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, px)
 	return px[0], px[1], px[2], px[3]
 }
 
@@ -149,9 +151,9 @@ func TestGBMGL(t *testing.T) {
 		t.Skip("gbm_surface_create failed")
 	}
 	eglSurf := env.egl.CreateWindowSurface(env.disp, env.cfg, gbmSurf)
-	if eglSurf == 0 || eglSurf == gbm.EGL_NO_SURFACE {
+	if eglSurf == 0 || eglSurf == gl.EGL_NO_SURFACE {
 		env.gbmL.SurfaceDestroy(gbmSurf)
-		t.Skipf("eglCreateWindowSurface: %s", gbm.EGLErrorString(env.egl.GetError()))
+		t.Skipf("eglCreateWindowSurface: %s", gl.EGLErrorString(env.egl.GetError()))
 	}
 	if err := env.egl.MakeCurrent(env.disp, eglSurf, eglSurf, env.ctx); err != nil {
 		env.egl.DestroySurface(env.disp, eglSurf)
@@ -159,7 +161,7 @@ func TestGBMGL(t *testing.T) {
 		t.Skipf("eglMakeCurrent: %v", err)
 	}
 	t.Cleanup(func() {
-		env.egl.MakeCurrent(env.disp, gbm.EGL_NO_SURFACE, gbm.EGL_NO_SURFACE, gbm.EGL_NO_CONTEXT)
+		env.egl.MakeCurrent(env.disp, gl.EGL_NO_SURFACE, gl.EGL_NO_SURFACE, gl.EGL_NO_CONTEXT)
 		env.egl.DestroySurface(env.disp, eglSurf)
 		env.gbmL.SurfaceDestroy(gbmSurf)
 	})
@@ -177,18 +179,17 @@ func TestGBMGL(t *testing.T) {
 		eglSurface: eglSurf,
 		width:      80,
 		height:     32,
-		atlasW:     2048,
-		atlasH:     2048,
 		active:     true,
 		flipCh:     make(chan struct{}, 1),
 	}
 	s.ensureCPUBuf()
 
 	// InitGPU（shader 编译链接）
-	if err := s.initGPU(); err != nil {
+	s.gpu = gpu.NewRenderer(env.gles, env.egl, env.disp, eglSurf, env.ctx, 80, 32)
+	if err := s.gpu.Init(); err != nil {
 		t.Fatalf("initGPU 失败: %v\nshader 编译/链接失败将导致字形无法显示", err)
 	}
-	if !s.gpuReady {
+	if !s.gpu.Ready() {
 		t.Fatal("gpuReady=false（HasInstancedDraw 不支持或 initGPU 失败）")
 	}
 	if !env.gles.HasInstancedDraw() {

@@ -1,4 +1,4 @@
-package drm
+package gpu
 
 import (
 	"regexp"
