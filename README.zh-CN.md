@@ -9,8 +9,9 @@ Wayland 显示服务器，定位类似
 
 ## 功能
 
-- DRM/KMS 直出：dumb buffer + page flip，可选 GBM/EGL/GLES GPU 加速路径
-  （Atomic Modesetting），不可用时自动回退到 dumb buffer。
+- DRM/KMS 直出：`drm` 使用 dumb buffer + page flip（CPU 渲染），`drm-gbm`
+  通过 Atomic Modesetting 使用 GBM/EGL/GLES GPU 加速。自动探测按
+  `drm-gbm` → `drm` → `wayland` 顺序尝试。
 - Wayland 窗口后端：自研纯 Go Wayland wire 协议层（无外部 Wayland 绑定），通过
   `wl_shm` 共享内存提交帧。
 - 多屏支持：枚举所有已连接的 connector；支持镜像/独立两种显示模式；可按名称或
@@ -40,11 +41,14 @@ go test ./...
 ## 运行
 
 ```bash
-# 自动探测后端（DRM 优先，回退 Wayland）
+# 自动探测后端（drm-gbm → drm → wayland）
 go run ./cmd/vistty
 
-# 强制 DRM/KMS 直出
+# 强制 DRM/KMS dumb buffer（CPU 渲染）
 go run ./cmd/vistty -backend drm
+
+# 强制 DRM/KMS GBM/EGL GPU 加速
+go run ./cmd/vistty -backend drm-gbm
 
 # 强制 Wayland 窗口（桌面会话内开发调试）
 go run ./cmd/vistty -backend wayland
@@ -57,14 +61,13 @@ go run ./cmd/vistty -backend drm -tty 2
 
 | 参数            | 说明                                                          |
 |-----------------|---------------------------------------------------------------|
-| `-backend`      | `auto`（默认）、`drm` 或 `wayland`                            |
+| `-backend`      | `auto`（默认）、`wayland`、`drm` 或 `drm-gbm`                   |
 | `-shell`        | 运行的 shell（默认 `/bin/bash`）                              |
 | `-font`         | 外部字体文件路径（为空时用内置字体）                          |
 | `-fontsize`     | 字号，单位像素（默认 14）                                     |
 | `-mode`         | `mirror` 或 `independent`（默认 `independent`）              |
 | `-primary`      | 按 connector 名称（如 `HDMI-A-1`）或索引选择主屏             |
 | `-tty`          | 绑定到指定 TTY，如 `2` 或 `/dev/tty2`（仅 DRM）               |
-| `-nogbm`        | 禁用 GBM/EGL，使用 dumb buffer（仅 DRM）                      |
 | `-list-outputs` | 列出所有显示输出后退出                                        |
 | `-cpuprofile`   | 输出 CPU profile 到文件                                       |
 | `-memprofile`   | 输出堆 profile 到文件                                         |

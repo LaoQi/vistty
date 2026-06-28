@@ -14,7 +14,6 @@ type Config struct {
 	FontSize float64 `json:"fontsize"`
 	Primary  string  `json:"primary"`
 	Mode     string  `json:"mode"`
-	NoGBM    bool    `json:"nogbm"`
 	Record   string  `json:"record"`
 	ErrorLog string  `json:"error_log"`
 }
@@ -27,7 +26,6 @@ func Default() Config {
 		FontSize: 14,
 		Primary:  "",
 		Mode:     "independent",
-		NoGBM:    false,
 		Record:   "",
 		ErrorLog: "",
 	}
@@ -47,7 +45,7 @@ func DefaultPath() (string, error) {
 
 func (c Config) Generate() string {
 	return fmt.Sprintf(`{
-  // 显示后端: "auto" | "drm" | "wayland"
+  // 显示后端: "auto" | "wayland" | "drm" | "drm-gbm"
   "backend": %q,
   // 启动的 shell 程序路径
   "shell": %q,
@@ -59,14 +57,12 @@ func (c Config) Generate() string {
   "primary": %q,
   // 显示模式: "mirror" | "independent"
   "mode": %q,
-  // 禁用 GBM/EGL, 使用 dumb buffer (仅 DRM 后端)
-  "nogbm": %t,
   // 录制 PTY 输出到指定文件
   "record": %q,
   // 错误日志文件路径 (默认 ~/.local/share/vistty/error.log)
   "error_log": %q
 }
-`, c.Backend, c.Shell, c.Font, c.FontSize, c.Primary, c.Mode, c.NoGBM, c.Record, c.ErrorLog)
+`, c.Backend, c.Shell, c.Font, c.FontSize, c.Primary, c.Mode, c.Record, c.ErrorLog)
 }
 
 func stripComments(data []byte) []byte {

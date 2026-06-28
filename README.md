@@ -10,9 +10,9 @@ desktop session.
 
 ## Features
 
-- DRM/KMS direct rendering: dumb buffer + page flip, with optional GBM/EGL/GLES
-  GPU acceleration path (Atomic Modesetting) that falls back to dumb buffer when
-  unavailable.
+- DRM/KMS direct rendering: dumb buffer + page flip (`drm`), or GBM/EGL/GLES
+  GPU acceleration via Atomic Modesetting (`drm-gbm`). Auto-detect tries
+  `drm-gbm` first, then `drm`, then `wayland`.
 - Wayland window backend: self-contained pure-Go Wayland wire protocol layer
   (no external Wayland bindings), using `wl_shm` for zero-CGLO shared memory.
 - Multi-monitor support: enumerates every connected connector; mirror or
@@ -43,11 +43,14 @@ go test ./...
 ## Run
 
 ```bash
-# Auto-detect backend (DRM preferred, falls back to Wayland)
+# Auto-detect backend (drm-gbm → drm → wayland)
 go run ./cmd/vistty
 
-# Force DRM/KMS direct rendering
+# Force DRM/KMS with dumb buffer (CPU rendering)
 go run ./cmd/vistty -backend drm
+
+# Force DRM/KMS with GBM/EGL GPU acceleration
+go run ./cmd/vistty -backend drm-gbm
 
 # Force Wayland window (development/debugging inside a desktop session)
 go run ./cmd/vistty -backend wayland
@@ -66,14 +69,13 @@ go run ./cmd/vistty -config ./my-config.jsonc
 
 | Flag            | Description                                                       |
 |-----------------|-------------------------------------------------------------------|
-| `-backend`      | `auto` (default), `drm`, or `wayland`                             |
+| `-backend`      | `auto` (default), `wayland`, `drm`, or `drm-gbm`                 |
 | `-shell`        | shell to run (default `/bin/bash`)                               |
 | `-font`         | external font file path (built-in font used when empty)          |
 | `-fontsize`     | font size in pixels (default 14)                                  |
 | `-mode`         | `mirror` or `independent` (default `independent`)                |
 | `-primary`      | primary output by connector name (e.g. `HDMI-A-1`) or index      |
 | `-tty`          | bind to a TTY, e.g. `2` or `/dev/tty2` (DRM only)                 |
-| `-nogbm`        | disable GBM/EGL, use dumb buffer (DRM only)                       |
 | `-list-outputs` | list all display outputs and exit                                 |
 | `-errorlog`     | error log file path (default `~/.local/share/vistty/error.log`)   |
 | `-config`       | config file path (default `~/.config/vistty/config.jsonc`)       |

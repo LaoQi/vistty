@@ -295,8 +295,9 @@ VISTTY_DEBUG=1 VISTTY_DEBUG_FILE=/tmp/vistty.log VISTTY_DEBUG_STDERR=0 ./vistty 
 
 运行：
 ```bash
-go run ./cmd/vistty                         # 自动探测后端（DRM优先，回退Wayland）
-go run ./cmd/vistty -backend drm            # 强制 DRM/KMS 直出
+go run ./cmd/vistty                         # 自动探测后端（drm-gbm → drm → wayland）
+go run ./cmd/vistty -backend drm            # 强制 DRM/KMS dumb buffer（CPU 渲染）
+go run ./cmd/vistty -backend drm-gbm        # 强制 DRM/KMS GBM/EGL GPU 加速
 go run ./cmd/vistty -backend wayland        # 强制 Wayland 窗口（开发调试）
 go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设控制终端）
 ```
@@ -402,7 +403,7 @@ Wayland 后端实现细节：
 - Wayland 后端无自动化测试（需 Wayland 合成器环境）
 - ✅ 指定 TTY 绑定（-tty 参数：纯数字→/dev/ttyN、/dev/ 前缀原样；DRM 后端 setsid+TIOCSCTTY 设控制终端，Wayland 后端忽略并警告）
 - ✅ VT 管理容错降级（tty 获取失败不报错退出，打印警告并跳过 VT 管理；SSH 远程无控制终端场景仍能 DRM 渲染到物理屏，仅无 VT 切换信号）
-- ✅ GBM 绕过开关（-nogbm：跳过 GBM/EGL 初始化走 dumb buffer；DSI-1 输出 eglCreateWindowSurface 失败时可绕过，SSH 远程 -nogbm 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
+- ✅ 渲染后端三分（-backend 选项：`wayland`/`drm`/`drm-gbm`，移除 -nogbm；`drm`=dumb buffer CPU 渲染，`drm-gbm`=GBM/EGL GPU 加速；`drm-gbm` 初始化失败报错退出而非静默降级；`auto` 探测顺序 drm-gbm→drm→wayland；DSI-1 输出 eglCreateWindowSurface 失败时用 `-backend drm` 绕过；SSH 远程 `-backend drm` 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
 - ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(session fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）
 - ✅ GBM GPU 渲染链路打通（GLES 纹理上传：compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；新建 gles.go 加载 libGLESv2.so 37 函数；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销；Intel i915 实测 hasBGRA=true 双屏 200+帧稳定）
 - ✅ DRM 属性枚举 bug 修复（GetProperty EFAULT：预分配 values 缓冲区避免 enum 属性首次 ioctl 写入 null 指针；GetObjectProperties CountProps=0 bug：保留首次调用的 count 作为缓冲区大小）
@@ -417,7 +418,7 @@ Wayland 后端实现细节：
 - ✅ dirty 跳帧 + 帧率预留 + 光标时间戳闪烁（Master 新增 frameInterval/dirty/tickCount 字段，New 默认 60fps，SetFrameRate 预留动态帧率；render_loop ticker 用 m.frameInterval；PTY Apply 后置 dirty=true，ticker case 检查 dirty||tickCount%15==0 才渲染（无数据时每 ~250ms 兜底渲染一次）；光标闪烁从 frameCount%30 改为 time.Since(lastBlink)>=500ms 时间戳驱动，与 frameCount 解耦，跳帧下仍正确闪烁；空闲 CPU 从 60fps 全量重绘降到 4fps 兜底）
 - ✅ error log 日志文件（debug 包扩展 Errorf/Warningf + ConfigureError + configureErrorLocked；默认开启写入 ~/.local/share/vistty/error.log（XDG_DATA_HOME 规范，HOME 不可用回退仅 stderr）；tee stderr+文件（VISTTY_ERROR_STDERR=0 关 stderr）；时间戳前缀 2006-01-02 15:04:05.000；-errorlog flag / VISTTY_ERROR_LOG env 覆盖路径；运行期错误 render error/PtyReadLoop error/SIGTERM timeout + 警告 vt manager 降级/GBM GPU fallback/-tty ignored + 顶层 fatal 从 Debugf/fmt.Fprintf 迁移至 Errorf/Warningf；路径创建失败回退仅 stderr 不 panic；O_APPEND 追加模式保留历史）
 
-- ✅ 配置文件支持（internal/config 包：Config 结构 + Load/Save/DefaultPath；-config flag 指定路径默认 ~/.config/vistty/config.jsonc（XDG_CONFIG_HOME 规范）；-gen-config 输出默认 JSONC 配置到 stdout（含字段注释，不写入文件）；配置优先级：命令行显式 flag > 配置文件 > 内置默认值，flag.Visit 检测显式设置未设置的字段才用配置文件值覆盖；文件不存在静默回退 Default 无错误；JSONC 解析支持 `//` 行注释和 `/* */` 块注释（stripComments 去注释后标准 json.Unmarshal）；字段含 backend/shell/font/fontsize/primary/mode/nogbm/record/error_log（排除 profiling/list-outputs/tty/fps/repeat/repeat/width/height — tty/fps/repeat 保留 CLI flag 但不进配置文件，width/height 完全移除）；error_log 路径三层优先级 flag>config>env>默认；9 项测试覆盖默认值/不存在/往返/Generate 注释/JSONC 注释解析/XDG路径/损坏/部分字段）
-- ✅ nogbm 模式启动 10 秒延迟修复（根因：DRMSurface.Swap() 的 waitForFlip() 5 秒超时被触发两次；首次 renderFrame() 在 backend.Run()（启动 eventLoop goroutine）之前执行，无 goroutine 读 DRM flip 完成事件调 notifyFlip()，flipCh 永远不填充 → 两次 waitForFlip 各等 5 秒超时；修复：将 backend.Run() 提前到首次 renderFrame() 之前，确保 eventLoop 在 Swap 时已运行）
+- ✅ 配置文件支持（internal/config 包：Config 结构 + Load/Save/DefaultPath；-config flag 指定路径默认 ~/.config/vistty/config.jsonc（XDG_CONFIG_HOME 规范）；-gen-config 输出默认 JSONC 配置到 stdout（含字段注释，不写入文件）；配置优先级：命令行显式 flag > 配置文件 > 内置默认值，flag.Visit 检测显式设置未设置的字段才用配置文件值覆盖；文件不存在静默回退 Default 无错误；JSONC 解析支持 `//` 行注释和 `/* */` 块注释（stripComments 去注释后标准 json.Unmarshal）；字段含 backend/shell/font/fontsize/primary/mode/record/error_log（排除 profiling/list-outputs/tty/fps/repeat/repeat/width/height — tty/fps/repeat 保留 CLI flag 但不进配置文件，width/height 完全移除）；error_log 路径三层优先级 flag>config>env>默认；9 项测试覆盖默认值/不存在/往返/Generate 注释/JSONC 注释解析/XDG路径/损坏/部分字段）
+- ✅ drm 模式启动 10 秒延迟修复（根因：DRMSurface.Swap() 的 waitForFlip() 5 秒超时被触发两次；首次 renderFrame() 在 backend.Run()（启动 eventLoop goroutine）之前执行，无 goroutine 读 DRM flip 完成事件调 notifyFlip()，flipCh 永远不填充 → 两次 waitForFlip 各等 5 秒超时；修复：将 backend.Run() 提前到首次 renderFrame() 之前，确保 eventLoop 在 Swap 时已运行）
 - ✅ DRMSurface Swap 双缓冲+flip 重试+幂等 Close（flipPending/done/closeOnce 字段从外部管理移入 DRMSurface；Swap 等上次 flip 完成再提交新帧；DoPageFlip 失败最多重试 5 次；Close sync.Once 幂等防 panic）
 - ✅ 渲染错误容错（renderFrame 错误不再立即退出，累计 maxRenderErrors=10 次连续错误才退出；成功渲染重置计数器）

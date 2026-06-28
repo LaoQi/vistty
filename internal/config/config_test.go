@@ -44,8 +44,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	original := Default()
 	original.Shell = "/bin/zsh"
 	original.FontSize = 18
-	original.Backend = "drm"
-	original.NoGBM = true
+	original.Backend = "drm-gbm"
 
 	if err := original.Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -61,11 +60,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if loaded.FontSize != 18 {
 		t.Errorf("FontSize = %v, want 18", loaded.FontSize)
 	}
-	if loaded.Backend != "drm" {
-		t.Errorf("Backend = %q, want drm", loaded.Backend)
-	}
-	if !loaded.NoGBM {
-		t.Errorf("NoGBM = false, want true")
+	if loaded.Backend != "drm-gbm" {
+		t.Errorf("Backend = %q, want drm-gbm", loaded.Backend)
 	}
 }
 
@@ -74,7 +70,7 @@ func TestGenerateHasComments(t *testing.T) {
 	if !strings.Contains(out, "//") {
 		t.Error("Generate output should contain JSONC comments")
 	}
-	for _, field := range []string{"backend", "shell", "font", "fontsize", "primary", "mode", "nogbm", "record", "error_log"} {
+	for _, field := range []string{"backend", "shell", "font", "fontsize", "primary", "mode", "record", "error_log"} {
 		if !strings.Contains(out, `"`+field+`"`) {
 			t.Errorf("Generate output missing field %q", field)
 		}

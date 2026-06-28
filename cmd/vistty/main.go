@@ -25,7 +25,7 @@ func main() {
 }
 
 func run() error {
-	backendFlag := flag.String("backend", "auto", "display backend: auto, drm, or wayland")
+	backendFlag := flag.String("backend", "auto", "display backend: auto, wayland, drm, or drm-gbm")
 	shellFlag := flag.String("shell", "/bin/bash", "shell to run")
 	fontFlag := flag.String("font", "", "font file path")
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
@@ -38,7 +38,6 @@ func run() error {
 	fpsFlag := flag.Bool("fps", false, "print per-frame timing to stderr")
 	recordPath := flag.String("record", "", "record PTY output to file")
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
-	noGBMFlag := flag.Bool("nogbm", false, "disable GBM/EGL, use dumb buffer (DRM only)")
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
 	errorLogFlag := flag.String("errorlog", "", "error log file path (default ~/.local/share/vistty/error.log)")
 	configFlag := flag.String("config", "", "config file path (default ~/.config/vistty/config.jsonc)")
@@ -82,9 +81,6 @@ func run() error {
 	}
 	if !explicit["mode"] && cfg.Mode != "" {
 		*modeFlag = cfg.Mode
-	}
-	if !explicit["nogbm"] {
-		*noGBMFlag = cfg.NoGBM
 	}
 	if !explicit["record"] {
 		*recordPath = cfg.Record
@@ -139,38 +135,54 @@ func run() error {
 	switch *backendFlag {
 	case "auto":
 		if drm.Probe() {
-			debug.Debugf("auto: DRM probe succeeded, using DRM backend\n")
+			debug.Debugf("auto: DRM probe succeeded, trying drm-gbm\n")
 			var drmBackend *drm.DRMBackend
 			drmBackend, err = drm.NewDRMBackend(resolvedTty)
-			if err == nil && !*noGBMFlag && drm.HasAtomic(drmBackend.FD()) {
+			if err == nil && drm.HasAtomic(drmBackend.FD()) {
 				gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 				if gbmErr == nil {
 					drmBackend.SetGBMProvider(gbmDev)
+					debug.Debugf("auto: GBM initialized, using drm-gbm\n")
+					backend = drmBackend
 				} else {
-					debug.Warningf("GBM init failed: %v, fallback to dumb buffer\n", gbmErr)
+					debug.Warningf("auto: GBM init failed: %v, fallback to drm (dumb buffer)\n", gbmErr)
+					backend = drmBackend
 				}
+			} else if err == nil {
+				debug.Debugf("auto: no atomic modesetting, using drm (dumb buffer)\n")
+				backend = drmBackend
 			}
-			backend = drmBackend
-		} else if wayland.Probe() {
-			debug.Debugf("auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
+		}
+		if backend == nil && wayland.Probe() {
+			debug.Debugf("auto: DRM unavailable, Wayland probe succeeded, using wayland backend\n")
 			if resolvedTty != "" {
 				debug.Warningf("-tty is ignored by wayland backend\n")
 			}
 			backend, err = wayland.NewWaylandBackend()
-		} else {
-			return fmt.Errorf("no suitable display backend found (tried DRM and Wayland)")
 		}
+		if backend == nil {
+			return fmt.Errorf("no suitable display backend found (tried drm-gbm, drm, wayland)")
+		}
+	case "drm-gbm":
+		var drmBackend *drm.DRMBackend
+		drmBackend, err = drm.NewDRMBackend(resolvedTty)
+		if err != nil {
+			return fmt.Errorf("drm-gbm: failed to create DRM backend: %w", err)
+		}
+		if !drm.HasAtomic(drmBackend.FD()) {
+			drmBackend.Close()
+			return fmt.Errorf("drm-gbm: kernel does not support atomic modesetting, use -backend drm for dumb buffer")
+		}
+		gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
+		if gbmErr != nil {
+			drmBackend.Close()
+			return fmt.Errorf("drm-gbm: GBM init failed: %w", gbmErr)
+		}
+		drmBackend.SetGBMProvider(gbmDev)
+		backend = drmBackend
 	case "drm":
 		var drmBackend *drm.DRMBackend
 		drmBackend, err = drm.NewDRMBackend(resolvedTty)
-		if err == nil && !*noGBMFlag && drm.HasAtomic(drmBackend.FD()) {
-			gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
-			if gbmErr == nil {
-				drmBackend.SetGBMProvider(gbmDev)
-			} else {
-				debug.Warningf("GBM init failed: %v, fallback to dumb buffer\n", gbmErr)
-			}
-		}
 		backend = drmBackend
 	case "wayland":
 		if resolvedTty != "" {
@@ -178,7 +190,7 @@ func run() error {
 		}
 		backend, err = wayland.NewWaylandBackend()
 	default:
-		return fmt.Errorf("unknown backend: %s", *backendFlag)
+		return fmt.Errorf("unknown backend: %s (valid: auto, wayland, drm, drm-gbm)", *backendFlag)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to create backend: %w", err)
