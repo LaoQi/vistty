@@ -24,9 +24,18 @@ func (m *Master) Run() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	const maxRenderErrors = 10
+	var renderErrCount int
+
 	if m.focusTerm() == nil {
 		return fmt.Errorf("no terminal session")
 	}
+
+	backendDone := make(chan struct{})
+	go func() {
+		m.backend.Run(func() {})
+		close(backendDone)
+	}()
 
 	if err := m.renderFrame(); err != nil {
 		return fmt.Errorf("initial render: %w", err)
@@ -89,12 +98,6 @@ func (m *Master) Run() error {
 	go m.inputLoop()
 	go m.signalLoop()
 
-	backendDone := make(chan struct{})
-	go func() {
-		m.backend.Run(func() {})
-		close(backendDone)
-	}()
-
 	ticker := time.NewTicker(m.frameInterval)
 	defer ticker.Stop()
 	resizeCh := m.slaves[m.primaryIdx].Surface().ResizeEvents()
@@ -132,11 +135,16 @@ func (m *Master) Run() error {
 				frameStart = time.Now()
 			}
 			if err := m.renderFrame(); err != nil {
-				debug.Errorf("Run: render error: %v\n", err)
-				m.signalClose()
-				goto exit
+				renderErrCount++
+				debug.Errorf("Run: render error (%d/%d): %v\n", renderErrCount, maxRenderErrors, err)
+				if renderErrCount >= maxRenderErrors {
+					m.signalClose()
+					goto exit
+				}
+			} else {
+				renderErrCount = 0
+				m.dirty = false
 			}
-			m.dirty = false
 			if m.fpsLogging {
 				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
 			}
@@ -146,9 +154,14 @@ func (m *Master) Run() error {
 			m.handleScale(req)
 		case <-m.renderReqCh:
 			if err := m.renderFrame(); err != nil {
-				debug.Errorf("Run: render request error: %v\n", err)
-				m.signalClose()
-				goto exit
+				renderErrCount++
+				debug.Errorf("Run: render request error (%d/%d): %v\n", renderErrCount, maxRenderErrors, err)
+				if renderErrCount >= maxRenderErrors {
+					m.signalClose()
+					goto exit
+				}
+			} else {
+				renderErrCount = 0
 			}
 			m.dirty = false
 		case <-mirrorEofCh:

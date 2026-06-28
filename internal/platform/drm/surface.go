@@ -27,6 +27,9 @@ type DRMSurface struct {
 	mu          sync.Mutex
 	active      bool
 	flipCh      chan struct{}
+	flipPending bool
+	done        chan struct{}
+	closeOnce   sync.Once
 }
 
 func newDRMSurface(fd int, width, height int, crtcID, connectorID uint32) (*DRMSurface, error) {
@@ -38,6 +41,7 @@ func newDRMSurface(fd int, width, height int, crtcID, connectorID uint32) (*DRMS
 		connectorID: connectorID,
 		active:      true,
 		flipCh:      make(chan struct{}, 1),
+		done:        make(chan struct{}),
 	}
 
 	for i := 0; i < 2; i++ {
@@ -108,17 +112,41 @@ func (s *DRMSurface) Swap() error {
 	}
 	s.mu.Unlock()
 
-	backIdx := s.current ^ 1
-	if err := DoPageFlip(s.fd, s.crtcID, s.bufs[backIdx].fbID, FlipEvent, 0); err != nil {
-		return fmt.Errorf("page flip: %w", err)
+	if s.flipPending {
+		s.waitForFlip()
+		s.flipPending = false
 	}
-	s.current = backIdx
 
+	backIdx := s.current ^ 1
+	var flipErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		flipErr = DoPageFlip(s.fd, s.crtcID, s.bufs[backIdx].fbID, FlipEvent, 0)
+		if flipErr == nil {
+			break
+		}
+		if attempt < 4 {
+			s.waitForFlip()
+			s.flipPending = false
+		}
+	}
+	if flipErr != nil {
+		return fmt.Errorf("page flip: %w", flipErr)
+	}
+
+	s.current = backIdx
+	s.flipPending = true
+	s.waitForFlip()
+	s.flipPending = false
+
+	return nil
+}
+
+func (s *DRMSurface) waitForFlip() {
 	select {
 	case <-s.flipCh:
-	case <-time.After(100 * time.Millisecond):
+	case <-s.done:
+	case <-time.After(5 * time.Second):
 	}
-	return nil
 }
 
 func (s *DRMSurface) notifyFlip() {
@@ -135,7 +163,10 @@ func (s *DRMSurface) SetActive(active bool) {
 }
 
 func (s *DRMSurface) Close() error {
-	s.closeBufs(2)
+	s.closeOnce.Do(func() {
+		close(s.done)
+		s.closeBufs(2)
+	})
 	return nil
 }
 
