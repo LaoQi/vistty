@@ -251,10 +251,26 @@ func (b *DRMBackend) FD() int {
 var _ platform.Backend = (*DRMBackend)(nil)
 
 func Probe() bool {
-	cards := ListDevices()
-	if len(cards) == 0 {
+	fd, err := ProbeDetailed()
+	if err != nil {
 		return false
 	}
+	fd.Close()
+	return true
+}
+
+type ProbeResult struct {
+	FD        *os.File
+	HasDumb   bool
+	Outputs   []*DisplayInfo
+}
+
+func ProbeDetailed() (*os.File, error) {
+	cards := ListDevices()
+	if len(cards) == 0 {
+		return nil, fmt.Errorf("no DRM device found")
+	}
+
 	for _, card := range cards {
 		fd, err := os.OpenFile(card, os.O_RDWR, 0)
 		if err != nil {
@@ -264,10 +280,72 @@ func Probe() bool {
 			fd.Close()
 			continue
 		}
-		dumbOK := HasDumbBuffer(int(fd.Fd()))
+		if !HasDumbBuffer(int(fd.Fd())) {
+			DropMaster(int(fd.Fd()))
+			fd.Close()
+			continue
+		}
+		return fd, nil
+	}
+	return nil, fmt.Errorf("no usable DRM device")
+}
+
+func NewDRMBackendFromFD(fd *os.File, ttyPath string) (*DRMBackend, error) {
+	if fd == nil {
+		return nil, fmt.Errorf("fd is nil")
+	}
+
+	outputs, err := findOutputs(int(fd.Fd()))
+	if err != nil {
 		DropMaster(int(fd.Fd()))
 		fd.Close()
-		return dumbOK
+		return nil, err
 	}
-	return false
+
+	b := &DRMBackend{
+		fd:       fd,
+		display:  outputs[0],
+		outputs:  outputs,
+		surfaces: make(map[uint32]*DRMSurface),
+		doneCh:   make(chan struct{}),
+		eventDone: make(chan struct{}),
+	}
+
+	vt, err := newVTManager(VTCallbacks{
+		OnActivate: func() {
+			SetMaster(int(fd.Fd()))
+			if b.surface != nil {
+				b.surface.SetActive(true)
+			}
+			if b.gbmProvider != nil {
+				b.gbmProvider.SetActive(true)
+			}
+		},
+		OnDeactivate: func() {
+			if b.surface != nil {
+				b.surface.SetActive(false)
+			}
+			if b.gbmProvider != nil {
+				b.gbmProvider.SetActive(false)
+			}
+			DropMaster(int(fd.Fd()))
+		},
+	}, ttyPath)
+	if err != nil {
+		DropMaster(int(fd.Fd()))
+		fd.Close()
+		return nil, fmt.Errorf("vt manager: %w", err)
+	}
+	b.vt = vt
+
+	if vt != nil {
+		if err := vt.SetGraphicsMode(); err != nil {
+			vt.Close()
+			DropMaster(int(fd.Fd()))
+			fd.Close()
+			return nil, fmt.Errorf("set graphics mode: %w", err)
+		}
+	}
+
+	return b, nil
 }

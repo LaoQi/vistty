@@ -134,27 +134,25 @@ func run() error {
 	var backend platform.Backend
 	switch *backendFlag {
 	case "auto":
-		if drm.Probe() {
+		fd, probeErr := drm.ProbeDetailed()
+		if probeErr == nil {
 			debug.Debugf("auto: DRM probe succeeded, trying drm-gbm\n")
-			var drmBackend *drm.DRMBackend
-			drmBackend, err = drm.NewDRMBackend(resolvedTty)
-			if err == nil && drm.HasAtomic(drmBackend.FD()) {
+			drmBackend, beErr := drm.NewDRMBackendFromFD(fd, resolvedTty)
+			if beErr != nil {
+				debug.Warningf("auto: DRM backend init failed: %v, trying wayland\n", beErr)
+			} else {
 				gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 				if gbmErr == nil {
 					drmBackend.SetGBMProvider(gbmDev)
 					debug.Debugf("auto: GBM initialized, using drm-gbm\n")
-					backend = drmBackend
 				} else {
-					debug.Warningf("auto: GBM init failed: %v, fallback to drm (dumb buffer)\n", gbmErr)
-					backend = drmBackend
+					debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)\n", gbmErr)
 				}
-			} else if err == nil {
-				debug.Debugf("auto: no atomic modesetting, using drm (dumb buffer)\n")
 				backend = drmBackend
 			}
 		}
 		if backend == nil && wayland.Probe() {
-			debug.Debugf("auto: DRM unavailable, Wayland probe succeeded, using wayland backend\n")
+			debug.Debugf("auto: Wayland probe succeeded, using wayland backend\n")
 			if resolvedTty != "" {
 				debug.Warningf("-tty is ignored by wayland backend\n")
 			}
@@ -169,13 +167,12 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("drm-gbm: failed to create DRM backend: %w", err)
 		}
-		if !drm.HasAtomic(drmBackend.FD()) {
-			drmBackend.Close()
-			return fmt.Errorf("drm-gbm: kernel does not support atomic modesetting, use -backend drm for dumb buffer")
-		}
 		gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 		if gbmErr != nil {
 			drmBackend.Close()
+			if strings.Contains(gbmErr.Error(), "DRM_CLIENT_CAP_ATOMIC") {
+				return fmt.Errorf("drm-gbm: kernel does not support atomic modesetting, use -backend drm for dumb buffer")
+			}
 			return fmt.Errorf("drm-gbm: GBM init failed: %w", gbmErr)
 		}
 		drmBackend.SetGBMProvider(gbmDev)

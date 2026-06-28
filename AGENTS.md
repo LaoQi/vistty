@@ -320,7 +320,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ 渲染主线程化（Run() LockOSThread 绑定，eventLoop select 并入 main，wg.Add(3)；CGO=0 下保证渲染 goroutine 不被线程迁移）
 - ✅ 强制初始渲染（Run() 启动前 Render 一次，确保 Wayland surface 被映射）
 - ✅ VISTTY_DEBUG 环境变量调试日志（internal/debug 包：Debugf/Enabled/Configure 统一入口；init 从 VISTTY_DEBUG/VISTTY_DEBUG_FILE/VISTTY_DEBUG_STDERR 自动配置；支持同时输出 stderr+文件或仅文件；全量迁移 terminal/session/gpu/drm 各包 fmt.Fprintf(os.Stderr) 调用点）
-- ✅ 自动后端探测（DRM优先轻量探测 → 回退Wayland，-backend auto 默认）
+- ✅ 自动后端探测（ProbeDetailed 返回已持有 master 的 fd，NewDRMBackendFromFD 复用该 fd 避免双重打开；移除 HasAtomic 预检副作用，直接尝试 NewGBMDevice 决定 GBM/dumb 路径；失败回退 Wayland，-backend auto 默认）
 - ✅ 内置 Sarasa Fixed SC 字体（子集化 6.7MB，等宽+CJK，无需系统字体）
 - ✅ 按键长按支持（terminal 层 delay timer + rate ticker，DRM 过滤内核 autorepeat）
 - ✅ 滚动状态下按键自动回到底部（非滚动键重置 scrollOffset 并发送到 PTY）
@@ -358,7 +358,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
 - ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）
 - ✅ GBMSurface + AtomicCommitor（GBMDevice 共享 gbm_device+EGLDisplay+EGLContext；GBMSurface 异步 Mailbox 提交：Swap→eglSwapBuffers→lock_front_buffer→AddFB→IDLE直接commit/PENDING投mailbox；onFlipComplete释放releaseBO→committed→releaseBO→commit mailbox帧；pendingFrame三槽位(releaseBO/committed/mailbox)管理BO生命周期；commitMu保护并发；帧丢弃语义：PENDING时新帧替换mailbox旧帧）
-- ✅ GBM 可选初始化与回退（backend.go：HasAtomic→NewGBMDevice 成功 useGBM=true，失败静默回退 dumb buffer；eventLoop 按 ev.CrtcID 路由 GBM surfaces）
+- ✅ GBM 可选初始化与回退（auto 路径：NewDRMBackendFromFD→直接尝试 NewGBMDevice→成功设 GBMProvider/失败静默回退 dumb buffer；drm-gbm 手工路径：NewGBMDevice 失败时检查 DRM_CLIENT_CAP_ATOMIC 错误给出友好提示；eventLoop 按 ev.CrtcID 路由 GBM surfaces）
 - ✅ DRM internal 子包提升（drm/internal → drm：ioctl/codes/types/device/master/mode/dumb/flip/mmap/event/atomic/property/plane/cap 全部提升至 drm 包，消除 internal 间接层；drm 后端代码直接引用同包函数，不再 import drminternal）
 - ✅ GBM 包从 drm 分离独立（drm/gbm_device.go + drm/gbm_surface.go + drm/atomic_commit.go + drm/internal/gbm/gbm.go → platform/gbm/；新增 GBMProvider 接口（platform/gpu.go）解耦 drm↔gbm 双向依赖；cmd/vistty 组装注入 gbmDev→drmBackend.SetGBMProvider；drm backend 不再 import gbm 包）
 - ✅ master/slave 包合并入 session（master/master.go + master/render_loop.go + slave/slave.go → session/；New→NewMaster；slave.go 合并进 session 包；删除独立 master/ 和 slave/ 目录）
@@ -403,7 +403,7 @@ Wayland 后端实现细节：
 - Wayland 后端无自动化测试（需 Wayland 合成器环境）
 - ✅ 指定 TTY 绑定（-tty 参数：纯数字→/dev/ttyN、/dev/ 前缀原样；DRM 后端 setsid+TIOCSCTTY 设控制终端，Wayland 后端忽略并警告）
 - ✅ VT 管理容错降级（tty 获取失败不报错退出，打印警告并跳过 VT 管理；SSH 远程无控制终端场景仍能 DRM 渲染到物理屏，仅无 VT 切换信号）
-- ✅ 渲染后端三分（-backend 选项：`wayland`/`drm`/`drm-gbm`，移除 -nogbm；`drm`=dumb buffer CPU 渲染，`drm-gbm`=GBM/EGL GPU 加速；`drm-gbm` 初始化失败报错退出而非静默降级；`auto` 探测顺序 drm-gbm→drm→wayland；DSI-1 输出 eglCreateWindowSurface 失败时用 `-backend drm` 绕过；SSH 远程 `-backend drm` 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
+- ✅ 渲染后端三分（-backend 选项：`wayland`/`drm`/`drm-gbm`，移除 -nogbm；`drm`=dumb buffer CPU 渲染，`drm-gbm`=GBM/EGL GPU 加速；`drm-gbm` 初始化失败报错退出而非静默降级；`auto` 探测顺序 drm-gbm→drm→wayland，ProbeDetailed 返回已持有 master 的 fd 避免双重打开；DSI-1 输出 eglCreateWindowSurface 失败时用 `-backend drm` 绕过；SSH 远程 `-backend drm` 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
 - ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(session fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）
 - ✅ GBM GPU 渲染链路打通（GLES 纹理上传：compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；新建 gles.go 加载 libGLESv2.so 37 函数；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销；Intel i915 实测 hasBGRA=true 双屏 200+帧稳定）
 - ✅ DRM 属性枚举 bug 修复（GetProperty EFAULT：预分配 values 缓冲区避免 enum 属性首次 ioctl 写入 null 指针；GetObjectProperties CountProps=0 bug：保留首次调用的 count 作为缓冲区大小）
