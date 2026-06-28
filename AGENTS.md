@@ -29,11 +29,11 @@
 
 ```
 cmd/vistty (入口，选择后端 + -mode/-primary 参数)
-    └── master (协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键)
+    └── session (协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键)
             ├── terminal (纯逻辑会话：PTY + screen + parser + CSI 执行)
             │       ├── vte (转义解析)
             │       └── screen (缓冲区)
-            ├── slave (输出绑定：surface + backBuf + terms[] + active 预留)
+            ├── session.Slave (输出绑定：surface + backBuf + terms[] + active 预留)
             └── render (合成+光标) → font (opentype + glyph cache)
                     └── 依赖 platform.Surface 接口
                             ├── platform/drm (DRM 直出，多 connector 多屏)
@@ -116,6 +116,8 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 | main | Run() LockOSThread 绑定，承载渲染主循环（seqCh/ticker.Render/resize/scale/eof），等 done/backend.Done() | 无差异 |
 | backend-loop | backend.Run() | DRM: 空操作; Wayland: dispatch 事件循环 |
 | pty-read | PTY stdout → Read 长循环 → FeedInto → seqCh | 无差异 |
+| seq-relay | 独立模式：Terminal.SeqCh() → unifiedSeqCh 中继 | 镜像模式无（直接读 focusTerm.SeqCh） |
+| exit-watch | 独立模式：Terminal.EofCh()/Done() → termExitCh 中继 | 镜像模式无（直接读 focusTerm.EofCh/Done） |
 | input | InputSource 事件 → terminal | 无差异（接口统一） |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() | 无差异 |
 | drm-event | DRM fd 事件（Page Flip 完成） | 仅 DRM |
@@ -139,12 +141,11 @@ github.com/LaoQi/vistty/
 ├── LICENSE                       # GPLv2
 ├── work_docs/                    # 开发过程文档（optimize.md/progress.md/todos.md）
 ├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并
-├── master/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键
-│   ├── master.go               # Master 结构 + New(initMirror/initIndependent) + session池
+├── session/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + Slave 输出绑定
+│   ├── master.go               # Master 结构 + NewMaster(initMirror/initIndependent) + session池
+│   ├── slave.go                # Slave 结构 + InitIndependent + ActiveTerm/BindTerminal
 │   ├── render_loop.go           # 统一主循环（镜像裁剪分发/独立串行）+ handleKey + setFocus
 │   └── master_test.go          # 集成测试（Close幂等/PTY退出/输入无死锁）
-├── slave/                      # 输出绑定：surface + backBuf + terms[] + active 预留
-│   └── slave.go                # Slave 结构 + InitIndependent + ActiveTerm/BindTerminal
 ├── terminal/
 │   ├── terminal.go             # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control 执行
 │   ├── charset.go              # 字符集状态管理（G0/G1/GL + DEC line drawing 映射）
@@ -184,13 +185,17 @@ github.com/LaoQi/vistty/
 │       ├── keymap.go           # 共享键映射函数（DRM/Wayland通用，左右Win ModSuper）
 │       ├── drm/                # DRM/KMS 后端（多 connector 多屏）
 │       │   ├── backend.go / surface.go / input.go / display.go / vt.go
-│       │   └── internal/       # DRM 底层（不对外暴露）
-│       │       ├── ioctl.go / codes.go / types.go
-│       │       ├── device.go / master.go / mode.go / dumb.go
-│       │       ├── flip.go / mmap.go / event.go
-│       │       ├── atomic.go / property.go / plane.go  # Atomic Modesetting ioctl 封装
-│       │   └── gbm/            # GBM purego dlopen（仅 GBMLoader + GBM 常量；EGL/GLES loader 已提升至 platform/gl）
-│       │       └── gbm.go
+│       │   ├── ioctl.go / codes.go / types.go    # DRM 底层 ioctl 封装（原 internal 子包提升）
+│       │   ├── device.go / master.go / mode.go / dumb.go
+│       │   ├── flip.go / mmap.go / event.go / event_test.go
+│       │   ├── atomic.go / property.go / plane.go / cap.go  # Atomic Modesetting ioctl 封装
+│       │   └── atomic_commit.go                    # AtomicCommitor（已删除，移至 gbm 包）
+│       ├── gbm/                # GBM GPU 渲染后端（从 drm 包分离，通过 GBMProvider 接口解耦）
+│       │   ├── device.go       # GBMDevice：gbm_device + EGLDisplay + EGLContext 共享
+│       │   ├── surface.go      # GBMSurface：异步 Mailbox 提交 + GLES 纹理上传
+│       │   ├── atomic.go       # AtomicCommitor（从 drm/atomic_commit.go 迁移）
+│       │   ├── gbm.go          # GBM purego dlopen（GBMLoader + GBM 常量）
+│       │   └── surface_gl_test.go  # GBM GL 集成测试
 │       ├── gl/                 # GLES + EGL purego dlopen（从 drm/internal/gbm 提升，跨后端共享）
 │       │   ├── gles.go         # GLESLoader（40+ GLES 函数 + HasBGRA/HasInstancedDraw/GetGLVersion）
 │       │   └── egl.go          # EGLLoader（Display/Context/Surface/MakeCurrent/SwapBuffers + EGL_PLATFORM_GBM_KHR 等常量）
@@ -208,11 +213,12 @@ github.com/LaoQi/vistty/
 ### 依赖方向
 
 ```
-cmd/vistty → terminal, config, debug
+cmd/vistty → terminal, config, debug, platform/gbm (GBM 组装注入)
 terminal → screen, vte, render, platform, debug
-master → render, font, platform, terminal, slave, debug
+session → render, font, platform, terminal, debug
 render → font, platform (Surface 接口)
-platform/drm → platform/drm/internal (DRM ioctl), platform/gl, platform/gpu, go-evdev, debug
+platform/drm → platform (Surface/GBMProvider 接口), go-evdev, debug
+platform/gbm → platform (GBMProvider/Surface/Output), platform/gl, platform/gpu, debug
 platform/gpu → platform/gl (GLES/EGL loader), platform (CellInstance/GPURenderer), debug
 platform/gl → purego（无内部依赖）
 platform/wayland → 无外部依赖（自研 wl.go 协议层）
@@ -222,7 +228,7 @@ config → 无内部依赖（纯逻辑）
 debug → 无内部依赖（纯逻辑）
 ```
 
-**依赖规则：** `platform/drm/internal` 不依赖任何其他内部包；`vte` 和 `screen` 无外部依赖；上层通过接口解耦，不依赖具体后端实现。
+**依赖规则：** `platform/drm` 不依赖 `platform/gbm`，通过 `platform.GBMProvider` 接口由 `cmd/vistty` 组装注入；`vte` 和 `screen` 无外部依赖；上层通过接口解耦，不依赖具体后端实现。
 
 ## 关键约束
 - 禁用 CGO 意味着：不能使用 libdrm/libgbm/libevdev/libfreetype 的 cgo 封装。所有内核接口必须通过 `syscall` / `unix` 包的 ioctl 调用或纯 Go 重新实现访问。
@@ -236,10 +242,10 @@ debug → 无内部依赖（纯逻辑）
 
 | 扩展点 | 位置 | 方式 |
 |--------|------|------|
-| GBM 渲染后端 | `platform/drm/surface.go` | 新增 GBMSurface 实现 Surface |
+| GBM 渲染后端 | `platform/gbm/` | GBMProvider 接口由 cmd/vistty 组装注入 drm |
 | GPU 加速渲染 | `render/` | 新增 GPUCompositor |
 | 硬件光标 | `platform/drm/` | DRM Plane ioctl |
-| Atomic Modesetting | `platform/drm/internal/atomic.go` | 已预留文件 |
+| Atomic Modesetting | `platform/drm/atomic.go` | 已实现 ioctl 封装 |
 | 文本整形 | `font/shaper.go` | 集成 go-text/typesetting/harfbuzz |
 | Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理 |
 | 多终端/Tab | `terminal/` | Terminal 工厂+切换逻辑 |
@@ -312,7 +318,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ ptyReadLoop 长周期化（单 goroutine 直接 Read→FeedInto→seqCh，消除每帧临时 goroutine 分配；done+pty.Close 让 Read 返回 err 退出）
 - ✅ 渲染主线程化（Run() LockOSThread 绑定，eventLoop select 并入 main，wg.Add(3)；CGO=0 下保证渲染 goroutine 不被线程迁移）
 - ✅ 强制初始渲染（Run() 启动前 Render 一次，确保 Wayland surface 被映射）
-- ✅ VISTTY_DEBUG 环境变量调试日志（internal/debug 包：Debugf/Enabled/Configure 统一入口；init 从 VISTTY_DEBUG/VISTTY_DEBUG_FILE/VISTTY_DEBUG_STDERR 自动配置；支持同时输出 stderr+文件或仅文件；全量迁移 terminal/master/gpu/drm 各包 fmt.Fprintf(os.Stderr) 调用点）
+- ✅ VISTTY_DEBUG 环境变量调试日志（internal/debug 包：Debugf/Enabled/Configure 统一入口；init 从 VISTTY_DEBUG/VISTTY_DEBUG_FILE/VISTTY_DEBUG_STDERR 自动配置；支持同时输出 stderr+文件或仅文件；全量迁移 terminal/session/gpu/drm 各包 fmt.Fprintf(os.Stderr) 调用点）
 - ✅ 自动后端探测（DRM优先轻量探测 → 回退Wayland，-backend auto 默认）
 - ✅ 内置 Sarasa Fixed SC 字体（子集化 6.7MB，等宽+CJK，无需系统字体）
 - ✅ 按键长按支持（terminal 层 delay timer + rate ticker，DRM 过滤内核 autorepeat）
@@ -335,24 +341,26 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ 性能评估基础设施（internal/perf/replay 三级归因 benchmark L1/L2/L3 + cmd/vistty pprof 集成 -cpuprofile/-memprofile/-trace/-mutexprofile/-fps/-record）
 - ✅ 9 项性能优化（parser 预分配 -99.6% allocs / fillRect uint32 / history 所有权移交 / blendGlyph >>8 / atlas 读路径去锁（初版仅注释，真正移除 RWMutex 见下条）/ copyAll 整块 / rune_width ASCII 快路径 / InsertLines 批量化 / swapBR uint32）
 - ✅ 内存分配热点消除（Sequence.Params []int→[16]int+NParams 内嵌数组，删除 copyInts 堆分配，CSI allocs -99.7%；ParseSGR 预分配 cap=8；Parser.seqs 预分配 cap=256 消除 growslice，L1 解析提速 1.3-1.8x）
-- ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；master mirror/independent Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
+- ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；session mirror/independent Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
 - ✅ Atlas RWMutex 真正移除（atlas.go 删除 mu 字段及所有 Lock/RLock；getGlyph→Get/Put 全在渲染主线程无并发；消除 atomic.Add 5.43% + RLock 3.49% = 8.92% CPU）
 - ✅ GBM cpuBuf 中间拷贝消除（Surface 接口新增 DirectRender() bool；GBM/Wayland 直接渲染到 Surface.Data() 跳过 copyAllToSurface，dumb buffer 保留 backBuf+copyAll 因 mmap 设备内存逐像素写极慢；GBMSurface 构造时 ensureCPUBuf；GBM memmove 2.05s→0.26s -87%，帧时间 43ms→33ms -23%）
 - ✅ GPU Glyph Atlas + Instanced Draw（P2 完成）：EGL ES3 context + GLES 3.0 函数加载（glDrawArraysInstanced/VertexAttribDivisor/BufferSubData）；platform.GPURenderer 接口（UploadGlyph+DrawInstances）；GBMSurface 2048×2048 R8 atlas 纹理 shelf packing 按需上传 + 满时重置；Compositor.renderGPU 构建 CellInstance buffer + instanced draw shader（GLES 3.00 vertex/fragment alpha 混合 + underline/crossedOut/italic 属性）；Swap flip 同步修复（提交前等上次 flip 避免 EBUSY）；blendGlyph/fillRect 53%→0% 消除，CPU 44%→29% -34%，帧时间 33ms→16ms -52%，736+帧稳定 60fps
 - ✅ GBM 字形不显示 bug 修复（v_inGlyph 顶点插值缺陷）：原 shader 将 `v_inGlyph = step(glyphCoord)` 作为 varying 在 vertex shader 计算后插值；step() 非线性，当字形严格在 cell 内部（GlyphOffY>0 且 GlyphOffY+GlyphH<CellH，即真实字形常态）时 4 个 quad 顶点的 glyphCoord.y 均落在 [0,1] 之外（顶<0/底>1），4 角 v_inGlyph=0，插值后全片段仍为 0 → 字形永不采样 → 背景正常但字形不可见（精确匹配用户报告）。修复：glyphCoord 改为 varying 传到 fragment，step() 逐片段计算。附带修复：UploadGlyph 的 TexSubImage2D glErr 静默吞错改为 return false；packGlyph 纯函数提取（shelf packing+UV 可单测）；compositor GlyphOffX 默认值 metrics.Width→0。新增 L0-L4 五级测试体系（font 位图/packGlyph 纯函数/shader 契约+CellInstance offset 断言/fake GPURenderer instance 构建/GBM render node 离屏 GL 集成 + glReadPixels 像素验证），gbm_surface_gl_test.go 用 surfaceless→GBM 平台 + sync.Once 共享 EGL env
 - ✅ GBM 空字符底部多渲染矩形修复（shader UV 退化门控）：GPU 路径空字符（Rune==0）仍生成 CellInstance，默认 GlyphOffY=Ascent、GlyphH=metrics.Height、UV=(0,0,0,0)；shader glyphCoord.y∈[0,1] 落在 cell 底部条带（quadPos.y∈[0.75,1.0]）使 inGlyph=1，用 UV=(0,0) 采样 atlas (0,0) 残留非透明纹素 → 每个空字符 cell 底部多出前景色矩形条（CPU 路径 Rune==0 跳过 blendGlyph 故无此问题）。修复：vertex shader 新增 v_hasGlyph varying = sign(max(u1-u0,0))*sign(max(v1-v0,0))（UV 退化即 u0>=u1||v0>=v1 时为 0），fragment 字形采样条件改为 `inGlyph>0.5 && v_hasGlyph>0.5`，空字符不再采样 atlas。零 Go 代码/测试改动，复用 TestRenderGPUEmptyRuneNoUpload 已断言的空字符 UV=0 契约；L2 fake GPURenderer 不执行真实 shader 故此前未捕获
-- ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；master 协调层枚举输出+焦点路由+渲染编排；slave 输出绑定+terms[]预留tabs）
+- ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；session 协调层枚举输出+焦点路由+渲染编排；Slave 输出绑定+terms[]预留tabs；slave 包已合并入 session）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
-- ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 master 集中渲染裁剪分发，独立每 slave 自持 compositor 串行渲染）
+- ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 Master 集中渲染裁剪分发，独立每 Slave 自持 compositor 串行渲染）
 - ✅ 主屏选择参数（-primary <名称|索引>，按 connector name 如 HDMI-A-1 或数字索引匹配）
 - ✅ 显示设备列表（-list-outputs：枚举所有输出并打印索引/名称/分辨率/ID 后退出）
 - ✅ Mod 键焦点路由（independent 模式 Mod+1..9 切焦点屏 / Mod+Tab 轮转；setFocus 投递 renderReqCh 主线程渲染避免并发）
 - ✅ 右 Win 键支持（keymap.go 补 126:ModSuper，DRM 路径左右 Win 均识别）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
-- ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
 - ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）
 - ✅ GBMSurface + AtomicCommitor（GBMDevice 共享 gbm_device+EGLDisplay+EGLContext；GBMSurface 异步 Mailbox 提交：Swap→eglSwapBuffers→lock_front_buffer→AddFB→IDLE直接commit/PENDING投mailbox；onFlipComplete释放releaseBO→committed→releaseBO→commit mailbox帧；pendingFrame三槽位(releaseBO/committed/mailbox)管理BO生命周期；commitMu保护并发；帧丢弃语义：PENDING时新帧替换mailbox旧帧）
 - ✅ GBM 可选初始化与回退（backend.go：HasAtomic→NewGBMDevice 成功 useGBM=true，失败静默回退 dumb buffer；eventLoop 按 ev.CrtcID 路由 GBM surfaces）
+- ✅ DRM internal 子包提升（drm/internal → drm：ioctl/codes/types/device/master/mode/dumb/flip/mmap/event/atomic/property/plane/cap 全部提升至 drm 包，消除 internal 间接层；drm 后端代码直接引用同包函数，不再 import drminternal）
+- ✅ GBM 包从 drm 分离独立（drm/gbm_device.go + drm/gbm_surface.go + drm/atomic_commit.go + drm/internal/gbm/gbm.go → platform/gbm/；新增 GBMProvider 接口（platform/gpu.go）解耦 drm↔gbm 双向依赖；cmd/vistty 组装注入 gbmDev→drmBackend.SetGBMProvider；drm backend 不再 import gbm 包）
+- ✅ master/slave 包合并入 session（master/master.go + master/render_loop.go + slave/slave.go → session/；New→NewMaster；slave.go 合并进 session 包；删除独立 master/ 和 slave/ 目录）
 - ✅ GBM GPU 渲染链路打通（GLES 纹理上传：Compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；GLSL shader 内嵌；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销）
 - ✅ DRM 属性枚举 bug 修复（GetProperty：预分配 values 缓冲区避免 EFAULT；GetObjectProperties：保留 CountProps 作缓冲区大小避免属性列表为空）
 - ✅ EGL config 兼容修复（EGL_ALPHA_SIZE 0→8 修复 EGL_BAD_MATCH；eglGetError 加载用于精确错误码）
@@ -362,7 +370,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - `font.newFaceFromParsed`（face.go 抽取）：复用已 Parse 对象构造 face，避免 NewOpenTypeFace 每次重新 Parse
 - `font.EmbeddedFontData()`（embedded.go）：暴露嵌入字体原始字节，供 FaceCache 共享单份拷贝
 - `Compositor.SetFace`（compositor.go）：替换 face + 重建 Atlas(8192) + 更新 metrics（旧 face 不 Close，归 FaceCache 管）
-- `Master.handleScale`（master/render_loop.go）：在主线程（渲染线程）执行（与 Render 同线程，无并发竞争）→ faceCache.Get → SetFace → 重算 cols/rows → Resize → SetPtySize → 立即 Render；镜像模式 master 全局 font，独立模式每 slave 独立 faceCache
+- `Master.handleScale`（session/render_loop.go）：在主线程（渲染线程）执行（与 Render 同线程，无并发竞争）→ faceCache.Get → SetFace → 重算 cols/rows → Resize → SetPtySize → 立即 Render；镜像模式 Master 全局 font，独立模式每 Slave 独立 faceCache
 - `scaleReqCh`（cap=1 非阻塞）：inputLoop 投递 → 主线程消费，rapid input 自动合并；select 含 `t.done` 防 goroutine 泄漏
 - 旧 `NewOpenTypeFace` API 保留（向后兼容，测试使用）
 
@@ -395,12 +403,12 @@ Wayland 后端实现细节：
 - ✅ 指定 TTY 绑定（-tty 参数：纯数字→/dev/ttyN、/dev/ 前缀原样；DRM 后端 setsid+TIOCSCTTY 设控制终端，Wayland 后端忽略并警告）
 - ✅ VT 管理容错降级（tty 获取失败不报错退出，打印警告并跳过 VT 管理；SSH 远程无控制终端场景仍能 DRM 渲染到物理屏，仅无 VT 切换信号）
 - ✅ GBM 绕过开关（-nogbm：跳过 GBM/EGL 初始化走 dumb buffer；DSI-1 输出 eglCreateWindowSurface 失败时可绕过，SSH 远程 -nogbm 实测 dumb buffer 链路打通：PTY→解析→渲染→SetCRTC 正常）
-- ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(master fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）
+- ✅ 退出死锁修复（SignalClose 新增 SIGKILL 子进程，打破 close(session fd) 不能唤醒阻塞 read(ptmx) 的循环依赖；ptyReadLoop 不再卡住 wg.Wait；DRMInput.Close 加 sync.Once 幂等防 panic；SSH 远程 timeout/SIGTERM 现能优雅退出）
 - ✅ GBM GPU 渲染链路打通（GLES 纹理上传：compositor backBuf → GBMSurface.cpuBuf → glTexSubImage2D → 全屏 quad glDrawArrays → eglSwapBuffers → GBM BO → AtomicCommit；新建 gles.go 加载 libGLESv2.so 37 函数；BGRA 扩展运行时检测，不支持时 shader 内 .bgra 采样零 CPU 开销；Intel i915 实测 hasBGRA=true 双屏 200+帧稳定）
 - ✅ DRM 属性枚举 bug 修复（GetProperty EFAULT：预分配 values 缓冲区避免 enum 属性首次 ioctl 写入 null 指针；GetObjectProperties CountProps=0 bug：保留首次调用的 count 作为缓冲区大小）
 - ✅ EGL config 兼容修复（EGL_ALPHA_SIZE 0→8 修复 EGL_BAD_MATCH；eglGetError 加载用于精确错误码；EGL_NATIVE_VISUAL_ID 查询匹配 GBM surface 格式）
 - ✅ GBM eglMakeCurrent 修复（Swap 前未调用 eglMakeCurrent 导致 eglSwapBuffers 失败；多屏共享 context 每帧切换 current surface）
-- ✅ GBM Data() nil panic 修复（compositor.copyAllToSurface + master.blitToSlave 添加 nil 检查跳过 CPU blit）
+- ✅ GBM Data() nil panic 修复（compositor.copyAllToSurface + session.blitToSlave 添加 nil 检查跳过 CPU blit）
 - ✅ 移除 go-wayland 依赖自研 wl.go 协议层（727 行纯 Go：conn 核心 + 15 个协议对象，零 CGO 零外部依赖；修复 wl_surface/wl_seat/keyboard/pointer/xdg_surface 全部 wire opcode；fd GC 回收修复用 unix.Socket 替代 net.DialUnix+File()；niri shm 格式枚举索引兼容）
 - ✅ 渲染热点优化（20s 实跑 pprof 归因：swapBR 逐像素循环 36.8%→0.3% 消除 + fillRect 逐 cell 改全屏清除 30.9%→18.7%；CPU 占用 35.89%→15.80% 降 56%；详见 optimize.md）
 - ✅ GBM Swap 异步 Mailbox 架构（原同步 flipCh 等待改为异步 Mailbox：删除 flipCh/currentBO/currentFB/currentStride+notifyFlip，新增 commitMu/mailbox/committed/releaseBO/flipPending/commitErr+onFlipComplete；修复首帧 modeset 跳过 flip 等待导致 EBUSY（modeset commit 带 AtomicFlagPageFlipEvent，内核会发 flip 事件）；onFlipComplete 锁内 commit mailbox 防竞态；closed 检查防 Close 并发；flipPending 命名避免与 atomic_commit.go 类型冲突；gbm_surface.go Swap/onFlipComplete/Close + backend.go eventLoop + gbm_device.go 构造）

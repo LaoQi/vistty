@@ -11,8 +11,9 @@ import (
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
+	"github.com/LaoQi/vistty/internal/platform/gbm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
-	"github.com/LaoQi/vistty/master"
+	"github.com/LaoQi/vistty/session"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -139,7 +140,17 @@ func run() error {
 	case "auto":
 		if drm.Probe() {
 			debug.Debugf("auto: DRM probe succeeded, using DRM backend\n")
-			backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
+			var drmBackend *drm.DRMBackend
+			drmBackend, err = drm.NewDRMBackend(resolvedTty)
+			if err == nil && !*noGBMFlag && drm.HasAtomic(drmBackend.FD()) {
+				gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
+				if gbmErr == nil {
+					drmBackend.SetGBMProvider(gbmDev)
+				} else {
+					debug.Warningf("GBM init failed: %v, fallback to dumb buffer\n", gbmErr)
+				}
+			}
+			backend = drmBackend
 		} else if wayland.Probe() {
 			debug.Debugf("auto: DRM probe failed, Wayland probe succeeded, using Wayland backend\n")
 			if resolvedTty != "" {
@@ -150,7 +161,17 @@ func run() error {
 			return fmt.Errorf("no suitable display backend found (tried DRM and Wayland)")
 		}
 	case "drm":
-		backend, err = drm.NewDRMBackend(resolvedTty, *noGBMFlag)
+		var drmBackend *drm.DRMBackend
+		drmBackend, err = drm.NewDRMBackend(resolvedTty)
+		if err == nil && !*noGBMFlag && drm.HasAtomic(drmBackend.FD()) {
+			gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
+			if gbmErr == nil {
+				drmBackend.SetGBMProvider(gbmDev)
+			} else {
+				debug.Warningf("GBM init failed: %v, fallback to dumb buffer\n", gbmErr)
+			}
+		}
+		backend = drmBackend
 	case "wayland":
 		if resolvedTty != "" {
 			debug.Warningf("-tty is ignored by wayland backend\n")
@@ -176,7 +197,7 @@ func run() error {
 		return nil
 	}
 
-	m, err := master.New(backend, opts)
+	m, err := session.NewMaster(backend, opts)
 	if err != nil {
 		return fmt.Errorf("failed to create master: %w", err)
 	}

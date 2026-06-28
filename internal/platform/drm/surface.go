@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
@@ -42,31 +41,31 @@ func newDRMSurface(fd int, width, height int, crtcID, connectorID uint32) (*DRMS
 	}
 
 	for i := 0; i < 2; i++ {
-		db, err := drminternal.CreateDumbBuffer(fd, uint32(width), uint32(height), 32)
+		db, err := CreateDumbBuffer(fd, uint32(width), uint32(height), 32)
 		if err != nil {
 			s.closeBufs(i)
 			return nil, fmt.Errorf("create dumb buffer %d: %w", i, err)
 		}
 
-		fbID, err := drminternal.AddFB(fd, uint16(width), uint16(height), 24, 32, db.Pitch, db.Handle)
+		fbID, err := AddFB(fd, uint16(width), uint16(height), 24, 32, db.Pitch, db.Handle)
 		if err != nil {
-			drminternal.DestroyDumbBuffer(fd, db.Handle)
+			DestroyDumbBuffer(fd, db.Handle)
 			s.closeBufs(i)
 			return nil, fmt.Errorf("addfb %d: %w", i, err)
 		}
 
-		offset, err := drminternal.MapDumbBuffer(fd, db.Handle)
+		offset, err := MapDumbBuffer(fd, db.Handle)
 		if err != nil {
-			drminternal.RmFB(fd, fbID)
-			drminternal.DestroyDumbBuffer(fd, db.Handle)
+			RmFB(fd, fbID)
+			DestroyDumbBuffer(fd, db.Handle)
 			s.closeBufs(i)
 			return nil, fmt.Errorf("map dumb buffer %d: %w", i, err)
 		}
 
-		data, err := drminternal.Mmap(fd, offset, db.Size)
+		data, err := Mmap(fd, offset, db.Size)
 		if err != nil {
-			drminternal.RmFB(fd, fbID)
-			drminternal.DestroyDumbBuffer(fd, db.Handle)
+			RmFB(fd, fbID)
+			DestroyDumbBuffer(fd, db.Handle)
 			s.closeBufs(i)
 			return nil, fmt.Errorf("mmap dumb buffer %d: %w", i, err)
 		}
@@ -110,7 +109,7 @@ func (s *DRMSurface) Swap() error {
 	s.mu.Unlock()
 
 	backIdx := s.current ^ 1
-	if err := drminternal.DoPageFlip(s.fd, s.crtcID, s.bufs[backIdx].fbID, drminternal.FlipEvent, 0); err != nil {
+	if err := DoPageFlip(s.fd, s.crtcID, s.bufs[backIdx].fbID, FlipEvent, 0); err != nil {
 		return fmt.Errorf("page flip: %w", err)
 	}
 	s.current = backIdx
@@ -144,15 +143,15 @@ func (s *DRMSurface) closeBufs(upTo int) {
 	for i := 0; i < upTo; i++ {
 		b := &s.bufs[i]
 		if b.fbID != 0 {
-			drminternal.RmFB(s.fd, b.fbID)
+			RmFB(s.fd, b.fbID)
 			b.fbID = 0
 		}
 		if b.data != nil {
-			drminternal.Munmap(b.data)
+			Munmap(b.data)
 			b.data = nil
 		}
 		if b.handle != 0 {
-			drminternal.DestroyDumbBuffer(s.fd, b.handle)
+			DestroyDumbBuffer(s.fd, b.handle)
 			b.handle = 0
 		}
 	}

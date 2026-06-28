@@ -1,4 +1,4 @@
-package master
+package session
 
 import (
 	"fmt"
@@ -11,7 +11,6 @@ import (
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/screen"
-	"github.com/LaoQi/vistty/slave"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -20,12 +19,12 @@ type scaleReq struct {
 }
 
 type Master struct {
-	backend         platform.Backend
-	opts            terminal.Options
-	outputs         []platform.Output
-	primaryIdx      int
-	slaves          []*slave.Slave
-	input           platform.InputSource
+	backend    platform.Backend
+	opts       terminal.Options
+	outputs    []platform.Output
+	primaryIdx int
+	slaves     []*Slave
+	input      platform.InputSource
 
 	face            font.Face
 	faceCache       *font.FaceCache
@@ -33,23 +32,23 @@ type Master struct {
 	fontData        []byte
 	initialFontSize float64
 
-	terms           []*terminal.Terminal
-	focusIdx        int
+	terms    []*terminal.Terminal
+	focusIdx int
 
-	scaleReqCh      chan scaleReq
-	renderReqCh     chan struct{}
-	fpsLogging      bool
-	frameInterval   time.Duration
-	dirty           bool
-	tickCount       uint64
+	scaleReqCh    chan scaleReq
+	renderReqCh   chan struct{}
+	fpsLogging    bool
+	frameInterval time.Duration
+	dirty         bool
+	tickCount     uint64
 
-	done            chan struct{}
-	closeOnce       sync.Once
-	wg              sync.WaitGroup
-	cleanupOnce     sync.Once
+	done        chan struct{}
+	closeOnce   sync.Once
+	wg          sync.WaitGroup
+	cleanupOnce sync.Once
 }
 
-func New(backend platform.Backend, opts terminal.Options) (*Master, error) {
+func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error) {
 	outputs, err := backend.ListOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("list outputs: %w", err)
@@ -89,7 +88,7 @@ func New(backend platform.Backend, opts terminal.Options) (*Master, error) {
 		fontData = font.EmbeddedFontData()
 	}
 
-	var slaves []*slave.Slave
+	var slaves []*Slave
 	for _, out := range outputs {
 		surf, err := backend.CreateSurfaceFor(out)
 		if err != nil {
@@ -98,7 +97,7 @@ func New(backend platform.Backend, opts terminal.Options) (*Master, error) {
 			}
 			return nil, fmt.Errorf("create surface for %s: %w", out.Name(), err)
 		}
-		slaves = append(slaves, slave.New(out, surf))
+		slaves = append(slaves, NewSlave(out, surf))
 	}
 
 	m := &Master{

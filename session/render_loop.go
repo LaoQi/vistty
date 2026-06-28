@@ -1,4 +1,4 @@
-package master
+package session
 
 import (
 	"fmt"
@@ -12,7 +12,6 @@ import (
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/vte"
-	"github.com/LaoQi/vistty/slave"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -233,7 +232,7 @@ func (m *Master) renderIndependent() error {
 	return nil
 }
 
-func (m *Master) blitToSlave(s *slave.Slave, src []byte, srcStride, srcW, srcH int) {
+func (m *Master) blitToSlave(s *Slave, src []byte, srcStride, srcW, srcH int) {
 	surf := s.Surface()
 	dst := surf.Data()
 	if dst == nil {

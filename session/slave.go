@@ -1,4 +1,4 @@
-package slave
+package session
 
 import (
 	"github.com/LaoQi/vistty/internal/font"
@@ -22,7 +22,7 @@ type Slave struct {
 	face       font.Face
 }
 
-func New(output platform.Output, surface platform.Surface) *Slave {
+func NewSlave(output platform.Output, surface platform.Surface) *Slave {
 	return &Slave{
 		output:    output,
 		surface:   surface,

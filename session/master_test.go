@@ -1,4 +1,4 @@
-package master
+package session
 
 import (
 	"testing"
@@ -16,9 +16,9 @@ type fakeOutput struct {
 
 func (o *fakeOutput) ID() uint32          { return o.id }
 func (o *fakeOutput) ConnectorID() uint32 { return o.id }
-func (o *fakeOutput) CrtcID() uint32       { return o.id }
-func (o *fakeOutput) Name() string         { return o.name }
-func (o *fakeOutput) Size() (int, int)     { return o.w, o.h }
+func (o *fakeOutput) CrtcID() uint32      { return o.id }
+func (o *fakeOutput) Name() string        { return o.name }
+func (o *fakeOutput) Size() (int, int)    { return o.w, o.h }
 
 type fakeSurface struct {
 	w, h    int
@@ -34,15 +34,15 @@ func newFakeSurface(w, h int) *fakeSurface {
 		resizeC: make(chan platform.ResizeEvent, 4),
 	}
 }
-func (s *fakeSurface) Size() (int, int)             { return s.w, s.h }
-func (s *fakeSurface) Data() []byte                 { return s.data }
-func (s *fakeSurface) Stride() int                  { return s.stride }
-func (s *fakeSurface) Swap() error                  { return nil }
-func (s *fakeSurface) Close() error                 { return nil }
+func (s *fakeSurface) Size() (int, int) { return s.w, s.h }
+func (s *fakeSurface) Data() []byte     { return s.data }
+func (s *fakeSurface) Stride() int      { return s.stride }
+func (s *fakeSurface) Swap() error      { return nil }
+func (s *fakeSurface) Close() error     { return nil }
 func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return s.resizeC
 }
-func (s *fakeSurface) OutputID() uint32 { return 0 }
+func (s *fakeSurface) OutputID() uint32   { return 0 }
 func (s *fakeSurface) DirectRender() bool { return true }
 
 type fakeInput struct {
@@ -56,9 +56,9 @@ func newFakeInput() *fakeInput {
 		mouseCh: make(chan platform.MouseEvent, 16),
 	}
 }
-func (i *fakeInput) KeyEvents() <-chan platform.KeyEvent   { return i.keyCh }
+func (i *fakeInput) KeyEvents() <-chan platform.KeyEvent     { return i.keyCh }
 func (i *fakeInput) MouseEvents() <-chan platform.MouseEvent { return i.mouseCh }
-func (i *fakeInput) Close() error                          { return nil }
+func (i *fakeInput) Close() error                            { return nil }
 
 type fakeBackend struct {
 	surface *fakeSurface
@@ -101,7 +101,7 @@ func TestMasterCloseIdempotent(t *testing.T) {
 	opts.Shell = "/bin/cat"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	m, err := New(b, opts)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestMasterPtyExit(t *testing.T) {
 	opts.Shell = "/bin/true"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	m, err := New(b, opts)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestMasterInputNoDeadlock(t *testing.T) {
 	opts.Shell = "/bin/cat"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	m, err := New(b, opts)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}

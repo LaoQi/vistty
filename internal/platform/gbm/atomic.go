@@ -1,11 +1,11 @@
-package drm
+package gbm
 
 import (
 	"fmt"
 	"sync"
 
 	"github.com/LaoQi/vistty/internal/debug"
-	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
+	"github.com/LaoQi/vistty/internal/platform/drm"
 )
 
 type planeProps struct {
@@ -31,18 +31,18 @@ type connProps struct {
 }
 
 type surfaceAtomicInfo struct {
-	crtcID     uint32
+	crtcID      uint32
 	connectorID uint32
-	planeID    uint32
-	width      uint32
-	height     uint32
+	planeID     uint32
+	width       uint32
+	height      uint32
 
 	cProps crtcProps
 	pProps planeProps
 	aConn  connProps
 
-	modeBlobID uint32
-	modesetDone bool
+	modeBlobID   uint32
+	modesetDone  bool
 }
 
 type pendingFlip struct {
@@ -52,9 +52,9 @@ type pendingFlip struct {
 }
 
 type AtomicCommitor struct {
-	fd     int
-	mu     sync.Mutex
-	infos  map[uint32]*surfaceAtomicInfo
+	fd      int
+	mu      sync.Mutex
+	infos   map[uint32]*surfaceAtomicInfo
 	pending map[uint32]*pendingFlip
 }
 
@@ -67,13 +67,13 @@ func NewAtomicCommitor(fd int) *AtomicCommitor {
 }
 
 func findPropID(fd int, objID, objType uint32, name string) (uint32, error) {
-	propIDs, _, err := drminternal.GetObjectProperties(fd, objID, objType)
+	propIDs, _, err := drm.GetObjectProperties(fd, objID, objType)
 	if err != nil {
 		return 0, fmt.Errorf("get properties for obj %d: %w", objID, err)
 	}
 
 	for _, pid := range propIDs {
-		prop, err := drminternal.GetProperty(fd, pid)
+		prop, err := drm.GetProperty(fd, pid)
 		if err != nil {
 			continue
 		}
@@ -85,7 +85,7 @@ func findPropID(fd int, objID, objType uint32, name string) (uint32, error) {
 }
 
 func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
-	res, err := drminternal.GetResources(c.fd)
+	res, err := drm.GetResources(c.fd)
 	if err != nil {
 		return 0, fmt.Errorf("get resources: %w", err)
 	}
@@ -103,13 +103,13 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 		return 0, fmt.Errorf("CRTC %d not found in resources", crtcID)
 	}
 
-	planeIDs, err := drminternal.GetPlaneResources(c.fd)
+	planeIDs, err := drm.GetPlaneResources(c.fd)
 	if err != nil {
 		return 0, fmt.Errorf("get plane resources: %w", err)
 	}
 
 	for _, pid := range planeIDs {
-		plane, err := drminternal.GetPlane(c.fd, pid)
+		plane, err := drm.GetPlane(c.fd, pid)
 		if err != nil {
 			continue
 		}
@@ -117,12 +117,12 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 			continue
 		}
 
-		propIDs, propValues, err := drminternal.GetObjectProperties(c.fd, pid, drminternal.ModeObjectPlane)
+		propIDs, propValues, err := drm.GetObjectProperties(c.fd, pid, drm.ModeObjectPlane)
 		if err != nil {
 			continue
 		}
 
-		typePropID, err := findPropID(c.fd, pid, drminternal.ModeObjectPlane, "type")
+		typePropID, err := findPropID(c.fd, pid, drm.ModeObjectPlane, "type")
 		if err != nil {
 			continue
 		}
@@ -130,7 +130,7 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 		for i, p := range propIDs {
 			if p == typePropID && i < len(propValues) {
 				debug.Debugf("findPrimaryPlane: plane %d type=%d for CRTC %d\n", pid, propValues[i], crtcID)
-				if propValues[i] == drminternal.PlaneTypePrimary {
+				if propValues[i] == drm.PlaneTypePrimary {
 					return pid, nil
 				}
 			}
@@ -140,7 +140,7 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 	return 0, fmt.Errorf("no primary plane found for CRTC %d", crtcID)
 }
 
-func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int, mode *drminternal.ModeInfoPublic) (*surfaceAtomicInfo, error) {
+func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int, mode *drm.ModeInfoPublic) (*surfaceAtomicInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -154,70 +154,70 @@ func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int,
 	}
 
 	info := &surfaceAtomicInfo{
-		crtcID:     crtcID,
+		crtcID:      crtcID,
 		connectorID: connectorID,
-		planeID:    planeID,
-		width:      uint32(width),
-		height:     uint32(height),
+		planeID:     planeID,
+		width:       uint32(width),
+		height:      uint32(height),
 	}
 
-	info.cProps.active, err = findPropID(c.fd, crtcID, drminternal.ModeObjectCRTC, "ACTIVE")
+	info.cProps.active, err = findPropID(c.fd, crtcID, drm.ModeObjectCRTC, "ACTIVE")
 	if err != nil {
 		return nil, err
 	}
-	info.cProps.modeID, err = findPropID(c.fd, crtcID, drminternal.ModeObjectCRTC, "MODE_ID")
-	if err != nil {
-		return nil, err
-	}
-
-	info.pProps.fbID, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "FB_ID")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.crtcID, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "CRTC_ID")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.srcX, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "SRC_X")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.srcY, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "SRC_Y")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.srcW, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "SRC_W")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.srcH, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "SRC_H")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.crtcX, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "CRTC_X")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.crtcY, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "CRTC_Y")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.crtcW, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "CRTC_W")
-	if err != nil {
-		return nil, err
-	}
-	info.pProps.crtcH, err = findPropID(c.fd, planeID, drminternal.ModeObjectPlane, "CRTC_H")
+	info.cProps.modeID, err = findPropID(c.fd, crtcID, drm.ModeObjectCRTC, "MODE_ID")
 	if err != nil {
 		return nil, err
 	}
 
-	info.aConn.crtcID, err = findPropID(c.fd, connectorID, drminternal.ModeObjectConnector, "CRTC_ID")
+	info.pProps.fbID, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "FB_ID")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.crtcID, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "CRTC_ID")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.srcX, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "SRC_X")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.srcY, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "SRC_Y")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.srcW, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "SRC_W")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.srcH, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "SRC_H")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.crtcX, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "CRTC_X")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.crtcY, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "CRTC_Y")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.crtcW, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "CRTC_W")
+	if err != nil {
+		return nil, err
+	}
+	info.pProps.crtcH, err = findPropID(c.fd, planeID, drm.ModeObjectPlane, "CRTC_H")
+	if err != nil {
+		return nil, err
+	}
+
+	info.aConn.crtcID, err = findPropID(c.fd, connectorID, drm.ModeObjectConnector, "CRTC_ID")
 	if err != nil {
 		return nil, err
 	}
 
 	if mode != nil {
-		blobID, err := drminternal.CreateModeBlob(c.fd, mode)
+		blobID, err := drm.CreateModeBlob(c.fd, mode)
 		if err != nil {
 			return nil, fmt.Errorf("create mode blob: %w", err)
 		}
@@ -228,10 +228,10 @@ func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int,
 	return info, nil
 }
 
-func (c *AtomicCommitor) buildPlaneObject(info *surfaceAtomicInfo, fbID uint32) drminternal.AtomicObject {
-	return drminternal.AtomicObject{
+func (c *AtomicCommitor) buildPlaneObject(info *surfaceAtomicInfo, fbID uint32) drm.AtomicObject {
+	return drm.AtomicObject{
 		ID: info.planeID,
-		Props: []drminternal.AtomicProp{
+		Props: []drm.AtomicProp{
 			{ID: info.pProps.fbID, Value: uint64(fbID)},
 			{ID: info.pProps.crtcID, Value: uint64(info.crtcID)},
 			{ID: info.pProps.srcX, Value: 0},
@@ -246,26 +246,26 @@ func (c *AtomicCommitor) buildPlaneObject(info *surfaceAtomicInfo, fbID uint32) 
 	}
 }
 
-func (c *AtomicCommitor) buildCrtcObject(info *surfaceAtomicInfo) drminternal.AtomicObject {
-	props := []drminternal.AtomicProp{
+func (c *AtomicCommitor) buildCrtcObject(info *surfaceAtomicInfo) drm.AtomicObject {
+	props := []drm.AtomicProp{
 		{ID: info.cProps.active, Value: 1},
 	}
 	if info.modeBlobID != 0 {
-		props = append(props, drminternal.AtomicProp{
+		props = append(props, drm.AtomicProp{
 			ID:    info.cProps.modeID,
 			Value: uint64(info.modeBlobID),
 		})
 	}
-	return drminternal.AtomicObject{
+	return drm.AtomicObject{
 		ID:    info.crtcID,
 		Props: props,
 	}
 }
 
-func (c *AtomicCommitor) buildConnectorObject(info *surfaceAtomicInfo) drminternal.AtomicObject {
-	return drminternal.AtomicObject{
+func (c *AtomicCommitor) buildConnectorObject(info *surfaceAtomicInfo) drm.AtomicObject {
+	return drm.AtomicObject{
 		ID: info.connectorID,
-		Props: []drminternal.AtomicProp{
+		Props: []drm.AtomicProp{
 			{ID: info.aConn.crtcID, Value: uint64(info.crtcID)},
 		},
 	}
@@ -275,23 +275,23 @@ func (c *AtomicCommitor) CommitSingle(info *surfaceAtomicInfo, fbID uint32, mode
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var objects []drminternal.AtomicObject
+	var objects []drm.AtomicObject
 
 	if modeset || !info.modesetDone {
 		objects = append(objects, c.buildCrtcObject(info))
 		objects = append(objects, c.buildConnectorObject(info))
 		objects = append(objects, c.buildPlaneObject(info, fbID))
 
-		flags := drminternal.AtomicFlagPageFlipEvent | drminternal.AtomicFlagAllowModeset
-		if err := drminternal.AtomicCommit(c.fd, flags, objects, 0); err != nil {
+		flags := drm.AtomicFlagPageFlipEvent | drm.AtomicFlagAllowModeset
+		if err := drm.AtomicCommit(c.fd, flags, objects, 0); err != nil {
 			return fmt.Errorf("atomic modeset commit: %w", err)
 		}
 		info.modesetDone = true
 	} else {
 		objects = append(objects, c.buildPlaneObject(info, fbID))
 
-		flags := drminternal.AtomicFlagPageFlipEvent | drminternal.AtomicFlagNonBlock
-		if err := drminternal.AtomicCommit(c.fd, flags, objects, 0); err != nil {
+		flags := drm.AtomicFlagPageFlipEvent | drm.AtomicFlagNonBlock
+		if err := drm.AtomicCommit(c.fd, flags, objects, 0); err != nil {
 			return fmt.Errorf("atomic page flip: %w", err)
 		}
 	}
@@ -317,7 +317,7 @@ func (c *AtomicCommitor) Commit() error {
 		return nil
 	}
 
-	var objects []drminternal.AtomicObject
+	var objects []drm.AtomicObject
 	needsModeset := false
 
 	for _, pf := range c.pending {
@@ -329,12 +329,12 @@ func (c *AtomicCommitor) Commit() error {
 		objects = append(objects, c.buildPlaneObject(pf.info, pf.fbID))
 	}
 
-	flags := drminternal.AtomicFlagPageFlipEvent | drminternal.AtomicFlagNonBlock
+	flags := drm.AtomicFlagPageFlipEvent | drm.AtomicFlagNonBlock
 	if needsModeset {
-		flags |= drminternal.AtomicFlagAllowModeset
+		flags |= drm.AtomicFlagAllowModeset
 	}
 
-	if err := drminternal.AtomicCommit(c.fd, flags, objects, 0); err != nil {
+	if err := drm.AtomicCommit(c.fd, flags, objects, 0); err != nil {
 		return fmt.Errorf("atomic commit: %w", err)
 	}
 
@@ -363,7 +363,7 @@ func (c *AtomicCommitor) Close() {
 	defer c.mu.Unlock()
 	for _, info := range c.infos {
 		if info.modeBlobID != 0 {
-			drminternal.DestroyBlob(c.fd, info.modeBlobID)
+			drm.DestroyBlob(c.fd, info.modeBlobID)
 			info.modeBlobID = 0
 		}
 	}

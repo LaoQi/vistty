@@ -3,7 +3,6 @@ package drm
 import (
 	"fmt"
 
-	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
@@ -36,8 +35,8 @@ var connectorTypeNames = map[uint32]string{
 type DisplayInfo struct {
 	connID    uint32
 	crtcID    uint32
-	mode      drminternal.ModeInfoPublic
-	savedCrtc *drminternal.CrtcResult
+	mode      ModeInfoPublic
+	savedCrtc *CrtcResult
 	name      string
 }
 
@@ -45,7 +44,8 @@ func (d *DisplayInfo) ID() uint32          { return d.connID }
 func (d *DisplayInfo) ConnectorID() uint32 { return d.connID }
 func (d *DisplayInfo) CrtcID() uint32       { return d.crtcID }
 func (d *DisplayInfo) Name() string        { return d.name }
-func (d *DisplayInfo) Size() (int, int)    { return int(d.mode.HDisplay), int(d.mode.VDisplay) }
+func (d *DisplayInfo) Size() (int, int)        { return int(d.mode.HDisplay), int(d.mode.VDisplay) }
+func (d *DisplayInfo) ModeInfo() ModeInfoPublic { return d.mode }
 
 var _ platform.Output = (*DisplayInfo)(nil)
 
@@ -58,7 +58,7 @@ func connectorName(connType, typeID uint32) string {
 }
 
 func findOutputs(fd int) ([]*DisplayInfo, error) {
-	res, err := drminternal.GetResources(fd)
+	res, err := GetResources(fd)
 	if err != nil {
 		return nil, fmt.Errorf("get resources: %w", err)
 	}
@@ -66,18 +66,18 @@ func findOutputs(fd int) ([]*DisplayInfo, error) {
 	var outputs []*DisplayInfo
 
 	for _, connID := range res.ConnectorIDs {
-		conn, err := drminternal.GetConnector(fd, connID)
+		conn, err := GetConnector(fd, connID)
 		if err != nil {
 			continue
 		}
-		if conn.Connection != uint32(drminternal.Connected) {
+		if conn.Connection != uint32(Connected) {
 			continue
 		}
 		if len(conn.Modes) == 0 {
 			continue
 		}
 
-		enc, err := drminternal.GetEncoder(fd, conn.EncoderID)
+		enc, err := GetEncoder(fd, conn.EncoderID)
 		if err != nil {
 			continue
 		}
@@ -95,7 +95,7 @@ func findOutputs(fd int) ([]*DisplayInfo, error) {
 			continue
 		}
 
-		savedCrtc, err := drminternal.GetCrtc(fd, crtcID)
+		savedCrtc, err := GetCrtc(fd, crtcID)
 		if err != nil {
 			continue
 		}

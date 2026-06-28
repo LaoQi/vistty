@@ -1,17 +1,18 @@
-package drm
+package gbm
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/LaoQi/vistty/internal/debug"
-	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
-	"github.com/LaoQi/vistty/internal/platform/drm/internal/gbm"
+	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/gl"
 )
 
 type GBMDevice struct {
 	fd             int
-	gbmLoader      *gbm.GBMLoader
+	gbmLoader      *GBMLoader
 	eglLoader      *gl.EGLLoader
 	glesLoader     *gl.GLESLoader
 	gbmDev         uintptr
@@ -19,17 +20,21 @@ type GBMDevice struct {
 	eglContext     uintptr
 	eglConfig      uintptr
 	nativeVisualID uint32
+
+	commitor *AtomicCommitor
+	surfaces map[uint32]*GBMSurface
+	mu       sync.Mutex
 }
 
 func NewGBMDevice(fd int) (*GBMDevice, error) {
-	if err := drminternal.SetClientCap(fd, drminternal.DRM_CLIENT_CAP_ATOMIC, 1); err != nil {
+	if err := drm.SetClientCap(fd, drm.DRM_CLIENT_CAP_ATOMIC, 1); err != nil {
 		return nil, fmt.Errorf("set DRM_CLIENT_CAP_ATOMIC: %w", err)
 	}
-	if err := drminternal.SetClientCap(fd, drminternal.DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1); err != nil {
+	if err := drm.SetClientCap(fd, drm.DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1); err != nil {
 		return nil, fmt.Errorf("set DRM_CLIENT_CAP_UNIVERSAL_PLANES: %w", err)
 	}
 
-	gbmLoader, err := gbm.LoadGBM()
+	gbmLoader, err := LoadGBM()
 	if err != nil {
 		return nil, fmt.Errorf("load GBM: %w", err)
 	}
@@ -100,7 +105,6 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	)
 	eglContext := eglLoader.CreateContext(eglDisplay, eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs)
 	if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
-		// 回退 GLES 2.0
 		ctxAttribs2 := gl.EGLAttribList(
 			gl.EGL_CONTEXT_CLIENT_VERSION, 2,
 		)
@@ -131,20 +135,22 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		eglContext:     eglContext,
 		eglConfig:      eglConfig,
 		nativeVisualID: uint32(nativeVisual),
+		commitor:       NewAtomicCommitor(fd),
+		surfaces:       make(map[uint32]*GBMSurface),
 	}, nil
 }
 
-func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32, mode *drminternal.ModeInfoPublic, commitor *AtomicCommitor) (*GBMSurface, error) {
+func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32, mode *drm.ModeInfoPublic) (*GBMSurface, error) {
 	gbmFormat := d.nativeVisualID
 	if gbmFormat == 0 {
-		gbmFormat = gbm.GBM_FORMAT_XRGB8888
+		gbmFormat = GBM_FORMAT_XRGB8888
 	}
 
 	gbmSurface := d.gbmLoader.SurfaceCreate(
 		d.gbmDev,
 		uint32(width), uint32(height),
 		gbmFormat,
-		gbm.GBM_BO_USE_SCANOUT|gbm.GBM_BO_USE_RENDERING,
+		GBM_BO_USE_SCANOUT|GBM_BO_USE_RENDERING,
 	)
 	if gbmSurface == 0 {
 		errCode := d.eglLoader.GetError()
@@ -160,7 +166,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 	}
 	debug.Debugf("GBM: eglCreateWindowSurface succeeded\n")
 
-	info, err := commitor.Register(crtcID, connectorID, width, height, mode)
+	info, err := d.commitor.Register(crtcID, connectorID, width, height, mode)
 	if err != nil {
 		d.eglLoader.DestroySurface(d.eglDisplay, eglSurface)
 		d.gbmLoader.SurfaceDestroy(gbmSurface)
@@ -169,7 +175,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 
 	s := &GBMSurface{
 		device:      d,
-		commitor:    commitor,
+		commitor:    d.commitor,
 		info:        info,
 		gbmSurface:  gbmSurface,
 		eglSurface:  eglSurface,
@@ -182,10 +188,26 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 	}
 	s.ensureCPUBuf()
 
+	d.mu.Lock()
+	d.surfaces[crtcID] = s
+	d.mu.Unlock()
+
 	return s, nil
 }
 
 func (d *GBMDevice) Close() {
+	d.mu.Lock()
+	for _, s := range d.surfaces {
+		s.Close()
+	}
+	d.surfaces = nil
+	d.mu.Unlock()
+
+	if d.commitor != nil {
+		d.commitor.Close()
+		d.commitor = nil
+	}
+
 	if d.eglContext != 0 {
 		d.eglLoader.DestroyContext(d.eglDisplay, d.eglContext)
 		d.eglContext = 0
@@ -200,20 +222,48 @@ func (d *GBMDevice) Close() {
 	}
 }
 
-func (d *GBMDevice) GBMLoader() *gbm.GBMLoader  { return d.gbmLoader }
-func (d *GBMDevice) EGLLoader() *gl.EGLLoader  { return d.eglLoader }
+func (d *GBMDevice) GBMLoader() *GBMLoader  { return d.gbmLoader }
+func (d *GBMDevice) EGLLoader() *gl.EGLLoader { return d.eglLoader }
 func (d *GBMDevice) GLESLoader() *gl.GLESLoader { return d.glesLoader }
-func (d *GBMDevice) EGLDisplay() uintptr         { return d.eglDisplay }
-func (d *GBMDevice) EGLContext() uintptr          { return d.eglContext }
-func (d *GBMDevice) FD() int                      { return d.fd }
+func (d *GBMDevice) EGLDisplay() uintptr       { return d.eglDisplay }
+func (d *GBMDevice) EGLContext() uintptr        { return d.eglContext }
+func (d *GBMDevice) FD() int                    { return d.fd }
+
+func (d *GBMDevice) CreateSurfaceForOutput(out platform.Output) (platform.Surface, error) {
+	di, ok := out.(*drm.DisplayInfo)
+	if !ok {
+		return nil, fmt.Errorf("unsupported output type: %T", out)
+	}
+	mode := di.ModeInfo()
+	width := int(mode.HDisplay)
+	height := int(mode.VDisplay)
+	return d.CreateSurface(width, height, di.CrtcID(), di.ConnectorID(), &mode)
+}
+
+func (d *GBMDevice) HandleFlipEvent(crtcID uint32) {
+	d.mu.Lock()
+	surf := d.surfaces[crtcID]
+	d.mu.Unlock()
+	if surf != nil {
+		surf.onFlipComplete()
+	}
+}
+
+func (d *GBMDevice) SetActive(active bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, s := range d.surfaces {
+		s.SetActive(active)
+	}
+}
 
 func visualName(format uint32) string {
 	switch format {
-	case gbm.GBM_FORMAT_XRGB8888:
+	case GBM_FORMAT_XRGB8888:
 		return "XRGB8888"
-	case gbm.GBM_FORMAT_ARGB8888:
+	case GBM_FORMAT_ARGB8888:
 		return "ARGB8888"
-	case gbm.GBM_FORMAT_XRGB2101010:
+	case GBM_FORMAT_XRGB2101010:
 		return "XRGB2101010"
 	default:
 		return fmt.Sprintf("0x%x", format)

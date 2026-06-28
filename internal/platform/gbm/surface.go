@@ -1,4 +1,4 @@
-package drm
+package gbm
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
-	drminternal "github.com/LaoQi/vistty/internal/platform/drm/internal"
+	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/gl"
 	"github.com/LaoQi/vistty/internal/platform/gpu"
 )
@@ -204,7 +204,6 @@ func (s *GBMSurface) initGL() error {
 
 	s.glInitDone = true
 
-	// 尝试初始化 GPU instanced draw
 	if gles.HasInstancedDraw() {
 		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.device.eglContext, s.width, s.height)
 		if err := s.gpu.Init(); err != nil {
@@ -216,7 +215,6 @@ func (s *GBMSurface) initGL() error {
 	return nil
 }
 
-// UploadGlyph implements platform.GPURenderer
 func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	if s.gpu == nil {
 		return 0, 0, 0, 0, false
@@ -224,7 +222,6 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 	return s.gpu.UploadGlyph(r, bitmap, w, h)
 }
 
-// DrawInstances implements platform.GPURenderer
 func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	if s.gpu == nil {
 		return nil
@@ -236,7 +233,6 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	return nil
 }
 
-// BeginFrame implements platform.GPURenderer
 func (s *GBMSurface) BeginFrame() error {
 	if s.gpu == nil {
 		return nil
@@ -244,7 +240,6 @@ func (s *GBMSurface) BeginFrame() error {
 	return s.gpu.BeginFrame()
 }
 
-// ResetAtlas implements platform.GPURenderer
 func (s *GBMSurface) ResetAtlas() {
 	if s.gpu == nil {
 		return
@@ -330,7 +325,7 @@ func (s *GBMSurface) Swap() error {
 	handle := s.device.gbmLoader.BOGetHandle(bo)
 	stride := s.device.gbmLoader.BOGetStride(bo)
 
-	fbID, err := drminternal.AddFB(
+	fbID, err := drm.AddFB(
 		s.device.fd,
 		uint16(s.width), uint16(s.height),
 		24, 32,
@@ -352,7 +347,7 @@ func (s *GBMSurface) Swap() error {
 	s.commitMu.Lock()
 	if s.flipPending {
 		if old := s.mailbox; old != nil {
-			drminternal.RmFB(s.device.fd, old.fbID)
+			drm.RmFB(s.device.fd, old.fbID)
 			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, old.bo)
 		}
 		s.mailbox = frame
@@ -360,7 +355,7 @@ func (s *GBMSurface) Swap() error {
 	} else {
 		s.commitMu.Unlock()
 		if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
-			drminternal.RmFB(s.device.fd, fbID)
+			drm.RmFB(s.device.fd, fbID)
 			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
 			return fmt.Errorf("atomic commit: %w", err)
 		}
@@ -381,7 +376,7 @@ func (s *GBMSurface) onFlipComplete() {
 	}
 
 	if s.releaseBO != nil {
-		drminternal.RmFB(s.device.fd, s.releaseBO.fbID)
+		drm.RmFB(s.device.fd, s.releaseBO.fbID)
 		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, s.releaseBO.bo)
 		s.releaseBO = nil
 	}
@@ -395,7 +390,7 @@ func (s *GBMSurface) onFlipComplete() {
 		s.mailbox = nil
 		modeset := !s.info.modesetDone
 		if err := s.commitor.CommitSingle(s.info, frame.fbID, modeset); err != nil {
-			drminternal.RmFB(s.device.fd, frame.fbID)
+			drm.RmFB(s.device.fd, frame.fbID)
 			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
 			select {
 			case s.commitErr <- fmt.Errorf("atomic commit: %w", err):
@@ -430,7 +425,7 @@ func (s *GBMSurface) Close() error {
 	for _, frame := range []*pendingFrame{s.mailbox, s.committed, s.releaseBO} {
 		if frame != nil {
 			if frame.fbID != 0 {
-				drminternal.RmFB(s.device.fd, frame.fbID)
+				drm.RmFB(s.device.fd, frame.fbID)
 			}
 			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
 		}

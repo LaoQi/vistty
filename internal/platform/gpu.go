@@ -33,3 +33,12 @@ type GPURenderer interface {
 	// 使所有字形重新上传，避免命中旧字号字形的 UV。
 	ResetAtlas()
 }
+
+// GBMProvider 是 DRM 后端可选注入的 GBM GPU 渲染能力。
+// drm 包不 import gbm 包，通过此接口解耦。
+type GBMProvider interface {
+	CreateSurfaceForOutput(out Output) (Surface, error)
+	HandleFlipEvent(crtcID uint32)
+	SetActive(active bool)
+	Close()
+}
