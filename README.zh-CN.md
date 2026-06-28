@@ -14,7 +14,7 @@ Wayland 显示服务器，定位类似
   `drm-gbm` → `drm` → `wayland` 顺序尝试。
 - Wayland 窗口后端：自研纯 Go Wayland wire 协议层（无外部 Wayland 绑定），通过
   `wl_shm` 共享内存提交帧。
-- 多屏支持：枚举所有已连接的 connector；支持镜像/独立两种显示模式；可按名称或
+- 多屏支持：枚举所有已连接的 connector；每输出独立显示模式；可按名称或
   索引选择主屏。
 - 内置字体：Sarasa Fixed SC 子集（等宽 + CJK），经
   `golang.org/x/image/font/opentype` 光栅化并配合 glyph atlas 缓存；支持实时
@@ -65,7 +65,6 @@ go run ./cmd/vistty -backend drm -tty 2
 | `-shell`        | 运行的 shell（默认 `/bin/bash`）                              |
 | `-font`         | 外部字体文件路径（为空时用内置字体）                          |
 | `-fontsize`     | 字号，单位像素（默认 14）                                     |
-| `-mode`         | `mirror` 或 `independent`（默认 `independent`）              |
 | `-primary`      | 按 connector 名称（如 `HDMI-A-1`）或索引选择主屏             |
 | `-tty`          | 绑定到指定 TTY，如 `2` 或 `/dev/tty2`（仅 DRM）               |
 | `-list-outputs` | 列出所有显示输出后退出                                        |
@@ -78,8 +77,8 @@ go run ./cmd/vistty -backend drm -tty 2
 ### 快捷键
 
 - Super + `=` / Super + `-` / Super + `0`：放大 / 缩小 / 重置字号
-- Super + `1..9`：切换焦点到第 N 块屏（独立模式）
-- Super + Tab：在多屏间轮转焦点（独立模式）
+- Super + `1..9`：切换焦点到第 N 块屏
+- Super + Tab：在多屏间轮转焦点
 
 ## 底层支持
 

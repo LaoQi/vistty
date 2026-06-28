@@ -30,7 +30,6 @@ func run() error {
 	fontFlag := flag.String("font", "", "font file path")
 	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
 	primaryFlag := flag.String("primary", "", "primary output name or index")
-	modeFlag := flag.String("mode", "independent", "display mode: mirror or independent")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
@@ -79,9 +78,6 @@ func run() error {
 	if !explicit["primary"] {
 		*primaryFlag = cfg.Primary
 	}
-	if !explicit["mode"] && cfg.Mode != "" {
-		*modeFlag = cfg.Mode
-	}
 	if !explicit["record"] {
 		*recordPath = cfg.Record
 	}
@@ -108,7 +104,6 @@ func run() error {
 	opts.FontPath = *fontFlag
 	opts.FontSize = *fontSizeFlag
 	opts.Primary = *primaryFlag
-	opts.Mode = *modeFlag
 
 	if *recordPath != "" {
 		f, err := os.Create(*recordPath)

@@ -9,7 +9,6 @@ import (
 
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
-	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -26,9 +25,6 @@ type Master struct {
 	slaves     []*Slave
 	input      platform.InputSource
 
-	face            font.Face
-	faceCache       *font.FaceCache
-	compositor      *render.Compositor
 	fontData        []byte
 	initialFontSize float64
 
@@ -115,20 +111,11 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		done:            make(chan struct{}),
 	}
 
-	if opts.Mode == "independent" {
-		if err := m.initIndependent(); err != nil {
-			for _, s := range slaves {
-				s.Close()
-			}
-			return nil, err
+	if err := m.initIndependent(); err != nil {
+		for _, s := range slaves {
+			s.Close()
 		}
-	} else {
-		if err := m.initMirror(); err != nil {
-			for _, s := range slaves {
-				s.Close()
-			}
-			return nil, err
-		}
+		return nil, err
 	}
 
 	input, err := backend.CreateInputSource()
@@ -139,53 +126,6 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 	m.input = input
 
 	return m, nil
-}
-
-func (m *Master) initMirror() error {
-	faceCache, err := font.NewFaceCache(m.fontData, 72)
-	if err != nil {
-		return fmt.Errorf("load font: %w", err)
-	}
-
-	face, err := faceCache.Get(m.opts.FontSize)
-	if err != nil {
-		faceCache.Close()
-		return fmt.Errorf("get face: %w", err)
-	}
-
-	primarySurf := m.slaves[m.primaryIdx].Surface()
-	met := face.Metrics()
-	w, h := primarySurf.Size()
-	cols := w / met.Width
-	rows := 0
-	if met.Height > 0 {
-		rows = h / met.Height
-	}
-	if cols <= 0 {
-		cols = 80
-	}
-	if rows <= 0 {
-		rows = 24
-	}
-
-	term, err := terminal.New(m.opts, cols, rows)
-	if err != nil {
-		faceCache.Close()
-		return fmt.Errorf("create terminal: %w", err)
-	}
-	term.SetOnDefaultColor(func(fg, bg screen.Color) {
-		m.compositor.SetDefaultColors(fg, bg)
-	})
-
-	for _, s := range m.slaves {
-		s.BindTerminal(term)
-	}
-
-	m.face = face
-	m.faceCache = faceCache
-	m.compositor = render.NewCompositor(primarySurf, face)
-	m.terms = []*terminal.Terminal{term}
-	return nil
 }
 
 func (m *Master) initIndependent() error {
@@ -267,12 +207,6 @@ func (m *Master) cleanup() {
 	m.cleanupOnce.Do(func() {
 		for _, t := range m.terms {
 			t.Close()
-		}
-		if m.compositor != nil {
-			m.compositor.Close()
-		}
-		if m.faceCache != nil {
-			m.faceCache.Close()
 		}
 		for _, s := range m.slaves {
 			s.Close()

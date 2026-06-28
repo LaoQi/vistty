@@ -17,7 +17,6 @@ type Options struct {
 	OnDefaultColor func(fg, bg screen.Color)
 	RecordWriter   io.Writer
 	Primary        string
-	Mode           string
 }
 
 func DefaultOptions() Options {
@@ -27,6 +26,5 @@ func DefaultOptions() Options {
 		FontSize:    14,
 		RepeatDelay: 250 * time.Millisecond,
 		RepeatRate:  33 * time.Millisecond,
-		Mode:        "independent",
 	}
 }

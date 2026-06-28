@@ -33,7 +33,7 @@ cmd/vistty (入口，选择后端 + -mode/-primary 参数)
             ├── terminal (纯逻辑会话：PTY + screen + parser + CSI 执行)
             │       ├── vte (转义解析)
             │       └── screen (缓冲区)
-            ├── session.Slave (输出绑定：surface + backBuf + terms[] + active 预留)
+            ├── session.Slave (输出绑定：surface + compositor + terms[] + active 预留)
             └── render (合成+光标) → font (opentype + glyph cache)
                     └── 依赖 platform.Surface 接口
                             ├── platform/drm (DRM 直出，多 connector 多屏)
@@ -116,8 +116,8 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 | main | Run() LockOSThread 绑定，承载渲染主循环（seqCh/ticker.Render/resize/scale/eof），等 done/backend.Done() | 无差异 |
 | backend-loop | backend.Run() | DRM: 空操作; Wayland: dispatch 事件循环 |
 | pty-read | PTY stdout → Read 长循环 → FeedInto → seqCh | 无差异 |
-| seq-relay | 独立模式：Terminal.SeqCh() → unifiedSeqCh 中继 | 镜像模式无（直接读 focusTerm.SeqCh） |
-| exit-watch | 独立模式：Terminal.EofCh()/Done() → termExitCh 中继 | 镜像模式无（直接读 focusTerm.EofCh/Done） |
+| seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 | 无差异 |
+| exit-watch | Terminal.EofCh()/Done() → termExitCh 中继 | 无差异 |
 | input | InputSource 事件 → terminal | 无差异（接口统一） |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() | 无差异 |
 | drm-event | DRM fd 事件（Page Flip 完成） | 仅 DRM |
@@ -140,16 +140,16 @@ github.com/LaoQi/vistty/
 ├── README.md / README.zh-CN.md  # 项目说明（中英文，vibe 产品声明 + 功能/用法/底层支持）
 ├── LICENSE                       # GPLv2
 ├── work_docs/                    # 开发过程文档（optimize.md/progress.md/todos.md）
-├── cmd/vistty/main.go          # 入口：-mode/-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并
+├── cmd/vistty/main.go          # 入口：-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并
 ├── session/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + Slave 输出绑定
-│   ├── master.go               # Master 结构 + NewMaster(initMirror/initIndependent) + session池
+│   ├── master.go               # Master 结构 + NewMaster(initIndependent) + session池
 │   ├── slave.go                # Slave 结构 + InitIndependent + ActiveTerm/BindTerminal
-│   ├── render_loop.go           # 统一主循环（镜像裁剪分发/独立串行）+ handleKey + setFocus
+│   ├── render_loop.go           # 统一主循环（独立串行渲染）+ handleKey + setFocus
 │   └── master_test.go          # 集成测试（Close幂等/PTY退出/输入无死锁）
 ├── terminal/
 │   ├── terminal.go             # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control 执行
 │   ├── charset.go              # 字符集状态管理（G0/G1/GL + DEC line drawing 映射）
-│   ├── options.go              # Options + Primary/Mode + OnTitle/OnDefaultColor 回调 + RecordWriter
+│   ├── options.go              # Options + Primary + OnTitle/OnDefaultColor 回调 + RecordWriter
 │   ├── render_harness.go       # 导出桥接 API：NewRenderHarness/FeedBytes/RenderFrame（性能测量用）
 │   └── rune_width.go           # 宽度判断（ASCII 快路径 + x/text/width）
 ├── internal/
@@ -338,11 +338,11 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ glyph 位图缓存扩容（Atlas 4096 → 8192，减少 CJK 字符 LRU 淘汰）
 - ✅ deferred wrap 精细化（SGR/charset designate/DSR/DA 等纯属性命令不再重置 WrapPending，仅光标移动/擦除/滚动/换行命令重置；修复 nvim 行尾字符后发 SGR 导致下一字符覆盖而非换行）
 - ✅ 擦除区域保留当前 SGR 背景色（EL/ED/ECH/DCH/ICH/ScrollUp/ScrollDown 新行使用 curBg 填充而非 default 黑色，符合 xterm 规范）
-- ✅ OSC 10/11 默认前景/背景色查询+设置（OSCColorQuery 拆为 OSCFgColor/OSCBgColor；Query→回写 rgb:HHHH/HHHH/HHHH 16-bit；SET→parseColorSpec 解析 rgb:H/H/H..HHHH/HHHH/HHHH + #RGB/#RRGGBB→更新 defFg/defBg→OnDefaultColor 回调→compositor.SetDefaultColors 传播渲染层；fullReset 恢复默认色；master 镜像/独立模式 per-terminal 绑定回调；修复 nvim E1568）
+- ✅ OSC 10/11 默认前景/背景色查询+设置（OSCColorQuery 拆为 OSCFgColor/OSCBgColor；Query→回写 rgb:HHHH/HHHH/HHHH 16-bit；SET→parseColorSpec 解析 rgb:H/H/H..HHHH/HHHH/HHHH + #RGB/#RRGGBB→更新 defFg/defBg→OnDefaultColor 回调→compositor.SetDefaultColors 传播渲染层；fullReset 恢复默认色；per-terminal 绑定回调；修复 nvim E1568）
 - ✅ 性能评估基础设施（internal/perf/replay 三级归因 benchmark L1/L2/L3 + cmd/vistty pprof 集成 -cpuprofile/-memprofile/-trace/-mutexprofile/-fps/-record）
 - ✅ 9 项性能优化（parser 预分配 -99.6% allocs / fillRect uint32 / history 所有权移交 / blendGlyph >>8 / atlas 读路径去锁（初版仅注释，真正移除 RWMutex 见下条）/ copyAll 整块 / rune_width ASCII 快路径 / InsertLines 批量化 / swapBR uint32）
 - ✅ 内存分配热点消除（Sequence.Params []int→[16]int+NParams 内嵌数组，删除 copyInts 堆分配，CSI allocs -99.7%；ParseSGR 预分配 cap=8；Parser.seqs 预分配 cap=256 消除 growslice，L1 解析提速 1.3-1.8x）
-- ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；session mirror/independent Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
+- ✅ FeedAll 堆分配消除（新增 Parser.FeedInto(data,dst) 用 append(dst[:0],p.seqs...) 复用底层数组；terminal.seqPool sync.Pool cap=4096 + ReturnSeqPool 归还；session Apply 后归还；FeedAll 保留为 FeedInto(data,nil) 兼容测试；PTY→seqCh 运行期分配 156.77MB→0MB，持续分配 -94%）
 - ✅ Atlas RWMutex 真正移除（atlas.go 删除 mu 字段及所有 Lock/RLock；getGlyph→Get/Put 全在渲染主线程无并发；消除 atomic.Add 5.43% + RLock 3.49% = 8.92% CPU）
 - ✅ GBM cpuBuf 中间拷贝消除（Surface 接口新增 DirectRender() bool；GBM/Wayland 直接渲染到 Surface.Data() 跳过 copyAllToSurface，dumb buffer 保留 backBuf+copyAll 因 mmap 设备内存逐像素写极慢；GBMSurface 构造时 ensureCPUBuf；GBM memmove 2.05s→0.26s -87%，帧时间 43ms→33ms -23%）
 - ✅ GPU Glyph Atlas + Instanced Draw（P2 完成）：EGL ES3 context + GLES 3.0 函数加载（glDrawArraysInstanced/VertexAttribDivisor/BufferSubData）；platform.GPURenderer 接口（UploadGlyph+DrawInstances）；GBMSurface 2048×2048 R8 atlas 纹理 shelf packing 按需上传 + 满时重置；Compositor.renderGPU 构建 CellInstance buffer + instanced draw shader（GLES 3.00 vertex/fragment alpha 混合 + underline/crossedOut/italic 属性）；Swap flip 同步修复（提交前等上次 flip 避免 EBUSY）；blendGlyph/fillRect 53%→0% 消除，CPU 44%→29% -34%，帧时间 33ms→16ms -52%，736+帧稳定 60fps
@@ -350,10 +350,10 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ GBM 空字符底部多渲染矩形修复（shader UV 退化门控）：GPU 路径空字符（Rune==0）仍生成 CellInstance，默认 GlyphOffY=Ascent、GlyphH=metrics.Height、UV=(0,0,0,0)；shader glyphCoord.y∈[0,1] 落在 cell 底部条带（quadPos.y∈[0.75,1.0]）使 inGlyph=1，用 UV=(0,0) 采样 atlas (0,0) 残留非透明纹素 → 每个空字符 cell 底部多出前景色矩形条（CPU 路径 Rune==0 跳过 blendGlyph 故无此问题）。修复：vertex shader 新增 v_hasGlyph varying = sign(max(u1-u0,0))*sign(max(v1-v0,0))（UV 退化即 u0>=u1||v0>=v1 时为 0），fragment 字形采样条件改为 `inGlyph>0.5 && v_hasGlyph>0.5`，空字符不再采样 atlas。零 Go 代码/测试改动，复用 TestRenderGPUEmptyRuneNoUpload 已断言的空字符 UV=0 契约；L2 fake GPURenderer 不执行真实 shader 故此前未捕获
 - ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；session 协调层枚举输出+焦点路由+渲染编排；Slave 输出绑定+terms[]预留tabs；slave 包已合并入 session）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
-- ✅ 镜像/独立双模式（-mode mirror|independent，默认 independent；镜像 Master 集中渲染裁剪分发，独立每 Slave 自持 compositor 串行渲染）
+- ✅ 独立显示模式（每 Slave 自持 compositor 串行渲染；移除 mirror 模式及 -mode 参数）
 - ✅ 主屏选择参数（-primary <名称|索引>，按 connector name 如 HDMI-A-1 或数字索引匹配）
 - ✅ 显示设备列表（-list-outputs：枚举所有输出并打印索引/名称/分辨率/ID 后退出）
-- ✅ Mod 键焦点路由（independent 模式 Mod+1..9 切焦点屏 / Mod+Tab 轮转；setFocus 投递 renderReqCh 主线程渲染避免并发）
+- ✅ Mod 键焦点路由（Mod+1..9 切焦点屏 / Mod+Tab 轮转；setFocus 投递 renderReqCh 主线程渲染避免并发）
 - ✅ 右 Win 键支持（keymap.go 补 126:ModSuper，DRM 路径左右 Win 均识别）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
 - ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）
@@ -371,7 +371,7 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - `font.newFaceFromParsed`（face.go 抽取）：复用已 Parse 对象构造 face，避免 NewOpenTypeFace 每次重新 Parse
 - `font.EmbeddedFontData()`（embedded.go）：暴露嵌入字体原始字节，供 FaceCache 共享单份拷贝
 - `Compositor.SetFace`（compositor.go）：替换 face + 重建 Atlas(8192) + 更新 metrics（旧 face 不 Close，归 FaceCache 管）
-- `Master.handleScale`（session/render_loop.go）：在主线程（渲染线程）执行（与 Render 同线程，无并发竞争）→ faceCache.Get → SetFace → 重算 cols/rows → Resize → SetPtySize → 立即 Render；镜像模式 Master 全局 font，独立模式每 Slave 独立 faceCache
+- `Master.handleScale`（session/render_loop.go）：在主线程（渲染线程）执行（与 Render 同线程，无并发竞争）→ 焦点 Slave 的 faceCache.Get → SetFace → 重算 cols/rows → Resize → SetPtySize → 立即 Render
 - `scaleReqCh`（cap=1 非阻塞）：inputLoop 投递 → 主线程消费，rapid input 自动合并；select 含 `t.done` 防 goroutine 泄漏
 - 旧 `NewOpenTypeFace` API 保留（向后兼容，测试使用）
 
@@ -418,7 +418,7 @@ Wayland 后端实现细节：
 - ✅ dirty 跳帧 + 帧率预留 + 光标时间戳闪烁（Master 新增 frameInterval/dirty/tickCount 字段，New 默认 60fps，SetFrameRate 预留动态帧率；render_loop ticker 用 m.frameInterval；PTY Apply 后置 dirty=true，ticker case 检查 dirty||tickCount%15==0 才渲染（无数据时每 ~250ms 兜底渲染一次）；光标闪烁从 frameCount%30 改为 time.Since(lastBlink)>=500ms 时间戳驱动，与 frameCount 解耦，跳帧下仍正确闪烁；空闲 CPU 从 60fps 全量重绘降到 4fps 兜底）
 - ✅ error log 日志文件（debug 包扩展 Errorf/Warningf + ConfigureError + configureErrorLocked；默认开启写入 ~/.local/share/vistty/error.log（XDG_DATA_HOME 规范，HOME 不可用回退仅 stderr）；tee stderr+文件（VISTTY_ERROR_STDERR=0 关 stderr）；时间戳前缀 2006-01-02 15:04:05.000；-errorlog flag / VISTTY_ERROR_LOG env 覆盖路径；运行期错误 render error/PtyReadLoop error/SIGTERM timeout + 警告 vt manager 降级/GBM GPU fallback/-tty ignored + 顶层 fatal 从 Debugf/fmt.Fprintf 迁移至 Errorf/Warningf；路径创建失败回退仅 stderr 不 panic；O_APPEND 追加模式保留历史）
 
-- ✅ 配置文件支持（internal/config 包：Config 结构 + Load/Save/DefaultPath；-config flag 指定路径默认 ~/.config/vistty/config.jsonc（XDG_CONFIG_HOME 规范）；-gen-config 输出默认 JSONC 配置到 stdout（含字段注释，不写入文件）；配置优先级：命令行显式 flag > 配置文件 > 内置默认值，flag.Visit 检测显式设置未设置的字段才用配置文件值覆盖；文件不存在静默回退 Default 无错误；JSONC 解析支持 `//` 行注释和 `/* */` 块注释（stripComments 去注释后标准 json.Unmarshal）；字段含 backend/shell/font/fontsize/primary/mode/record/error_log（排除 profiling/list-outputs/tty/fps/repeat/repeat/width/height — tty/fps/repeat 保留 CLI flag 但不进配置文件，width/height 完全移除）；error_log 路径三层优先级 flag>config>env>默认；9 项测试覆盖默认值/不存在/往返/Generate 注释/JSONC 注释解析/XDG路径/损坏/部分字段）
+- ✅ 配置文件支持（internal/config 包：Config 结构 + Load/Save/DefaultPath；-config flag 指定路径默认 ~/.config/vistty/config.jsonc（XDG_CONFIG_HOME 规范）；-gen-config 输出默认 JSONC 配置到 stdout（含字段注释，不写入文件）；配置优先级：命令行显式 flag > 配置文件 > 内置默认值，flag.Visit 检测显式设置未设置的字段才用配置文件值覆盖；文件不存在静默回退 Default 无错误；JSONC 解析支持 `//` 行注释和 `/* */` 块注释（stripComments 去注释后标准 json.Unmarshal）；字段含 backend/shell/font/fontsize/primary/record/error_log（排除 profiling/list-outputs/tty/fps/repeat/width/height — tty/fps/repeat 保留 CLI flag 但不进配置文件，width/height 完全移除；mode 已移除）；error_log 路径三层优先级 flag>config>env>默认；9 项测试覆盖默认值/不存在/往返/Generate 注释/JSONC 注释解析/XDG路径/损坏/部分字段）
 - ✅ drm 模式启动 10 秒延迟修复（根因：DRMSurface.Swap() 的 waitForFlip() 5 秒超时被触发两次；首次 renderFrame() 在 backend.Run()（启动 eventLoop goroutine）之前执行，无 goroutine 读 DRM flip 完成事件调 notifyFlip()，flipCh 永远不填充 → 两次 waitForFlip 各等 5 秒超时；修复：将 backend.Run() 提前到首次 renderFrame() 之前，确保 eventLoop 在 Swap 时已运行）
 - ✅ DRMSurface Swap 双缓冲+flip 重试+幂等 Close（flipPending/done/closeOnce 字段从外部管理移入 DRMSurface；Swap 等上次 flip 完成再提交新帧；DoPageFlip 失败最多重试 5 次；Close sync.Once 幂等防 panic）
 - ✅ 渲染错误容错（renderFrame 错误不再立即退出，累计 maxRenderErrors=10 次连续错误才退出；成功渲染重置计数器）

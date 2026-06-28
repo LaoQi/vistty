@@ -15,8 +15,8 @@ desktop session.
   `drm-gbm` first, then `drm`, then `wayland`.
 - Wayland window backend: self-contained pure-Go Wayland wire protocol layer
   (no external Wayland bindings), using `wl_shm` for zero-CGLO shared memory.
-- Multi-monitor support: enumerates every connected connector; mirror or
-  independent display modes; primary output selection by name or index.
+- Multi-monitor support: enumerates every connected connector; independent
+  display mode per output; primary output selection by name or index.
 - Built-in font: Sarasa Fixed SC subset (monospace + CJK), rasterized via
   `golang.org/x/image/font/opentype` with a glyph atlas cache. Live font scaling
   (Super + `=` / `-` / `0`).
@@ -73,7 +73,6 @@ go run ./cmd/vistty -config ./my-config.jsonc
 | `-shell`        | shell to run (default `/bin/bash`)                               |
 | `-font`         | external font file path (built-in font used when empty)          |
 | `-fontsize`     | font size in pixels (default 14)                                  |
-| `-mode`         | `mirror` or `independent` (default `independent`)                |
 | `-primary`      | primary output by connector name (e.g. `HDMI-A-1`) or index      |
 | `-tty`          | bind to a TTY, e.g. `2` or `/dev/tty2` (DRM only)                 |
 | `-list-outputs` | list all display outputs and exit                                 |
@@ -89,8 +88,8 @@ go run ./cmd/vistty -config ./my-config.jsonc
 ### Keyboard shortcuts
 
 - Super + `=` / Super + `-` / Super + `0` : enlarge / shrink / reset font
-- Super + `1..9` : switch focus to output N (independent mode)
-- Super + Tab : cycle focus across outputs (independent mode)
+- Super + `1..9` : switch focus to output N
+- Super + Tab : cycle focus across outputs
 
 ## Underlying support
 

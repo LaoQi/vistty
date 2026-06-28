@@ -10,10 +10,6 @@ import (
 type Slave struct {
 	output     platform.Output
 	surface    platform.Surface
-	backBuf    []byte
-	backStride int
-	backWidth  int
-	backHeight int
 	terms      []*terminal.Terminal
 	activeIdx  int
 
@@ -47,21 +43,6 @@ func (s *Slave) Surface() platform.Surface {
 
 func (s *Slave) Output() platform.Output {
 	return s.output
-}
-
-func (s *Slave) EnsureBackBuf(width, height int) {
-	stride := width * 4
-	if s.backWidth == width && s.backHeight == height && s.backBuf != nil {
-		return
-	}
-	s.backBuf = make([]byte, stride*height)
-	s.backStride = stride
-	s.backWidth = width
-	s.backHeight = height
-}
-
-func (s *Slave) BackBuf() ([]byte, int, int) {
-	return s.backBuf, s.backStride, s.backWidth
 }
 
 func (s *Slave) InitIndependent(fontData []byte, fontSize float64) error {

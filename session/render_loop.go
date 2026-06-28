@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -52,46 +51,44 @@ func (m *Master) Run() error {
 
 	var unifiedSeqCh <-chan seqMsg
 	var termExitCh <-chan struct{}
-	if m.opts.Mode == "independent" {
-		usc := make(chan seqMsg, 16)
-		unifiedSeqCh = usc
-		m.wg.Add(len(m.terms))
-		for _, t := range m.terms {
-			go func(t *terminal.Terminal) {
-				defer m.wg.Done()
-				for {
+	usc := make(chan seqMsg, 16)
+	unifiedSeqCh = usc
+	m.wg.Add(len(m.terms))
+	for _, t := range m.terms {
+		go func(t *terminal.Terminal) {
+			defer m.wg.Done()
+			for {
+				select {
+				case seqs := <-t.SeqCh():
 					select {
-					case seqs := <-t.SeqCh():
-						select {
-						case usc <- seqMsg{term: t, seqs: seqs}:
-						case <-m.done:
-							return
-						}
+					case usc <- seqMsg{term: t, seqs: seqs}:
 					case <-m.done:
 						return
 					}
-				}
-			}(t)
-		}
-
-		tec := make(chan struct{}, 1)
-		termExitCh = tec
-		m.wg.Add(len(m.terms))
-		for _, t := range m.terms {
-			go func(t *terminal.Terminal) {
-				defer m.wg.Done()
-				select {
-				case <-t.EofCh():
-				case <-t.Done():
 				case <-m.done:
 					return
 				}
-				select {
-				case tec <- struct{}{}:
-				case <-m.done:
-				}
-			}(t)
-		}
+			}
+		}(t)
+	}
+
+	tec := make(chan struct{}, 1)
+	termExitCh = tec
+	m.wg.Add(len(m.terms))
+	for _, t := range m.terms {
+		go func(t *terminal.Terminal) {
+			defer m.wg.Done()
+			select {
+			case <-t.EofCh():
+			case <-t.Done():
+			case <-m.done:
+				return
+			}
+			select {
+			case tec <- struct{}{}:
+			case <-m.done:
+			}
+		}(t)
 	}
 
 	m.wg.Add(2)
@@ -102,23 +99,8 @@ func (m *Master) Run() error {
 	defer ticker.Stop()
 	resizeCh := m.slaves[m.primaryIdx].Surface().ResizeEvents()
 
-	var mirrorSeqCh <-chan []vte.Sequence
-	var mirrorEofCh, mirrorDoneCh <-chan struct{}
-	if m.opts.Mode != "independent" {
-		ft := m.focusTerm()
-		mirrorSeqCh = ft.SeqCh()
-		mirrorEofCh = ft.EofCh()
-		mirrorDoneCh = ft.Done()
-	}
-
 	for {
 		select {
-		case seqs := <-mirrorSeqCh:
-			if ft := m.focusTerm(); ft != nil {
-				ft.Apply(seqs)
-			}
-			terminal.ReturnSeqPool(seqs)
-			m.dirty = true
 		case msg := <-unifiedSeqCh:
 			msg.term.Apply(msg.seqs)
 			terminal.ReturnSeqPool(msg.seqs)
@@ -164,11 +146,6 @@ func (m *Master) Run() error {
 				renderErrCount = 0
 			}
 			m.dirty = false
-		case <-mirrorEofCh:
-			m.signalClose()
-			goto exit
-		case <-mirrorDoneCh:
-			goto exit
 		case <-termExitCh:
 			m.signalClose()
 			goto exit
@@ -195,35 +172,7 @@ exit:
 }
 
 func (m *Master) renderFrame() error {
-	if m.opts.Mode == "independent" {
-		return m.renderIndependent()
-	}
-	return m.renderMirror()
-}
-
-func (m *Master) renderMirror() error {
-	ft := m.focusTerm()
-	ft.RLock()
-	err := m.compositor.Render(ft.Screen(), ft.ScrollOffset())
-	ft.RUnlock()
-	if err != nil {
-		return err
-	}
-
-	if len(m.slaves) <= 1 {
-		return nil
-	}
-
-	srcBuf, srcStride, srcW, srcH := m.compositor.BackBuf()
-	primaryID := m.outputs[m.primaryIdx].ID()
-	for _, s := range m.slaves {
-		if s.Output().ID() == primaryID {
-			continue
-		}
-		m.blitToSlave(s, srcBuf, srcStride, srcW, srcH)
-		s.Surface().Swap()
-	}
-	return nil
+	return m.renderIndependent()
 }
 
 func (m *Master) renderIndependent() error {
@@ -245,54 +194,8 @@ func (m *Master) renderIndependent() error {
 	return nil
 }
 
-func (m *Master) blitToSlave(s *Slave, src []byte, srcStride, srcW, srcH int) {
-	surf := s.Surface()
-	dst := surf.Data()
-	if dst == nil {
-		return
-	}
-	dstStride := surf.Stride()
-	w, h := surf.Size()
-
-	fillBlack(dst, dstStride, w, h)
-
-	copyW := srcW
-	if w < copyW {
-		copyW = w
-	}
-	copyH := srcH
-	if h < copyH {
-		copyH = h
-	}
-
-	for y := 0; y < copyH; y++ {
-		srcOff := y * srcStride
-		dstOff := y * dstStride
-		copy(dst[dstOff:dstOff+copyW*4], src[srcOff:srcOff+copyW*4])
-	}
-}
-
 func (m *Master) handleResize(ev platform.ResizeEvent) {
-	if m.opts.Mode == "independent" {
-		m.handleResizeIndependent(ev)
-		return
-	}
-	metrics := m.face.Metrics()
-	cols := ev.Width / metrics.Width
-	rows := 0
-	if metrics.Height > 0 {
-		rows = ev.Height / metrics.Height
-	}
-	if cols <= 0 {
-		cols = 80
-	}
-	if rows <= 0 {
-		rows = 24
-	}
-	ft := m.focusTerm()
-	ft.Resize(cols, rows)
-	m.compositor.Resize(cols, rows)
-	ft.SetPtySize(rows, cols)
+	m.handleResizeIndependent(ev)
 }
 
 func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
@@ -327,60 +230,7 @@ func (m *Master) requestScale(delta int) {
 }
 
 func (m *Master) handleScale(req scaleReq) {
-	if m.opts.Mode == "independent" {
-		m.handleScaleIndependent(req)
-		return
-	}
-	const minSize, maxSize = 6.0, 72.0
-
-	newSize := m.opts.FontSize + float64(req.delta)
-	if req.delta == 0 {
-		newSize = m.initialFontSize
-	}
-	if newSize < minSize {
-		newSize = minSize
-	}
-	if newSize > maxSize {
-		newSize = maxSize
-	}
-	if newSize == m.opts.FontSize {
-		return
-	}
-
-	newFace, err := m.faceCache.Get(newSize)
-	if err != nil {
-		debug.Errorf("handleScale: face cache get failed: %v\n", err)
-		return
-	}
-
-	m.opts.FontSize = newSize
-	m.face = newFace
-	m.compositor.SetFace(newFace)
-
-	metrics := newFace.Metrics()
-	surf := m.slaves[m.primaryIdx].Surface()
-	w, h := surf.Size()
-	cols := w / metrics.Width
-	rows := 0
-	if metrics.Height > 0 {
-		rows = h / metrics.Height
-	}
-	if cols <= 0 {
-		cols = 80
-	}
-	if rows <= 0 {
-		rows = 24
-	}
-
-	ft := m.focusTerm()
-	ft.Resize(cols, rows)
-	m.compositor.Resize(cols, rows)
-	ft.SetPtySize(rows, cols)
-
-	if err := m.renderFrame(); err != nil {
-		debug.Errorf("handleScale: render error: %v\n", err)
-	}
-	m.dirty = false
+	m.handleScaleIndependent(req)
 }
 
 func (m *Master) handleScaleIndependent(req scaleReq) {
@@ -496,18 +346,16 @@ func (m *Master) handleKey(ev platform.KeyEvent) {
 			m.requestScale(0)
 			return
 		}
-		if m.opts.Mode == "independent" {
-			if ev.Code >= 2 && ev.Code <= 10 {
-				idx := int(ev.Code) - 2
-				if idx < len(m.slaves) {
-					m.setFocus(idx)
-				}
-				return
+		if ev.Code >= 2 && ev.Code <= 10 {
+			idx := int(ev.Code) - 2
+			if idx < len(m.slaves) {
+				m.setFocus(idx)
 			}
-			if ev.Code == 15 {
-				m.setFocus((m.focusIdx + 1) % len(m.slaves))
-				return
-			}
+			return
+		}
+		if ev.Code == 15 {
+			m.setFocus((m.focusIdx + 1) % len(m.slaves))
+			return
 		}
 	}
 	if ft := m.focusTerm(); ft != nil {
@@ -539,17 +387,5 @@ func (m *Master) signalLoop() {
 	case <-ch:
 		m.signalClose()
 	case <-m.done:
-	}
-}
-
-func fillBlack(data []byte, stride, w, h int) {
-	pixel := uint32(255) << 24
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			off := y*stride + x*4
-			if off+4 <= len(data) {
-				*(*uint32)(unsafe.Pointer(&data[off])) = pixel
-			}
-		}
 	}
 }

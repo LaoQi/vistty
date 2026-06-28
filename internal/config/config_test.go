@@ -18,9 +18,6 @@ func TestDefault(t *testing.T) {
 	if cfg.FontSize != 14 {
 		t.Errorf("FontSize = %v, want 14", cfg.FontSize)
 	}
-	if cfg.Mode != "independent" {
-		t.Errorf("Mode = %q, want %q", cfg.Mode, "independent")
-	}
 }
 
 func TestLoadNotFound(t *testing.T) {
@@ -70,7 +67,7 @@ func TestGenerateHasComments(t *testing.T) {
 	if !strings.Contains(out, "//") {
 		t.Error("Generate output should contain JSONC comments")
 	}
-	for _, field := range []string{"backend", "shell", "font", "fontsize", "primary", "mode", "record", "error_log"} {
+	for _, field := range []string{"backend", "shell", "font", "fontsize", "primary", "record", "error_log"} {
 		if !strings.Contains(out, `"`+field+`"`) {
 			t.Errorf("Generate output missing field %q", field)
 		}
@@ -170,8 +167,5 @@ func TestLoadPartial(t *testing.T) {
 	}
 	if cfg.Backend != "auto" {
 		t.Errorf("Backend = %q, want default 'auto'", cfg.Backend)
-	}
-	if cfg.Mode != "independent" {
-		t.Errorf("Mode = %q, want default 'independent'", cfg.Mode)
 	}
 }

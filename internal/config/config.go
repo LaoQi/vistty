@@ -13,7 +13,6 @@ type Config struct {
 	Font     string  `json:"font"`
 	FontSize float64 `json:"fontsize"`
 	Primary  string  `json:"primary"`
-	Mode     string  `json:"mode"`
 	Record   string  `json:"record"`
 	ErrorLog string  `json:"error_log"`
 }
@@ -25,7 +24,6 @@ func Default() Config {
 		Font:     "",
 		FontSize: 14,
 		Primary:  "",
-		Mode:     "independent",
 		Record:   "",
 		ErrorLog: "",
 	}
@@ -55,14 +53,12 @@ func (c Config) Generate() string {
   "fontsize": %g,
   // 主输出名称或索引 (如 "HDMI-A-1" 或 "0")
   "primary": %q,
-  // 显示模式: "mirror" | "independent"
-  "mode": %q,
   // 录制 PTY 输出到指定文件
   "record": %q,
   // 错误日志文件路径 (默认 ~/.local/share/vistty/error.log)
   "error_log": %q
 }
-`, c.Backend, c.Shell, c.Font, c.FontSize, c.Primary, c.Mode, c.Record, c.ErrorLog)
+`, c.Backend, c.Shell, c.Font, c.FontSize, c.Primary, c.Record, c.ErrorLog)
 }
 
 func stripComments(data []byte) []byte {

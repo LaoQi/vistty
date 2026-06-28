@@ -127,7 +127,7 @@ MEM（198.36MB，alloc_space）：
 
 - `vte/parser.go`：新增 `FeedInto(data, dst) []Sequence`，用 `append(dst[:0], p.seqs...)` 复用调用方提供的底层数组；`FeedAll` 保留为 `FeedInto(data, nil)` 兼容测试与同步路径
 - `terminal/terminal.go`：新增包级 `seqPool`（`sync.Pool`，`New` cap=4096）；`PtyReadLoop` 改为 `Get`→`FeedInto`→发 `seqCh`，主线程消费后经 `ReturnSeqPool` 归还
-- `session/render_loop.go`：mirror 与 independent 两路径 `Apply` 后调 `terminal.ReturnSeqPool(seqs)`
+- `session/render_loop.go`：Apply 后调 `terminal.ReturnSeqPool(seqs)`
 - **cap=4096 关键**：单次 4096 字节读取最多产生 ~3500 个 Sequence（每 ASCII 字符一个 ActionPrint），cap=256 会导致 `append` 反复 grow（实测残留 109.85MB）；cap=4096 后 `append(dst[:0],...)` 零分配
 
 #### P1：Atlas 去锁（atlas.go）
