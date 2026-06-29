@@ -165,9 +165,9 @@ github.com/LaoQi/vistty/
 │   ├── terminal.go              # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control
 │   ├── charset.go               # G0/G1/GL + DEC line drawing
 │   ├── options.go               # Options + OnTitle/OnDefaultColor 回调
-│   ├── render_harness.go        # 性能测量桥接 API
-│   └── rune_width.go            # ASCII 快路径 + x/text/width
+│   └── render_harness.go        # 性能测量桥接 API
 ├── internal/
+│   ├── runeutil/               # runeutil.go (RuneWidth/IsWide，ASCII 快路径 + x/text/width)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + ime.Registry 注入
@@ -199,17 +199,18 @@ cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
 ime → 无内部依赖（顶层包，InputMethod 接口 + Registry）
 ime/pinyin → ime（go:embed 词库）
-terminal → screen, vte, render, platform, debug
+terminal → screen, vte, render, platform, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
 plugins → terminal, platform, ui, ime, ime/pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置；registry 注入 pinyin）
 render → font, platform (Surface 接口)
-ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform
+ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform, runeutil
 platform/drm → platform (Surface/GBMProvider 接口), go-evdev, debug
 platform/gbm → platform (GBMProvider/Surface/Output), platform/gl, platform/gpu, debug
 platform/gpu → platform/gl, platform (CellInstance/GPURenderer), debug
 platform/gl → purego
 platform/wayland → 无外部依赖（自研 wl.go）
 screen, vte → 无内部依赖
+runeutil → 无内部依赖（golang.org/x/text/width）
 font → golang.org/x/image/font/opentype
 plugins → gopher-lua
 debug → 无内部依赖
@@ -283,7 +284,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 SSD 窗口装饰）
 - 自动后端探测（drm-gbm → drm → wayland）
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）
-- CJK 双宽字符 + scroll region 感知换行 + alternate screen + deferred wrap
+- CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择

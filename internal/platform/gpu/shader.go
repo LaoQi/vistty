@@ -23,21 +23,23 @@ out float v_hasBg;
 out float v_attrFlags;
 out vec2 v_glyphCoord;
 out float v_hasGlyph;
+out vec2 v_cellSize;
 void main() {
     vec2 cellPixelPos = a_quadPos * i_cellSize + i_cellPos;
-    // italic (bit 2): x skew
-    float hasItalic = mod(floor(i_attrFlags / 4.0), 2.0);
-    if (hasItalic > 0.5) {
-        cellPixelPos.x += (a_quadPos.y - 0.5) * i_cellSize.x * 0.25;
-    }
     vec2 ndc = cellPixelPos / u_resolution * 2.0 - 1.0;
     ndc.y = -ndc.y;
     gl_Position = vec4(ndc, 0.0, 1.0);
     // 字形在 cell 内的子区域坐标 (0..1 if in glyph, else out of range)
     vec2 glyphCoord = (a_quadPos * i_cellSize - i_glyphOff) / i_glyphSize;
+    // italic (bit 2): 只对字形采样做 shear，背景保持矩形（对齐 CPU 路径）
+    float hasItalic = mod(floor(i_attrFlags / 4.0), 2.0);
+    if (hasItalic > 0.5) {
+        glyphCoord.x += a_quadPos.y * 0.4;
+    }
     v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, glyphCoord);
     v_cellUV = a_quadPos;
     v_glyphCoord = glyphCoord;
+    v_cellSize = i_cellSize;
     v_fg = i_fg;
     v_bg = i_bg;
     v_hasBg = i_hasBg;
@@ -57,27 +59,30 @@ in float v_hasBg;
 in float v_attrFlags;
 in vec2 v_glyphCoord;
 in float v_hasGlyph;
+in vec2 v_cellSize;
 uniform sampler2D u_atlas;
 uniform vec3 u_defBg;
 out vec4 fragColor;
 void main() {
     float alpha = 0.0;
     float inGlyph = step(0.0, v_glyphCoord.x) * step(v_glyphCoord.x, 1.0)
-                  * step(0.0, v_glyphCoord.y) * step(v_glyphCoord.y, 1.0);
+                   * step(0.0, v_glyphCoord.y) * step(v_glyphCoord.y, 1.0);
     if (inGlyph > 0.5 && v_hasGlyph > 0.5) {
         alpha = texture(u_atlas, v_tex).r;
     }
     vec3 bg = mix(u_defBg, v_bg, v_hasBg);
     vec3 color = mix(bg, v_fg, alpha);
-    // underline (bit 0)
+    // underline (bit 0)：cell 底部精确 1px
     float hasUL = mod(floor(v_attrFlags), 2.0);
-    if (hasUL > 0.5 && v_cellUV.y > 0.85) {
+    float ulThreshold = 1.0 - 1.0 / v_cellSize.y;
+    if (hasUL > 0.5 && v_cellUV.y > ulThreshold) {
         color = v_fg;
         alpha = 1.0;
     }
-    // crossed out (bit 1)
+    // crossed out (bit 1)：cell 中线精确 1px
     float hasCO = floor(v_attrFlags / 2.0);
-    if (hasCO > 0.5 && v_cellUV.y > 0.45 && v_cellUV.y < 0.55) {
+    float coHalf = 0.5 / v_cellSize.y;
+    if (hasCO > 0.5 && v_cellUV.y > 0.5 - coHalf && v_cellUV.y < 0.5 + coHalf) {
         color = v_fg;
         alpha = 1.0;
     }

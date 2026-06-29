@@ -16,6 +16,7 @@ import (
 
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/runeutil"
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/internal/vte"
 )
@@ -349,7 +350,7 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 
 func (t *Terminal) execPrint(seq vte.Sequence) {
 	r := t.charset.current().Translate(seq.Rune)
-	w := runeWidth(r)
+	w := runeutil.RuneWidth(r)
 
 	if t.cursor.WrapPending && t.autoWrap {
 		t.cursor.Col = 0

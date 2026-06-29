@@ -4,6 +4,7 @@ import (
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
+	"github.com/LaoQi/vistty/internal/runeutil"
 )
 
 type Tab struct {
@@ -238,17 +239,25 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 		return
 	}
 	// text
-	for i, ch := range p.Text {
+	xpos := 0
+	for _, ch := range p.Text {
 		if ch == 0 || o.gp == nil {
+			xpos++
 			continue
 		}
 		g := o.gp.OverlayGlyph(ch)
 		if g == nil {
+			xpos++
 			continue
 		}
-		gx := absX + i*o.metrics.Width + g.XOffset
+		rw := 1
+		if runeutil.IsWide(ch) {
+			rw = 2
+		}
+		gx := absX + xpos*o.metrics.Width + g.XOffset
 		gy := absY + o.metrics.Ascent + g.YOffset
 		render.BlendGlyphAlpha(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, p.Fg[0], p.Fg[1], p.Fg[2], p.Fg[3])
+		xpos += rw
 	}
 }
 
@@ -321,12 +330,17 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 			}
 			return
 		}
-		// text：每个字符一个 cell，背景填充 + 前景字形
-		for i, ch := range p.Text {
+		// text：每个字符一个 cell，背景填充 + 前景字形；双宽字符 quad 加宽 2 倍
+		xpos := p.X
+		for _, ch := range p.Text {
+			rw := 1
+			if runeutil.IsWide(ch) {
+				rw = 2
+			}
 			inst := platform.CellInstance{
-				X:     xOff + float32(p.X+i)*cellW,
+				X:     xOff + float32(xpos)*cellW,
 				Y:     yOff + float32(p.Y)*cellH,
-				CellW: cellW, CellH: cellH,
+				CellW: float32(rw) * cellW, CellH: cellH,
 				FgR:   float32(p.Fg[0]) / 255 * fgA,
 				FgG:   float32(p.Fg[1]) / 255 * fgA,
 				FgB:   float32(p.Fg[2]) / 255 * fgA,
@@ -349,6 +363,7 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 				}
 			}
 			*instances = append(*instances, inst)
+			xpos += rw
 		}
 	}
 
