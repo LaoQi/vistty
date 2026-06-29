@@ -2,7 +2,7 @@ package render
 
 import "unsafe"
 
-func fillRect(data []byte, stride int, x, y, w, h int, r, g, b uint8) {
+func FillRect(data []byte, stride int, x, y, w, h int, r, g, b uint8) {
 	pixel := uint32(255)<<24 | uint32(r)<<16 | uint32(g)<<8 | uint32(b)
 	for row := y; row < y+h; row++ {
 		startOff := row*stride + x*4
@@ -22,7 +22,7 @@ func fillRect(data []byte, stride int, x, y, w, h int, r, g, b uint8) {
 	}
 }
 
-func blendGlyph(data []byte, stride int, x, y int, bitmap []byte, glyphW, glyphH int, r, g, b uint8) {
+func BlendGlyph(data []byte, stride int, x, y int, bitmap []byte, glyphW, glyphH int, r, g, b uint8) {
 	pixel := uint32(255)<<24 | uint32(r)<<16 | uint32(g)<<8 | uint32(b)
 	for gy := 0; gy < glyphH; gy++ {
 		row := y + gy

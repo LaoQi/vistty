@@ -60,6 +60,7 @@ type Terminal struct {
 	cursorKeysApp  bool
 	bracketedPaste  bool
 	focusReporting  bool
+	title           string
 	charset         charsetState
 	tabStops        []bool
 	active          bool
@@ -721,6 +722,7 @@ func (t *Terminal) execESC(seq vte.Sequence) {
 }
 
 func (t *Terminal) setTitle(title string) {
+	t.title = title
 	if t.opts.OnTitle != nil {
 		t.opts.OnTitle(title)
 	}
@@ -1234,4 +1236,12 @@ func parseHexChannel(s string) (uint8, bool) {
 
 func (t *Terminal) SetOnDefaultColor(f func(fg, bg screen.Color)) {
 	t.opts.OnDefaultColor = f
+}
+
+func (t *Terminal) Title() string {
+	return t.title
+}
+
+func (t *Terminal) SetOnTitle(f func(string)) {
+	t.opts.OnTitle = f
 }

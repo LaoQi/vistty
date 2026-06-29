@@ -7,14 +7,29 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/screen"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
 )
 
 type scaleReq struct {
 	delta int
+}
+
+type tabAction int
+
+const (
+	tabNew tabAction = iota
+	tabClose
+	tabPrev
+	tabNext
+)
+
+type tabReq struct {
+	action tabAction
 }
 
 type Master struct {
@@ -38,13 +53,20 @@ type Master struct {
 	dirty         bool
 	tickCount     uint64
 
+	osdCfg   ui.Config
+	tabReqCh chan tabReq
+	osdDirty bool
+
+	seqRelay chan seqMsg
+	exitCh   chan *terminal.Terminal
+
 	done        chan struct{}
 	closeOnce   sync.Once
 	wg          sync.WaitGroup
 	cleanupOnce sync.Once
 }
 
-func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error) {
+func NewMaster(backend platform.Backend, opts terminal.Options, osdCfg ui.Config) (*Master, error) {
 	outputs, err := backend.ListOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("list outputs: %w", err)
@@ -108,6 +130,8 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		scaleReqCh:      make(chan scaleReq, 1),
 		renderReqCh:     make(chan struct{}, 1),
 		frameInterval:   time.Second / 60,
+		osdCfg:          osdCfg,
+		tabReqCh:        make(chan tabReq, 1),
 		done:            make(chan struct{}),
 	}
 
@@ -130,15 +154,18 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 
 func (m *Master) initIndependent() error {
 	for _, s := range m.slaves {
-		if err := s.InitIndependent(m.fontData, m.opts.FontSize); err != nil {
+		if err := s.InitIndependent(m.fontData, m.opts.FontSize, m.osdCfg); err != nil {
 			return fmt.Errorf("init independent slave %s: %w", s.Output().Name(), err)
 		}
 		met := s.Face().Metrics()
 		w, h := s.Surface().Size()
-		cols := w / met.Width
+		top, bot, left, right := s.Insets()
+		innerW := w - left - right
+		innerH := h - top - bot
+		cols := innerW / met.Width
 		rows := 0
 		if met.Height > 0 {
-			rows = h / met.Height
+			rows = innerH / met.Height
 		}
 		if cols <= 0 {
 			cols = 80
@@ -150,19 +177,69 @@ func (m *Master) initIndependent() error {
 		if err != nil {
 			return fmt.Errorf("create terminal: %w", err)
 		}
-		slaveComp := s.Compositor()
-		term.SetOnDefaultColor(func(fg, bg screen.Color) {
-			slaveComp.SetDefaultColors(fg, bg)
-		})
+		m.bindTerminalCallbacks(s, term)
 		s.BindTerminal(term)
+		s.UpdateTabs()
 		m.terms = append(m.terms, term)
 	}
 	return nil
 }
 
+func (m *Master) bindTerminalCallbacks(s *Slave, term *terminal.Terminal) {
+	slaveComp := s.Compositor()
+	term.SetOnDefaultColor(func(fg, bg screen.Color) {
+		slaveComp.SetDefaultColors(fg, bg)
+	})
+	term.SetOnTitle(func(string) {
+		m.osdDirty = true
+	})
+}
+
+func (m *Master) startTerminalGoroutines(t *terminal.Terminal) {
+	m.wg.Add(3)
+	go func() {
+		defer m.wg.Done()
+		t.PtyReadLoop()
+	}()
+	go func() {
+		defer m.wg.Done()
+		for {
+			select {
+			case seqs := <-t.SeqCh():
+				select {
+				case m.seqRelay <- seqMsg{term: t, seqs: seqs}:
+				case <-m.done:
+					return
+				}
+			case <-m.done:
+				return
+			}
+		}
+	}()
+	go func() {
+		defer m.wg.Done()
+		select {
+		case <-t.EofCh():
+		case <-t.Done():
+		case <-m.done:
+			return
+		}
+		select {
+		case m.exitCh <- t:
+		case <-m.done:
+		}
+	}()
+}
+
+func (m *Master) refreshOSD() {
+	for _, s := range m.slaves {
+		s.UpdateTabs()
+	}
+}
+
 func (m *Master) focusTerm() *terminal.Terminal {
-	if m.focusIdx < len(m.terms) {
-		return m.terms[m.focusIdx]
+	if m.focusIdx < len(m.slaves) {
+		return m.slaves[m.focusIdx].ActiveTerm()
 	}
 	return nil
 }
@@ -212,4 +289,98 @@ func (m *Master) cleanup() {
 			s.Close()
 		}
 	})
+}
+
+func (m *Master) requestTab(action tabAction) {
+	select {
+	case m.tabReqCh <- tabReq{action: action}:
+	case <-m.done:
+	default:
+	}
+}
+
+func (m *Master) handleTabRequest(req tabReq) {
+	s := m.slaves[m.focusIdx]
+	switch req.action {
+	case tabNew:
+		m.newTab(s)
+	case tabClose:
+		m.closeTab(s)
+	case tabPrev:
+		if len(s.terms) > 0 {
+			s.activeIdx = (s.activeIdx - 1 + len(s.terms)) % len(s.terms)
+			m.refreshOSD()
+			m.dirty = true
+		}
+	case tabNext:
+		if len(s.terms) > 0 {
+			s.activeIdx = (s.activeIdx + 1) % len(s.terms)
+			m.refreshOSD()
+			m.dirty = true
+		}
+	}
+}
+
+func (m *Master) newTab(s *Slave) {
+	metrics := s.Face().Metrics()
+	top, bot, left, right := s.Insets()
+	w, h := s.Surface().Size()
+	cols := (w - left - right) / metrics.Width
+	rows := 0
+	if metrics.Height > 0 {
+		rows = (h - top - bot) / metrics.Height
+	}
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+	term, err := terminal.New(m.opts, cols, rows)
+	if err != nil {
+		debug.Errorf("newTab: %v", err)
+		return
+	}
+	m.bindTerminalCallbacks(s, term)
+	s.BindTerminal(term)
+	s.activeIdx = len(s.terms) - 1
+	m.terms = append(m.terms, term)
+	m.startTerminalGoroutines(term)
+	m.refreshOSD()
+	m.dirty = true
+}
+
+func (m *Master) closeTab(s *Slave) {
+	if len(s.terms) == 0 {
+		return
+	}
+	t := s.terms[s.activeIdx]
+	t.SignalClose()
+}
+
+func (m *Master) handleTermExit(t *terminal.Terminal) {
+	for _, s := range m.slaves {
+		for i, term := range s.terms {
+			if term == t {
+				s.terms = append(s.terms[:i], s.terms[i+1:]...)
+				if s.activeIdx >= len(s.terms) && len(s.terms) > 0 {
+					s.activeIdx = len(s.terms) - 1
+				}
+				break
+			}
+		}
+	}
+	for i, term := range m.terms {
+		if term == t {
+			m.terms = append(m.terms[:i], m.terms[i+1:]...)
+			break
+		}
+	}
+	t.Close()
+	if len(m.terms) == 0 {
+		m.signalClose()
+		return
+	}
+	m.refreshOSD()
+	m.dirty = true
 }

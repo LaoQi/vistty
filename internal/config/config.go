@@ -7,6 +7,13 @@ import (
 	"path/filepath"
 )
 
+type OSDConfig struct {
+	Top    bool `json:"top_bar"`
+	Bottom bool `json:"bottom_bar"`
+	Left   bool `json:"left_bar"`
+	Right  bool `json:"right_bar"`
+}
+
 type Config struct {
 	Backend  string  `json:"backend"`
 	Shell    string  `json:"shell"`
@@ -15,6 +22,7 @@ type Config struct {
 	Primary  string  `json:"primary"`
 	Record   string  `json:"record"`
 	ErrorLog string  `json:"error_log"`
+	OSD      OSDConfig `json:"osd"`
 }
 
 func Default() Config {
@@ -26,6 +34,7 @@ func Default() Config {
 		Primary:  "",
 		Record:   "",
 		ErrorLog: "",
+		OSD:      OSDConfig{Top: true},
 	}
 }
 
@@ -56,7 +65,18 @@ func (c Config) Generate() string {
   // 录制 PTY 输出到指定文件
   "record": %q,
   // 错误日志文件路径 (默认 ~/.local/share/vistty/error.log)
-  "error_log": %q
+  "error_log": %q,
+  // OSD (On-Screen Display) 四边 UI 层开关
+  "osd": {
+    // 顶部标签栏
+    "top_bar": true,
+    // 底部状态栏(预留,暂未实现)
+    "bottom_bar": false,
+    // 左侧栏(预留)
+    "left_bar": false,
+    // 右侧栏(预留)
+    "right_bar": false
+  }
 }
 `, c.Backend, c.Shell, c.Font, c.FontSize, c.Primary, c.Record, c.ErrorLog)
 }

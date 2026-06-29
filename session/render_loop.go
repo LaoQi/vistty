@@ -41,54 +41,12 @@ func (m *Master) Run() error {
 	}
 	m.dirty = false
 
-	m.wg.Add(len(m.terms))
-	for _, t := range m.terms {
-		go func(t *terminal.Terminal) {
-			defer m.wg.Done()
-			t.PtyReadLoop()
-		}(t)
-	}
-
-	var unifiedSeqCh <-chan seqMsg
-	var termExitCh <-chan struct{}
 	usc := make(chan seqMsg, 16)
-	unifiedSeqCh = usc
-	m.wg.Add(len(m.terms))
+	m.seqRelay = usc
+	tec := make(chan *terminal.Terminal, 16)
+	m.exitCh = tec
 	for _, t := range m.terms {
-		go func(t *terminal.Terminal) {
-			defer m.wg.Done()
-			for {
-				select {
-				case seqs := <-t.SeqCh():
-					select {
-					case usc <- seqMsg{term: t, seqs: seqs}:
-					case <-m.done:
-						return
-					}
-				case <-m.done:
-					return
-				}
-			}
-		}(t)
-	}
-
-	tec := make(chan struct{}, 1)
-	termExitCh = tec
-	m.wg.Add(len(m.terms))
-	for _, t := range m.terms {
-		go func(t *terminal.Terminal) {
-			defer m.wg.Done()
-			select {
-			case <-t.EofCh():
-			case <-t.Done():
-			case <-m.done:
-				return
-			}
-			select {
-			case tec <- struct{}{}:
-			case <-m.done:
-			}
-		}(t)
+		m.startTerminalGoroutines(t)
 	}
 
 	m.wg.Add(2)
@@ -101,12 +59,17 @@ func (m *Master) Run() error {
 
 	for {
 		select {
-		case msg := <-unifiedSeqCh:
+		case msg := <-usc:
 			msg.term.Apply(msg.seqs)
 			terminal.ReturnSeqPool(msg.seqs)
 			m.dirty = true
 		case <-ticker.C:
 			m.tickCount++
+			if m.osdDirty {
+				m.refreshOSD()
+				m.osdDirty = false
+				m.dirty = true
+			}
 			// 无变化时跳过渲染以省 CPU；每 15 tick（~250ms）兜底渲染一次，
 			// 保证光标闪烁（光标 500ms 翻转，250ms 兜底足以捕捉）。
 			if !m.dirty && m.tickCount%15 != 0 {
@@ -146,9 +109,10 @@ func (m *Master) Run() error {
 				renderErrCount = 0
 			}
 			m.dirty = false
-		case <-termExitCh:
-			m.signalClose()
-			goto exit
+		case req := <-m.tabReqCh:
+			m.handleTabRequest(req)
+		case exited := <-tec:
+			m.handleTermExit(exited)
 		case <-m.done:
 			goto exit
 		case <-m.backend.Done():
@@ -205,10 +169,13 @@ func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
 		return
 	}
 	metrics := s.Face().Metrics()
-	cols := ev.Width / metrics.Width
+	top, bot, left, right := s.Insets()
+	innerW := ev.Width - left - right
+	innerH := ev.Height - top - bot
+	cols := innerW / metrics.Width
 	rows := 0
 	if metrics.Height > 0 {
-		rows = ev.Height / metrics.Height
+		rows = innerH / metrics.Height
 	}
 	if cols <= 0 {
 		cols = 80
@@ -260,10 +227,13 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 
 	metrics := newFace.Metrics()
 	w, h := s.Surface().Size()
-	cols := w / metrics.Width
+	top, bot, left, right := s.Insets()
+	innerW := w - left - right
+	innerH := h - top - bot
+	cols := innerW / metrics.Width
 	rows := 0
 	if metrics.Height > 0 {
-		rows = h / metrics.Height
+		rows = innerH / metrics.Height
 	}
 	if cols <= 0 {
 		cols = 80
@@ -345,6 +315,12 @@ func (m *Master) handleKey(ev platform.KeyEvent) {
 		case '0':
 			m.requestScale(0)
 			return
+		case 't':
+			m.requestTab(tabNew)
+			return
+		case 'w':
+			m.requestTab(tabClose)
+			return
 		}
 		if ev.Code >= 2 && ev.Code <= 10 {
 			idx := int(ev.Code) - 2
@@ -355,6 +331,14 @@ func (m *Master) handleKey(ev platform.KeyEvent) {
 		}
 		if ev.Code == 15 {
 			m.setFocus((m.focusIdx + 1) % len(m.slaves))
+			return
+		}
+		if ev.Code == 105 {
+			m.requestTab(tabPrev)
+			return
+		}
+		if ev.Code == 106 {
+			m.requestTab(tabNext)
 			return
 		}
 	}

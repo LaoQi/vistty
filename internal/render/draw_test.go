@@ -22,7 +22,7 @@ func pixelAt(data []byte, stride, x, y int) (b, g, r, a uint8) {
 func TestFillRect(t *testing.T) {
 	data := newFrameBuf()
 
-	fillRect(data, testStride, 10, 10, 20, 20, 0xFF, 0x00, 0x80)
+	FillRect(data, testStride, 10, 10, 20, 20, 0xFF, 0x00, 0x80)
 
 	b, g, r, a := pixelAt(data, testStride, 15, 15)
 	if r != 0xFF || g != 0x00 || b != 0x80 || a != 255 {
@@ -44,13 +44,13 @@ func TestFillRect(t *testing.T) {
 		t.Errorf("pixel outside rect = (R=%02X,G=%02X,B=%02X,A=%02X), want (00,00,00,00)", r, g, b, a)
 	}
 
-	fillRect(data, testStride, -5, -5, 3, 3, 0xFF, 0xFF, 0xFF)
+	FillRect(data, testStride, -5, -5, 3, 3, 0xFF, 0xFF, 0xFF)
 	b, g, r, a = pixelAt(data, testStride, 0, 0)
 	if r != 0 || g != 0 || b != 0 || a != 0 {
 		t.Errorf("negative coords should not write, got (R=%02X,G=%02X,B=%02X,A=%02X)", r, g, b, a)
 	}
 
-	fillRect(data, testStride, 95, 95, 20, 20, 0xFF, 0xFF, 0xFF)
+	FillRect(data, testStride, 95, 95, 20, 20, 0xFF, 0xFF, 0xFF)
 	b, g, r, a = pixelAt(data, testStride, 99, 99)
 	if r != 0xFF || g != 0xFF || b != 0xFF || a != 255 {
 		t.Errorf("clipped rect edge = (R=%02X,G=%02X,B=%02X,A=%02X), want (FF,FF,FF,FF)", r, g, b, a)
@@ -65,7 +65,7 @@ func TestBlendGlyph(t *testing.T) {
 		bitmap[i] = 128
 	}
 
-	blendGlyph(data, testStride, 10, 10, bitmap, 4, 4, 0xFF, 0xFF, 0xFF)
+	BlendGlyph(data, testStride, 10, 10, bitmap, 4, 4, 0xFF, 0xFF, 0xFF)
 
 	b, g, r, a := pixelAt(data, testStride, 11, 11)
 	if r == 0 || g == 0 || b == 0 {
@@ -86,7 +86,7 @@ func TestBlendGlyph(t *testing.T) {
 	}
 
 	zeroBitmap := make([]byte, 4*4)
-	blendGlyph(data, testStride, 20, 20, zeroBitmap, 4, 4, 0xFF, 0x00, 0x00)
+	BlendGlyph(data, testStride, 20, 20, zeroBitmap, 4, 4, 0xFF, 0x00, 0x00)
 	b, g, r, a = pixelAt(data, testStride, 21, 21)
 	if r != 0 || g != 0 || b != 0 {
 		t.Errorf("zero alpha blend = (R=%02X,G=%02X,B=%02X), expected zero", r, g, b)
@@ -96,7 +96,7 @@ func TestBlendGlyph(t *testing.T) {
 	for i := range fullBitmap {
 		fullBitmap[i] = 255
 	}
-	blendGlyph(data, testStride, 30, 30, fullBitmap, 2, 2, 0x80, 0x40, 0x20)
+	BlendGlyph(data, testStride, 30, 30, fullBitmap, 2, 2, 0x80, 0x40, 0x20)
 	b, g, r, a = pixelAt(data, testStride, 30, 30)
 	if r != 0x80 || g != 0x40 || b != 0x20 || a != 255 {
 		t.Errorf("full alpha blend = (R=%02X,G=%02X,B=%02X,A=%02X), want (80,40,20,FF)", r, g, b, a)

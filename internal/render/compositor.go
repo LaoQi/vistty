@@ -31,6 +31,9 @@ type Compositor struct {
 	directRender bool
 	gpu          platform.GPURenderer
 	instances    []platform.CellInstance
+	overlay      Overlay
+	originX      int
+	originY      int
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -62,7 +65,7 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 		c.backBuf = make([]byte, stride*h)
 		c.backStride = stride
 		bg := c.defColor.bg
-		fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+		FillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	}
 	return c
 }
@@ -93,6 +96,30 @@ func (c *Compositor) getGlyph(r rune) (*font.Glyph, error) {
 	}
 	c.atlas.Put(r, g)
 	return g, nil
+}
+
+func (c *Compositor) SetOverlay(o Overlay) {
+	c.overlay = o
+}
+
+func (c *Compositor) OverlayGlyph(r rune) *font.Glyph {
+	g, _ := c.getGlyph(r)
+	return g
+}
+
+func (c *Compositor) OverlayUploadGlyph(r rune) (u0, v0, u1, v1 float32, gw, gh, xoff, yoff int, ok bool) {
+	if c.gpu == nil {
+		return
+	}
+	g, err := c.getGlyph(r)
+	if err != nil || g == nil {
+		return
+	}
+	u0, v0, u1, v1, ok = c.gpu.UploadGlyph(r, g.Bitmap, g.Width, g.Height)
+	if !ok {
+		return
+	}
+	return u0, v0, u1, v1, g.Width, g.Height, g.XOffset, g.YOffset, true
 }
 
 // cursorVisible 返回光标是否应当绘制。闪烁基于真实时间戳，
@@ -145,8 +172,17 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		}
 	}
 
+	if c.overlay != nil {
+		top, _, left, _ := c.overlay.Insets()
+		c.originX = left
+		c.originY = top
+	} else {
+		c.originX = 0
+		c.originY = 0
+	}
+
 	defBg := c.defColor.bg
-	fillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
+	FillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
 
 	for row := 0; row < c.rows; row++ {
 		var line *screen.Line
@@ -167,8 +203,8 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			if cell.Width == 0 {
 				continue
 			}
-			px := col * c.metrics.Width
-			py := row * c.metrics.Height
+			px := c.originX + col*c.metrics.Width
+			py := c.originY + row*c.metrics.Height
 			cellW := int(cell.Width) * c.metrics.Width
 
 			fg := c.resolveFg(cell.Fg)
@@ -186,7 +222,7 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			}
 
 			if bgR != defBg.R || bgG != defBg.G || bgB != defBg.B {
-				fillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
+				FillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
 			}
 
 			if cell.Rune != 0 {
@@ -197,12 +233,12 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				gx := px + glyph.XOffset
 				gy := py + c.metrics.Ascent + glyph.YOffset
 				if cell.Attr&screen.AttrBold != 0 {
-					blendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+					BlendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 				}
 				if cell.Attr&screen.AttrItalic != 0 {
 					blendGlyphItalic(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 				} else {
-					blendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+					BlendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 				}
 
 				if cell.Attr&screen.AttrUnderline != 0 {
@@ -239,8 +275,8 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	if cursor != nil && offset == 0 {
 		visible := c.cursorVisible(cursor)
 		if visible {
-			cx := cursor.Col * c.metrics.Width
-			cy := cursor.Row * c.metrics.Height
+			cx := c.originX + cursor.Col*c.metrics.Width
+			cy := c.originY + cursor.Row*c.metrics.Height
 			cursorCell := buf.Cell(cursor.Row, cursor.Col)
 			var cursorRune rune
 			var cursorGlyph *font.Glyph
@@ -255,6 +291,10 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			fg := c.resolveFg(screen.Color{IsDefault: true})
 			drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B, cursorRune, cursorGlyph, c.metrics.Ascent)
 		}
+	}
+
+	if c.overlay != nil {
+		c.overlay.RenderCPU(c.backBuf, c.backStride, c.backWidth, c.backHeight)
 	}
 
 	if !c.directRender {
@@ -272,6 +312,16 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 	if err := c.gpu.BeginFrame(); err != nil {
 		return err
 	}
+
+	if c.overlay != nil {
+		top, _, left, _ := c.overlay.Insets()
+		c.originX = left
+		c.originY = top
+	} else {
+		c.originX = 0
+		c.originY = 0
+	}
+
 	history := buf.History()
 	histLen := history.Len()
 	offset := scrollOffset
@@ -306,8 +356,8 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				continue
 			}
 
-			px := float32(col * c.metrics.Width)
-			py := float32(row * c.metrics.Height)
+			px := float32(c.originX) + float32(col*c.metrics.Width)
+			py := float32(c.originY) + float32(row*c.metrics.Height)
 			cellW := float32(int(cell.Width) * c.metrics.Width)
 			cellH := float32(c.metrics.Height)
 
@@ -386,8 +436,8 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			cx := cursor.Col
 			cy := cursor.Row
 			if cx < c.cols && cy < c.rows {
-				targetX := float32(cx * c.metrics.Width)
-				targetY := float32(cy * c.metrics.Height)
+				targetX := float32(c.originX + cx*c.metrics.Width)
+				targetY := float32(c.originY + cy*c.metrics.Height)
 				for i := range c.instances {
 					if c.instances[i].X == targetX && c.instances[i].Y == targetY {
 						c.instances[i].FgR, c.instances[i].BgR = c.instances[i].BgR, c.instances[i].FgR
@@ -402,6 +452,9 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 	}
 
 	bgColor := [3]float32{float32(defBg.R) / 255, float32(defBg.G) / 255, float32(defBg.B) / 255}
+	if c.overlay != nil {
+		c.overlay.RenderGPU(&c.instances, c.backWidth, c.backHeight)
+	}
 	if err := c.gpu.DrawInstances(c.instances, c.backWidth, c.backHeight, bgColor); err != nil {
 		return err
 	}
@@ -420,7 +473,7 @@ func (c *Compositor) Resize(cols, rows int) {
 		c.backBuf = make([]byte, stride*h)
 		c.backStride = stride
 		bg := c.defColor.bg
-		fillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
+		FillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	}
 }
 

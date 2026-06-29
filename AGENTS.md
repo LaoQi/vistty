@@ -22,19 +22,21 @@
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 `go-text/typesetting/harfbuzz`（HarfBuzz 完整移植） |
 | 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer |
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | 移除 go-wayland 依赖，自研 wl.go 实现 Wayland wire 协议最小子集（Display/Registry/Compositor/Shm/Surface/Seat/XDG Shell），零 CGO |
+| 11 | OSD 四边 UI 层 | 自研 | internal/ui 包，Slave 持有，独立于 Terminal 之上；顶部多终端标签栏 + 底/左/右预留；实现 render.Overlay 接口由 Compositor 在 Swap 前叠加渲染 |
 
 ## 架构
 
 ### 分层
 
 ```
-cmd/vistty (入口，选择后端 + -mode/-primary 参数)
-    └── session (协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键)
+cmd/vistty (入口，选择后端 + -primary 参数 + cfg.OSD→ui.Config 注入)
+    └── session (协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + 标签管理)
             ├── terminal (纯逻辑会话：PTY + screen + parser + CSI 执行)
             │       ├── vte (转义解析)
             │       └── screen (缓冲区)
-            ├── session.Slave (输出绑定：surface + compositor + terms[] + active 预留)
-            └── render (合成+光标) → font (opentype + glyph cache)
+            ├── session.Slave (输出绑定：surface + compositor + terms[] + active + osd)
+            └── render (合成+光标+overlay 扩展) → font (opentype + glyph cache)
+                    ├── ui (OSD 四边层：标签栏，实现 render.Overlay 由 Slave 注入)
                     └── 依赖 platform.Surface 接口
                             ├── platform/drm (DRM 直出，多 connector 多屏)
                             └── platform/wayland (Wayland 窗口，单虚拟输出)
@@ -103,7 +105,9 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
                                                               ↓
 输入事件 ← InputSource.KeyEvents() → terminal 处理 → PTY stdin   render.Compositor
                                                                     ↓
-                                                    font.Atlas → alpha混合 → backBuf（离屏缓冲区）
+                                                    font.Atlas → alpha混合 → backBuf（离屏缓冲区，终端内容按 OSD insets 偏移绘制到内区）
+                                                                        ↓
+                                                        OSD.RenderCPU(backBuf) / RenderGPU(&instances) 叠加四边标签栏
                                                                         ↓
                                                         backBuf 全量拷贝 → Surface.Data()
                                                                         ↓
@@ -114,11 +118,11 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 | goroutine | 职责 | 两种后端差异 |
 |-----------|------|-------------|
-| main | Run() LockOSThread 绑定，承载渲染主循环（seqCh/ticker.Render/resize/scale/eof），等 done/backend.Done() | 无差异 |
+| main | Run() LockOSThread 绑定，承载渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/exit），等 done/backend.Done() | 无差异 |
 | backend-loop | backend.Run() | DRM: 空操作; Wayland: dispatch 事件循环 |
 | pty-read | PTY stdout → Read 长循环 → FeedInto → seqCh | 无差异 |
-| seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 | 无差异 |
-| exit-watch | Terminal.EofCh()/Done() → termExitCh 中继 | 无差异 |
+| seq-relay | Terminal.SeqCh() → m.seqRelay(unifiedSeqCh) 中继 | 无差异 |
+| exit-watch | Terminal.EofCh()/Done() → m.exitCh 携带 *Terminal 退出身份 | 无差异 |
 | input | InputSource 事件 → terminal | 无差异（接口统一） |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() | 无差异 |
 | drm-event | DRM fd 事件（Page Flip 完成） | 仅 DRM |
@@ -130,7 +134,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 |--------|------|
 | SIGINT/SIGTERM/SIGHUP/SIGQUIT | signalLoop → signalClose()（只关 done+pty）→ wg.Wait() → backend.Stop() → input.Close() → cleanup() |
 | Wayland 窗口关闭 | toplevel.SetCloseHandler → backend.notifyClose() → close(doneCh) → Run() select 感知 backend.Done() → signalClose() → 两阶段关闭 |
-| PTY 退出 | ptyReadLoop → eofCh/done → signalClose() → 两阶段关闭 |
+| PTY 退出 | ptyReadLoop → eofCh/done → exit-watch 发 *Terminal 到 m.exitCh → handleTermExit 移除该标签（slave.terms+m.terms）→ 若 len(m.terms)==0 则 signalClose() 退出，否则 refreshOSD+继续 |
 | 两阶段关闭 | 阶段1: signalClose() 只关 done+pty（不触碰 Wayland 对象）→ 阶段2: backend.Stop() 关连接解锁 Run() → 等待 backend.Run() 退出 → input.Close()+cleanup()（无并发 map 访问）|
 | Close() 幂等 | sync.Once 保护 signalClose/cleanup/input.Close/backend.Stop，重复调用安全 |
 
@@ -141,21 +145,21 @@ github.com/LaoQi/vistty/
 ├── README.md / README.zh-CN.md  # 项目说明（中英文，vibe 产品声明 + 功能/用法/底层支持）
 ├── LICENSE                       # GPLv2
 ├── work_docs/                    # 开发过程文档（optimize.md/progress.md/todos.md）
-├── cmd/vistty/main.go          # 入口：-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并
-├── session/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + Slave 输出绑定
-│   ├── master.go               # Master 结构 + NewMaster(initIndependent) + session池
-│   ├── slave.go                # Slave 结构 + InitIndependent + ActiveTerm/BindTerminal
-│   ├── render_loop.go           # 统一主循环（独立串行渲染）+ handleKey + setFocus
+├── cmd/vistty/main.go          # 入口：-primary/-backend/-tty/-config/-gen-config/-errorlog 参数 + profiling + 配置合并（cfg.OSD → ui.Config 注入 NewMaster）
+├── session/                     # 协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + 标签管理 + Slave 输出绑定
+│   ├── master.go               # Master 结构 + NewMaster(backend,opts,osdCfg) + initIndependent + 标签生命周期(newTab/closeTab/handleTermExit) + startTerminalGoroutines + bindTerminalCallbacks
+│   ├── slave.go                # Slave 结构 + InitIndependent(fontData,fontSize,osdCfg) + ActiveTerm/BindTerminal + Insets/UpdateTabs( OSD 联动) + SetFace(osd 联动)
+│   ├── render_loop.go           # 统一主循环（独立串行渲染）+ handleKey(屏幕/标签快捷键) + setFocus + handleResize/handleScale( insets 行列计算)
 │   └── master_test.go          # 集成测试（Close幂等/PTY退出/输入无死锁）
 ├── terminal/
-│   ├── terminal.go             # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control 执行
+│   ├── terminal.go             # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control 执行 + Title()/SetOnTitle()
 │   ├── charset.go              # 字符集状态管理（G0/G1/GL + DEC line drawing 映射）
 │   ├── options.go              # Options + Primary + OnTitle/OnDefaultColor 回调 + RecordWriter
 │   ├── render_harness.go       # 导出桥接 API：NewRenderHarness/FeedBytes/RenderFrame（性能测量用）
 │   └── rune_width.go           # 宽度判断（ASCII 快路径 + x/text/width）
 ├── internal/
 │   ├── config/                 # JSONC 配置文件（Config 结构 + Load/Save/DefaultPath/Generate + stripComments）
-│   │   ├── config.go           # Config + Default + Load + Save + DefaultPath + Generate（JSONC 带注释输出）+ stripComments（// 行 + /* 块 */ 注释剥离）
+│   │   ├── config.go           # Config + OSDConfig + Default + Load + Save + DefaultPath + Generate（JSONC 带注释输出）+ stripComments（// 行 + /* 块 */ 注释剥离）
 │   │   └── config_test.go      # 9 项测试（默认值/不存在/往返/Generate注释/JSONC注释解析/XDG路径/损坏/部分字段）
 │   ├── debug/                  # 日志（Debugf 调试日志 + Errorf/Warningf 错误日志，全包共用）
 │   │   ├── debug.go            # Debugf/Errorf/Warningf/Configure/ConfigureError（init 从环境变量自动配置）
@@ -174,7 +178,11 @@ github.com/LaoQi/vistty/
 │   │   ├── face.go / atlas.go / metrics.go / embedded.go / cache.go
 │   │   └── assets/             # 内置字体资源（Sarasa Fixed SC 子集 + LICENSE）
 │   ├── render/                 # 渲染合成
-│   │   ├── compositor.go / draw.go / cursor.go   # compositor: Render+SetDefaultColors+SetFace+Resize
+│   │   ├── compositor.go / draw.go / cursor.go   # compositor: Render+SetDefaultColors+SetFace+Resize+SetOverlay+OverlayGlyph/OverlayUploadGlyph( 实现 GlyphProvider/GPUGlyphUploader)
+│   │   └── overlay.go          # Overlay/GlyphProvider/GPUGlyphUploader 接口（依赖倒置：render 定义，ui 实现）
+│   ├── ui/                     # OSD 四边 UI 层（Slave 持有，独立于 Terminal）
+│   │   ├── osd.go              # OSD + Tab + Config + RenderCPU/RenderGPU + Insets + layoutTabs 纯函数
+│   │   └── osd_test.go         # Insets/layoutTabs/截断 测试
 │   ├── perf/                   # 性能评估工具
 │   │   └── replay/             # 离线回放 + 三级归因 benchmark（L1 parser/L2 screen/L3 render）
 │   │       ├── harness.go / genworkload.go / bench_test.go / embed.go
@@ -214,10 +222,11 @@ github.com/LaoQi/vistty/
 ### 依赖方向
 
 ```
-cmd/vistty → terminal, config, debug, platform/gbm (GBM 组装注入)
+cmd/vistty → terminal, config, debug, platform/gbm (GBM 组装注入), ui (cfg.OSD→ui.Config 注入 NewMaster)
 terminal → screen, vte, render, platform, debug
-session → render, font, platform, terminal, debug
+session → render, font, platform, terminal, ui, debug
 render → font, platform (Surface 接口)
+ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform
 platform/drm → platform (Surface/GBMProvider 接口), go-evdev, debug
 platform/gbm → platform (GBMProvider/Surface/Output), platform/gl, platform/gpu, debug
 platform/gpu → platform/gl (GLES/EGL loader), platform (CellInstance/GPURenderer), debug
@@ -229,7 +238,7 @@ config → 无内部依赖（纯逻辑）
 debug → 无内部依赖（纯逻辑）
 ```
 
-**依赖规则：** `platform/drm` 不依赖 `platform/gbm`，通过 `platform.GBMProvider` 接口由 `cmd/vistty` 组装注入；`vte` 和 `screen` 无外部依赖；上层通过接口解耦，不依赖具体后端实现。
+**依赖规则：** `platform/drm` 不依赖 `platform/gbm`，通过 `platform.GBMProvider` 接口由 `cmd/vistty` 组装注入；`vte` 和 `screen` 无外部依赖；`render` 不依赖 `ui`（通过 `render.Overlay` 接口依赖倒置，`ui.OSD` 实现该接口由 Slave 注入 Compositor）；上层通过接口解耦，不依赖具体后端实现。
 
 ## 关键约束
 - 禁用 CGO 意味着：不能使用 libdrm/libgbm/libevdev/libfreetype 的 cgo 封装。所有内核接口必须通过 `syscall` / `unix` 包的 ioctl 调用或纯 Go 重新实现访问。
@@ -249,7 +258,7 @@ debug → 无内部依赖（纯逻辑）
 | Atomic Modesetting | `platform/drm/atomic.go` | 已实现 ioctl 封装 |
 | 文本整形 | `font/shaper.go` | 集成 go-text/typesetting/harfbuzz |
 | Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理 |
-| 多终端/Tab | `terminal/` | Terminal 工厂+切换逻辑 |
+| 多终端/Tab | `internal/ui` + `session` | 已实现：OSD 标签栏 + Master newTab/closeTab/handleTermExit + Mod+T/W/左右 |
 | X11 窗口后端 | `platform/x11/` | 新增 Backend 实现 |
 | 完整 XKB 支持 | `platform/wayland/keymap.go` | 可选 purego dlopen libxkbcommon.so |
 | 配置系统 | `terminal/options.go` | 配置文件+命令行参数 |
@@ -350,11 +359,12 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2（setsid+TIOCSCTTY 设
 - ✅ GBM 字形不显示 bug 修复（v_inGlyph 顶点插值缺陷）：原 shader 将 `v_inGlyph = step(glyphCoord)` 作为 varying 在 vertex shader 计算后插值；step() 非线性，当字形严格在 cell 内部（GlyphOffY>0 且 GlyphOffY+GlyphH<CellH，即真实字形常态）时 4 个 quad 顶点的 glyphCoord.y 均落在 [0,1] 之外（顶<0/底>1），4 角 v_inGlyph=0，插值后全片段仍为 0 → 字形永不采样 → 背景正常但字形不可见（精确匹配用户报告）。修复：glyphCoord 改为 varying 传到 fragment，step() 逐片段计算。附带修复：UploadGlyph 的 TexSubImage2D glErr 静默吞错改为 return false；packGlyph 纯函数提取（shelf packing+UV 可单测）；compositor GlyphOffX 默认值 metrics.Width→0。新增 L0-L4 五级测试体系（font 位图/packGlyph 纯函数/shader 契约+CellInstance offset 断言/fake GPURenderer instance 构建/GBM render node 离屏 GL 集成 + glReadPixels 像素验证），gbm_surface_gl_test.go 用 surfaceless→GBM 平台 + sync.Once 共享 EGL env
 - ✅ GBM 空字符底部多渲染矩形修复（shader UV 退化门控）：GPU 路径空字符（Rune==0）仍生成 CellInstance，默认 GlyphOffY=Ascent、GlyphH=metrics.Height、UV=(0,0,0,0)；shader glyphCoord.y∈[0,1] 落在 cell 底部条带（quadPos.y∈[0.75,1.0]）使 inGlyph=1，用 UV=(0,0) 采样 atlas (0,0) 残留非透明纹素 → 每个空字符 cell 底部多出前景色矩形条（CPU 路径 Rune==0 跳过 blendGlyph 故无此问题）。修复：vertex shader 新增 v_hasGlyph varying = sign(max(u1-u0,0))*sign(max(v1-v0,0))（UV 退化即 u0>=u1||v0>=v1 时为 0），fragment 字形采样条件改为 `inGlyph>0.5 && v_hasGlyph>0.5`，空字符不再采样 atlas。零 Go 代码/测试改动，复用 TestRenderGPUEmptyRuneNoUpload 已断言的空字符 UV=0 契约；L2 fake GPURenderer 不执行真实 shader 故此前未捕获
 - ✅ master/slave 多屏架构（Terminal 简化为纯逻辑会话，剥离渲染/IO/主循环；session 协调层枚举输出+焦点路由+渲染编排；Slave 输出绑定+terms[]预留tabs；slave 包已合并入 session）
+- ✅ OSD 四边 UI 层 + 多终端标签（internal/ui 包：OSD 实现 render.Overlay 接口，Slave 持有独立于 Terminal；Compositor 新增 overlay 扩展点 + origin 偏移（终端内容按 insets 内缩绘制）+ RenderCPU/RenderGPU 钩子（Swap 前叠加标签栏）+ 实现 GlyphProvider/GPUGlyphUploader 共享字形缓存；render.Overlay/GlyphProvider/GPUGlyphUploader 依赖倒置；Terminal 新增 Title()/SetOnTitle()；Slave.Insets/UpdateTabs/SetFace(osd 联动)；Master 标签生命周期 newTab/closeTab/handleTermExit + tabReqCh/osdDirty + startTerminalGoroutines 动态化 + bindTerminalCallbacks(OnTitle→osdDirty)；退出语义调整：单 terminal 退出改关该标签，仅无剩余 terminal 时退出；focusTerm 修复（索引 slaves 而非扁平 terms）；Insets 感知行列计算 initIndependent/handleResize/handleScale 三处；layoutTabs 纯函数可单测；配置 OSDConfig 四边开关 jsonc）
 - ✅ 多屏 DRM 输出支持（findOutputs 返回所有 connected，DisplayInfo 实现 Output 接口；eventLoop 按 ev.CrtcID 路由 notifyFlip，修复多屏 flip 串扰）
 - ✅ 独立显示模式（每 Slave 自持 compositor 串行渲染；移除 mirror 模式及 -mode 参数）
 - ✅ 主屏选择参数（-primary <名称|索引>，按 connector name 如 HDMI-A-1 或数字索引匹配）
 - ✅ 显示设备列表（-list-outputs：枚举所有输出并打印索引/名称/分辨率/ID 后退出）
-- ✅ Mod 键焦点路由（Mod+1..9 切焦点屏 / Mod+Tab 轮转；setFocus 投递 renderReqCh 主线程渲染避免并发）
+- ✅ Mod 键焦点路由 + 标签快捷键（Mod+1..9 切焦点屏 / Mod+Tab 轮转屏；Mod+T 新建标签 / Mod+W 关闭标签 / Mod+左右 切换标签；setFocus/requestTab 投递主线程渲染避免并发）
 - ✅ 右 Win 键支持（keymap.go 补 126:ModSuper，DRM 路径左右 Win 均识别）
 - ✅ DRM Atomic Modesetting ioctl 封装（atomic.go/property.go/plane.go：AtomicCommit/GetObjectProperties/GetProperty/CreateBlob/GetPlaneResources/GetPlane + 8 结构体 + 9 ioctl 码 + 编译时大小校验）
 - ✅ GBM + EGL purego dlopen（github.com/ebitengine/purego：Dlopen+Dlsym+RegisterFunc 替代自研汇编+ELF解析；跨架构支持 amd64/arm64；CGO=0 纯 Go 调用 C 库函数）

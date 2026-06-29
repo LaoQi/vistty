@@ -13,6 +13,7 @@ import (
 	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/gbm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/session"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -201,7 +202,13 @@ func run() error {
 		return nil
 	}
 
-	m, err := session.NewMaster(backend, opts)
+	uiCfg := ui.Config{
+		Top:    ui.SideConfig{Enabled: cfg.OSD.Top},
+		Bottom: ui.SideConfig{Enabled: cfg.OSD.Bottom},
+		Left:   ui.SideConfig{Enabled: cfg.OSD.Left},
+		Right:  ui.SideConfig{Enabled: cfg.OSD.Right},
+	}
+	m, err := session.NewMaster(backend, opts, uiCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create master: %w", err)
 	}
