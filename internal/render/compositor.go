@@ -119,7 +119,11 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		c.gpu, _ = c.surface.(platform.GPURenderer)
 	}
 	if c.gpu != nil {
-		return c.renderGPU(buf, scrollOffset)
+		if err := c.renderGPU(buf, scrollOffset); err != nil {
+			c.gpu = nil
+		} else {
+			return nil
+		}
 	}
 
 	history := buf.History()

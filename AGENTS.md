@@ -422,3 +422,4 @@ Wayland 后端实现细节：
 - ✅ drm 模式启动 10 秒延迟修复（根因：DRMSurface.Swap() 的 waitForFlip() 5 秒超时被触发两次；首次 renderFrame() 在 backend.Run()（启动 eventLoop goroutine）之前执行，无 goroutine 读 DRM flip 完成事件调 notifyFlip()，flipCh 永远不填充 → 两次 waitForFlip 各等 5 秒超时；修复：将 backend.Run() 提前到首次 renderFrame() 之前，确保 eventLoop 在 Swap 时已运行）
 - ✅ DRMSurface Swap 双缓冲+flip 重试+幂等 Close（flipPending/done/closeOnce 字段从外部管理移入 DRMSurface；Swap 等上次 flip 完成再提交新帧；DoPageFlip 失败最多重试 5 次；Close sync.Once 幂等防 panic）
 - ✅ 渲染错误容错（renderFrame 错误不再立即退出，累计 maxRenderErrors=10 次连续错误才退出；成功渲染重置计数器）
+- ✅ GBM 首帧黑屏修复（gpu/renderer.go：Init 检查 TexImage2D glErr 提前返回错误而非静默继续；DrawInstances 空 instances 也执行 Clear 清屏；gbm/surface.go：BeginFrame 延迟 GL 初始化确保首帧时 GL 就绪；DrawInstances/BeginFrame GPU nil 返回错误而非静默跳过；compositor.go：renderGPU 失败时 gpu=nil 降级到 CPU 渲染；drm/backend.go：eventLoop 仅处理 FlipComplete 忽略 VBlank；Close 遍历所有 outputs 恢复 savedCrtc 修复多屏 CRTC 恢复）

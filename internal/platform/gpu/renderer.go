@@ -122,10 +122,12 @@ func (c *Renderer) Init() error {
 	texImgErr := gl.GetError()
 	gl.TexParameteri(glLib.GL_TEXTURE_2D, glLib.GL_TEXTURE_MAX_LEVEL, 0)
 
-	c.atlasCache = make(map[rune]atlasEntry)
+	if texImgErr != 0 {
+		gl.DeleteTextures(1, []uint32{c.atlasTex})
+		return fmt.Errorf("TexImage2D failed: glErr=0x%x", texImgErr)
+	}
 
-	debug.Debugf("initGPU: atlasTex=%d atlasUni=%d resUni=%d defBgUni=%d TexImage2D glErr=0x%x\n",
-		c.atlasTex, c.atlasUni, c.resUni, c.defBgUni, texImgErr)
+	c.atlasCache = make(map[rune]atlasEntry)
 
 	var vbos [2]uint32
 	gl.GenBuffers(2, vbos[:])
@@ -257,7 +259,7 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 
 // DrawInstances implements platform.GPURenderer
 func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
-	if !c.gpuReady || len(instances) == 0 {
+	if !c.gpuReady {
 		return nil
 	}
 
@@ -266,14 +268,17 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 	}
 
 	gl := c.gles
+	gl.Viewport(0, 0, int32(screenW), int32(screenH))
+	gl.ClearColor(bgColor[0], bgColor[1], bgColor[2], 1)
+	gl.Clear(glLib.GL_COLOR_BUFFER_BIT)
+
+	if len(instances) == 0 {
+		return nil
+	}
 
 	instanceBytes := (*[1 << 28]byte)(unsafe.Pointer(&instances[0]))[:len(instances)*int(unsafe.Sizeof(platform.CellInstance{}))]
 	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
 	gl.BufferSubData(glLib.GL_ARRAY_BUFFER, 0, instanceBytes)
-
-	gl.Viewport(0, 0, int32(screenW), int32(screenH))
-	gl.ClearColor(bgColor[0], bgColor[1], bgColor[2], 1)
-	gl.Clear(glLib.GL_COLOR_BUFFER_BIT)
 
 	gl.UseProgram(c.gpuProgram)
 	gl.Uniform2f(c.resUni, float32(screenW), float32(screenH))

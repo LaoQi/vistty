@@ -200,7 +200,7 @@ func (b *DRMBackend) eventLoop() {
 				continue
 			}
 		}
-		if ev != nil && (ev.Type == EventFlipComplete || ev.Type == EventVBlank) {
+		if ev != nil && ev.Type == EventFlipComplete {
 			if b.gbmProvider != nil {
 				b.gbmProvider.HandleFlipEvent(ev.CrtcID)
 			} else if surf, ok := b.surfaces[ev.CrtcID]; ok {
@@ -219,13 +219,15 @@ func (b *DRMBackend) Close() error {
 			b.gbmProvider.Close()
 			b.gbmProvider = nil
 		}
-		if b.display != nil && b.display.savedCrtc != nil {
-			saved := b.display.savedCrtc
-			var mode *ModeInfoPublic
-			if saved.ModeValid {
-				mode = &saved.Mode
+		for _, out := range b.outputs {
+			if out.savedCrtc != nil {
+				saved := out.savedCrtc
+				var mode *ModeInfoPublic
+				if saved.ModeValid {
+					mode = &saved.Mode
+				}
+				SetCrtc(int(b.fd.Fd()), saved.ID, saved.FbID, saved.X, saved.Y, mode, nil)
 			}
-			SetCrtc(int(b.fd.Fd()), saved.ID, saved.FbID, saved.X, saved.Y, mode, nil)
 		}
 		if b.vt != nil {
 			b.vt.Close()

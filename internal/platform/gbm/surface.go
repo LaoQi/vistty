@@ -224,7 +224,7 @@ func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v
 
 func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	if s.gpu == nil {
-		return nil
+		return fmt.Errorf("GBM: GPU renderer not available")
 	}
 	if err := s.gpu.DrawInstances(instances, screenW, screenH, bgColor); err != nil {
 		return err
@@ -234,8 +234,16 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 }
 
 func (s *GBMSurface) BeginFrame() error {
+	if !s.glInitDone {
+		if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
+			return fmt.Errorf("eglMakeCurrent: %w", err)
+		}
+		if err := s.initGL(); err != nil {
+			return fmt.Errorf("initGL: %w", err)
+		}
+	}
 	if s.gpu == nil {
-		return nil
+		return fmt.Errorf("GBM: GPU renderer not available")
 	}
 	return s.gpu.BeginFrame()
 }
