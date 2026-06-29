@@ -1,5 +1,7 @@
 package platform
 
+import "strings"
+
 var usKeyMap = map[uint32]rune{
 	1: 0x1b,
 	2: '1', 3: '2', 4: '3', 5: '4', 6: '5', 7: '6', 8: '7', 9: '8', 10: '9', 11: '0',
@@ -116,4 +118,64 @@ func ShiftRune(r rune) rune {
 		return '~'
 	}
 	return r
+}
+
+var keyNameMap = map[string]struct {
+	r    rune
+	code uint16
+}{
+	"equal":     {'=', 0},
+	"minus":     {'-', 0},
+	"0":         {'0', 0},
+	"1":         {'1', 2},
+	"2":         {'2', 3},
+	"3":         {'3', 4},
+	"4":         {'4', 5},
+	"5":         {'5', 6},
+	"6":         {'6', 7},
+	"7":         {'7', 8},
+	"8":         {'8', 9},
+	"9":         {'9', 10},
+	"t":         {'t', 0},
+	"w":         {'w', 0},
+	"Tab":       {0, 15},
+	"Left":      {0, 105},
+	"Right":     {0, 106},
+	"Up":        {0, 103},
+	"Down":      {0, 108},
+	"Return":    {0, 28},
+	"Backspace": {0, 14},
+	"Escape":    {0, 1},
+	"Space":     {' ', 57},
+	"Page_Up":   {0, 104},
+	"Page_Down": {0, 109},
+	"Home":      {0, 102},
+	"End":       {0, 107},
+	"Delete":    {0, 111},
+	"Insert":    {0, 110},
+}
+
+func ParseModKey(s string) Modifiers {
+	switch strings.ToLower(s) {
+	case "alt":
+		return ModAlt
+	case "ctrl", "control":
+		return ModCtrl
+	case "shift":
+		return ModShift
+	case "super", "win", "meta":
+		return ModSuper
+	default:
+		return ModSuper
+	}
+}
+
+func ParseKey(s string) (rune, uint16) {
+	if entry, ok := keyNameMap[s]; ok {
+		return entry.r, entry.code
+	}
+	if len(s) == 1 {
+		return rune(s[0]), 0
+	}
+	return 0, 0
 }

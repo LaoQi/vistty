@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/LaoQi/vistty/internal/debug"
+	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/plugins"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/internal/vte"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -95,6 +98,15 @@ func (m *Master) Run() error {
 			}
 		case ev := <-resizeCh:
 			m.handleResize(ev)
+		case ev := <-m.keyEvCh:
+			if m.plugins != nil {
+				consumed, out := m.plugins.OnKey(ev)
+				if consumed {
+					continue
+				}
+				ev = out
+			}
+			m.handleKey(ev)
 		case req := <-m.scaleReqCh:
 			m.handleScale(req)
 		case <-m.renderReqCh:
@@ -136,7 +148,83 @@ exit:
 }
 
 func (m *Master) renderFrame() error {
+	m.renderPlugins()
 	return m.renderIndependent()
+}
+
+// renderPlugins 在主渲染线程调用插件 OnRender 钩子，将返回的图元转换为
+// ui.PanelPrimitive 注入各 Slave 的 OSD。每帧调用一次，保证插件 UI 实时刷新。
+// 同时同步 panelLines 到 OSD，使 Insets() 合并插件声明的面板尺寸。
+func (m *Master) renderPlugins() {
+	if m.plugins == nil {
+		return
+	}
+	panels := m.plugins.EnabledPanels()
+	for _, s := range m.slaves {
+		osd := s.OSD()
+		if osd == nil {
+			continue
+		}
+		osd.SetPanelLines(panels)
+		metrics := s.Face().Metrics()
+		if metrics.Width <= 0 || metrics.Height <= 0 {
+			continue
+		}
+		top, bottom, left, right := s.Insets()
+		surfW, surfH := s.Surface().Size()
+		for _, side := range []string{"bottom", "left", "right"} {
+			w, h := pluginPanelCellSize(side, surfW, surfH, top, bottom, left, right, metrics)
+			if w <= 0 || h <= 0 {
+				osd.SetPluginPanel(side, nil)
+				continue
+			}
+			dirty, prims := m.plugins.OnRender(side, w, h)
+			if dirty {
+				m.dirty = true
+			}
+			osd.SetPluginPanel(side, toUIPrimitives(prims))
+		}
+	}
+}
+
+// pluginPanelCellSize 计算指定 side 面板的 cell 尺寸（宽×列数，高×行数）。
+func pluginPanelCellSize(side string, surfW, surfH, top, bottom, left, right int, m font.Metrics) (w, h int) {
+	switch side {
+	case "bottom":
+		innerW := surfW - left - right
+		w = innerW / m.Width
+		h = bottom / m.Height
+	case "left":
+		w = left / m.Width
+		h = surfH / m.Height
+	case "right":
+		w = right / m.Width
+		h = surfH / m.Height
+	}
+	return
+}
+
+// toUIPrimitives 将 plugins.Primitive 转换为 ui.PanelPrimitive。
+// session 包同时 import plugins 和 ui，无循环依赖。
+func toUIPrimitives(prims []plugins.Primitive) []ui.PanelPrimitive {
+	if len(prims) == 0 {
+		return nil
+	}
+	out := make([]ui.PanelPrimitive, len(prims))
+	for i, p := range prims {
+		out[i] = ui.PanelPrimitive{
+			Kind: p.Kind,
+			X:    p.X,
+			Y:    p.Y,
+			W:    p.W,
+			H:    p.H,
+			Text: p.Text,
+			Fg:   p.Fg,
+			Bg:   p.Bg,
+			Bold: p.Bold,
+		}
+	}
+	return out
 }
 
 func (m *Master) renderIndependent() error {
@@ -283,7 +371,7 @@ func (m *Master) inputLoop() {
 			if ev.State != platform.KeyPress {
 				continue
 			}
-			m.handleKey(ev)
+			m.dispatchKey(ev)
 			if !platform.LookupModifierCode(ev.Code) {
 				repeatEv = ev
 				delayTimer = time.NewTimer(m.opts.RepeatDelay)
@@ -294,53 +382,53 @@ func (m *Master) inputLoop() {
 			delayCh = nil
 			rateTicker = time.NewTicker(m.opts.RepeatRate)
 			rateCh = rateTicker.C
-			m.handleKey(repeatEv)
+			m.dispatchKey(repeatEv)
 		case <-rateCh:
-			m.handleKey(repeatEv)
+			m.dispatchKey(repeatEv)
 		case <-m.done:
 			return
 		}
 	}
 }
 
+// dispatchKey 由 inputLoop goroutine 调用，将按键事件投递到 keyEvCh，
+// 由主线程 select 消费，保证 plugins.OnKey（gopher-lua VM 非线程安全）
+// 与 handleKey 在主线程串行执行。
+func (m *Master) dispatchKey(ev platform.KeyEvent) {
+	select {
+	case m.keyEvCh <- ev:
+	case <-m.done:
+	}
+}
+
 func (m *Master) handleKey(ev platform.KeyEvent) {
-	if ev.Mods&platform.ModSuper != 0 {
-		switch ev.Rune {
-		case '=':
+	if action, ok := m.keybinds.Match(ev); ok {
+		switch action {
+		case "zoom_in":
 			m.requestScale(1)
-			return
-		case '-':
+		case "zoom_out":
 			m.requestScale(-1)
-			return
-		case '0':
+		case "zoom_reset":
 			m.requestScale(0)
-			return
-		case 't':
+		case "new_tab":
 			m.requestTab(tabNew)
-			return
-		case 'w':
+		case "close_tab":
 			m.requestTab(tabClose)
-			return
-		}
-		if ev.Code >= 2 && ev.Code <= 10 {
-			idx := int(ev.Code) - 2
-			if idx < len(m.slaves) {
-				m.setFocus(idx)
-			}
-			return
-		}
-		if ev.Code == 15 {
-			m.setFocus((m.focusIdx + 1) % len(m.slaves))
-			return
-		}
-		if ev.Code == 105 {
+		case "prev_tab":
 			m.requestTab(tabPrev)
-			return
-		}
-		if ev.Code == 106 {
+		case "next_tab":
 			m.requestTab(tabNext)
-			return
+		case "next_screen":
+			m.setFocus((m.focusIdx + 1) % len(m.slaves))
+		default:
+			if len(action) > 8 && action[:8] == "switch_n" {
+				idx := int(action[8] - '1')
+				if idx >= 0 && idx < len(m.slaves) {
+					m.setFocus(idx)
+				}
+			}
 		}
+		return
 	}
 	if ft := m.focusTerm(); ft != nil {
 		ft.HandleKey(ev)

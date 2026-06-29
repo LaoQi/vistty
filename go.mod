@@ -12,3 +12,5 @@ require (
 require golang.org/x/text v0.38.0
 
 require github.com/ebitengine/purego v0.10.1
+
+require github.com/yuin/gopher-lua v1.1.1 // indirect

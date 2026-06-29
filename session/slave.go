@@ -35,6 +35,16 @@ func (s *Slave) ActiveTerm() *terminal.Terminal {
 	return nil
 }
 
+// Terms 返回该屏幕上的所有终端标签。
+func (s *Slave) Terms() []*terminal.Terminal {
+	return s.terms
+}
+
+// ActiveIdx 返回当前活跃标签索引。
+func (s *Slave) ActiveIdx() int {
+	return s.activeIdx
+}
+
 func (s *Slave) BindTerminal(t *terminal.Terminal) {
 	s.terms = append(s.terms, t)
 }

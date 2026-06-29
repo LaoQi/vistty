@@ -96,3 +96,52 @@ func TestLayoutTabsTruncate(t *testing.T) {
 		t.Errorf("cell 1: expected x=10 r='a', got x=%d r=%q", cells[1].x, cells[1].r)
 	}
 }
+
+func TestInsetsMergePanelLines(t *testing.T) {
+	face := &fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}
+
+	// 仅插件面板，无 cfg
+	o := NewOSD(Config{}, face)
+	o.SetPanelLines(map[string]int{"bottom": 2, "left": 3, "right": 1})
+	top, bottom, left, right := o.Insets()
+	if top != 0 || bottom != 40 || left != 30 || right != 10 {
+		t.Fatalf("plugin-only insets: expected 0,40,30,10 got %d,%d,%d,%d", top, bottom, left, right)
+	}
+
+	// cfg 与 pluginLines 取 max
+	o2 := NewOSD(Config{
+		Top:    SideConfig{Enabled: true, Lines: 1},
+		Bottom: SideConfig{Enabled: true, Lines: 1},
+	}, face)
+	o2.SetPanelLines(map[string]int{"top": 3, "bottom": 1})
+	top, bottom, left, right = o2.Insets()
+	if top != 60 {
+		t.Fatalf("top should be max(cfg=20, plugin=60)=60, got %d", top)
+	}
+	if bottom != 20 {
+		t.Fatalf("bottom should be max(cfg=20, plugin=20)=20, got %d", bottom)
+	}
+
+	// panelLines<=0 不影响
+	o3 := NewOSD(Config{Bottom: SideConfig{Enabled: true, Lines: 1}}, face)
+	o3.SetPanelLines(map[string]int{"bottom": 0})
+	_, bottom, _, _ = o3.Insets()
+	if bottom != 20 {
+		t.Fatalf("bottom with plugin=0 should stay cfg=20, got %d", bottom)
+	}
+}
+
+func TestSetPluginPanel(t *testing.T) {
+	face := &fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}
+	o := NewOSD(Config{}, face)
+	o.SetPluginPanel("bottom", []PanelPrimitive{
+		{Kind: primRect, X: 0, Y: 0, W: 5, H: 1, Bg: [3]uint8{1, 2, 3}},
+	})
+	if len(o.pluginPanels["bottom"]) != 1 {
+		t.Fatal("SetPluginPanel did not store primitive")
+	}
+	o.SetPluginPanel("bottom", nil)
+	if len(o.pluginPanels["bottom"]) != 0 {
+		t.Fatal("SetPluginPanel nil should clear")
+	}
+}

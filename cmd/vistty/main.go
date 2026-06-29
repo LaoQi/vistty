@@ -7,13 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LaoQi/vistty/internal/config"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/drm"
 	"github.com/LaoQi/vistty/internal/platform/gbm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
-	"github.com/LaoQi/vistty/internal/ui"
+	"github.com/LaoQi/vistty/internal/plugins"
 	"github.com/LaoQi/vistty/session"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -27,70 +26,44 @@ func main() {
 
 func run() error {
 	backendFlag := flag.String("backend", "auto", "display backend: auto, wayland, drm, or drm-gbm")
-	shellFlag := flag.String("shell", "/bin/bash", "shell to run")
-	fontFlag := flag.String("font", "", "font file path")
-	fontSizeFlag := flag.Float64("fontsize", 14, "font size in pixels")
-	primaryFlag := flag.String("primary", "", "primary output name or index")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
 	memProfile := flag.String("memprofile", "", "write heap profile to file")
 	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
 	traceFile := flag.String("trace", "", "write execution trace to file")
 	fpsFlag := flag.Bool("fps", false, "print per-frame timing to stderr")
-	recordPath := flag.String("record", "", "record PTY output to file")
+	recordPath := flag.String("record", "", "record PTY output to file (overrides init.lua)")
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
-	errorLogFlag := flag.String("errorlog", "", "error log file path (default ~/.local/share/vistty/error.log)")
-	configFlag := flag.String("config", "", "config file path (default ~/.config/vistty/config.jsonc)")
-	genConfigFlag := flag.Bool("gen-config", false, "print default config to stdout and exit")
+	configFlag := flag.String("config", "", "init.lua script path (default ~/.config/vistty/init.lua)")
 	flag.Parse()
-
-	if *genConfigFlag {
-		fmt.Print(config.Default().Generate())
-		return nil
-	}
 
 	configPath := *configFlag
 	if configPath == "" {
-		if p, err := config.DefaultPath(); err == nil {
-			configPath = p
-		}
+		configPath = plugins.DefaultInitPath()
 	}
 
-	cfg, err := config.Load(configPath)
+	pm := plugins.NewPluginManager(configPath)
+	runCfg, err := pm.Load()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		pm.Close()
+		return fmt.Errorf("load init.lua: %w", err)
 	}
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 
-	if !explicit["backend"] && cfg.Backend != "" {
-		*backendFlag = cfg.Backend
-	}
-	if !explicit["shell"] && cfg.Shell != "" {
-		*shellFlag = cfg.Shell
-	}
-	if !explicit["font"] {
-		*fontFlag = cfg.Font
-	}
-	if !explicit["fontsize"] && cfg.FontSize != 0 {
-		*fontSizeFlag = cfg.FontSize
-	}
-	if !explicit["primary"] {
-		*primaryFlag = cfg.Primary
-	}
-	if !explicit["record"] {
-		*recordPath = cfg.Record
+	backendName := runCfg.Backend
+	if explicit["backend"] {
+		backendName = *backendFlag
 	}
 
-	if explicit["errorlog"] {
-		if *errorLogFlag != "" {
-			if err := debug.ConfigureError(*errorLogFlag, true); err != nil {
-				fmt.Fprintf(os.Stderr, "configure error log: %v\n", err)
-			}
-		}
-	} else if cfg.ErrorLog != "" {
-		if err := debug.ConfigureError(cfg.ErrorLog, true); err != nil {
+	recordPathFinal := runCfg.Record
+	if explicit["record"] {
+		recordPathFinal = *recordPath
+	}
+
+	if runCfg.ErrorLog != "" {
+		if err := debug.ConfigureError(runCfg.ErrorLog, true); err != nil {
 			fmt.Fprintf(os.Stderr, "configure error log: %v\n", err)
 		}
 	}
@@ -101,14 +74,15 @@ func run() error {
 	}
 
 	opts := terminal.DefaultOptions()
-	opts.Shell = *shellFlag
-	opts.FontPath = *fontFlag
-	opts.FontSize = *fontSizeFlag
-	opts.Primary = *primaryFlag
+	opts.Shell = runCfg.Shell
+	opts.FontPath = runCfg.FontPath
+	opts.FontSize = runCfg.FontSize
+	opts.Primary = runCfg.Primary
 
-	if *recordPath != "" {
-		f, err := os.Create(*recordPath)
+	if recordPathFinal != "" {
+		f, err := os.Create(recordPathFinal)
 		if err != nil {
+			pm.Close()
 			return fmt.Errorf("create record file: %w", err)
 		}
 		defer f.Close()
@@ -123,12 +97,13 @@ func run() error {
 		fps:          *fpsFlag,
 	}
 	if err := prof.start(); err != nil {
+		pm.Close()
 		return fmt.Errorf("start profiling: %w", err)
 	}
 	defer prof.stop()
 
 	var backend platform.Backend
-	switch *backendFlag {
+	switch backendName {
 	case "auto":
 		fd, probeErr := drm.ProbeDetailed()
 		if probeErr == nil {
@@ -155,17 +130,20 @@ func run() error {
 			backend, err = wayland.NewWaylandBackend()
 		}
 		if backend == nil {
+			pm.Close()
 			return fmt.Errorf("no suitable display backend found (tried drm-gbm, drm, wayland)")
 		}
 	case "drm-gbm":
 		var drmBackend *drm.DRMBackend
 		drmBackend, err = drm.NewDRMBackend(resolvedTty)
 		if err != nil {
+			pm.Close()
 			return fmt.Errorf("drm-gbm: failed to create DRM backend: %w", err)
 		}
 		gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 		if gbmErr != nil {
 			drmBackend.Close()
+			pm.Close()
 			if strings.Contains(gbmErr.Error(), "DRM_CLIENT_CAP_ATOMIC") {
 				return fmt.Errorf("drm-gbm: kernel does not support atomic modesetting, use -backend drm for dumb buffer")
 			}
@@ -183,9 +161,11 @@ func run() error {
 		}
 		backend, err = wayland.NewWaylandBackend()
 	default:
-		return fmt.Errorf("unknown backend: %s (valid: auto, wayland, drm, drm-gbm)", *backendFlag)
+		pm.Close()
+		return fmt.Errorf("unknown backend: %s (valid: auto, wayland, drm, drm-gbm)", backendName)
 	}
 	if err != nil {
+		pm.Close()
 		return fmt.Errorf("failed to create backend: %w", err)
 	}
 	defer backend.Close()
@@ -202,17 +182,18 @@ func run() error {
 		return nil
 	}
 
-	uiCfg := ui.Config{
-		Top:    ui.SideConfig{Enabled: cfg.OSD.Top},
-		Bottom: ui.SideConfig{Enabled: cfg.OSD.Bottom},
-		Left:   ui.SideConfig{Enabled: cfg.OSD.Left},
-		Right:  ui.SideConfig{Enabled: cfg.OSD.Right},
-	}
-	m, err := session.NewMaster(backend, opts, uiCfg)
+	uiCfg := runCfg.OSD
+	keybinds := toSessionKeybinds(runCfg.Keybindings)
+	m, err := session.NewMaster(backend, opts, uiCfg, keybinds)
 	if err != nil {
+		pm.Close()
 		return fmt.Errorf("failed to create master: %w", err)
 	}
 	defer m.Close()
+	defer pm.Close()
+
+	m.SetPluginManager(pm)
+	pm.Activate(m)
 
 	if prof.fps {
 		m.EnableFPSLogging()
@@ -235,4 +216,16 @@ func resolveTtyPath(tty string) string {
 		return "/dev/tty" + tty
 	}
 	return tty
+}
+
+func toSessionKeybinds(pk plugins.KeybindTable) session.KeybindTable {
+	out := make(session.KeybindTable, len(pk))
+	for k, v := range pk {
+		out[k] = session.ResolvedKeybind{
+			Mod:  v.Mod,
+			Rune: v.Rune,
+			Code: v.Code,
+		}
+	}
+	return out
 }

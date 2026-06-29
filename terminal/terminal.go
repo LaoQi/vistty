@@ -129,6 +129,32 @@ func (t *Terminal) Screen() *screen.Buffer {
 	return t.screen
 }
 
+// ReadCells 返回当前屏幕可见区域的纯字符快照（rows 行 × cols 列）。
+// 供插件层（vistty.term.read_screen）在不依赖 screen 包类型的前提下
+// 读取终端字符内容。加读锁保证快照一致性。
+func (t *Terminal) ReadCells() [][]rune {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	rows := t.rows
+	cols := t.cols
+	result := make([][]rune, rows)
+	buf := t.screen
+	for r := 0; r < rows; r++ {
+		result[r] = make([]rune, cols)
+		line := buf.Line(r)
+		if line == nil {
+			continue
+		}
+		for c := 0; c < cols; c++ {
+			cell := line.Cell(c)
+			if cell != nil {
+				result[r][c] = cell.Rune
+			}
+		}
+	}
+	return result
+}
+
 func (t *Terminal) Cursor() *screen.Cursor {
 	return t.cursor
 }

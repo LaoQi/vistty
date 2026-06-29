@@ -10,6 +10,7 @@ import (
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/plugins"
 	"github.com/LaoQi/vistty/internal/screen"
 	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
@@ -57,8 +58,13 @@ type Master struct {
 	tabReqCh chan tabReq
 	osdDirty bool
 
+	keybinds KeybindTable
+
 	seqRelay chan seqMsg
 	exitCh   chan *terminal.Terminal
+
+	keyEvCh chan platform.KeyEvent
+	plugins *plugins.PluginManager
 
 	done        chan struct{}
 	closeOnce   sync.Once
@@ -66,7 +72,7 @@ type Master struct {
 	cleanupOnce sync.Once
 }
 
-func NewMaster(backend platform.Backend, opts terminal.Options, osdCfg ui.Config) (*Master, error) {
+func NewMaster(backend platform.Backend, opts terminal.Options, osdCfg ui.Config, keybinds KeybindTable) (*Master, error) {
 	outputs, err := backend.ListOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("list outputs: %w", err)
@@ -132,6 +138,8 @@ func NewMaster(backend platform.Backend, opts terminal.Options, osdCfg ui.Config
 		frameInterval:   time.Second / 60,
 		osdCfg:          osdCfg,
 		tabReqCh:        make(chan tabReq, 1),
+		keybinds:        keybinds,
+		keyEvCh:         make(chan platform.KeyEvent, 64),
 		done:            make(chan struct{}),
 	}
 
@@ -246,6 +254,12 @@ func (m *Master) focusTerm() *terminal.Terminal {
 
 func (m *Master) EnableFPSLogging() {
 	m.fpsLogging = true
+}
+
+// SetPluginManager 注入插件管理器，由 cmd/vistty 在 P5 阶段组装调用。
+// 须在 Run 之前调用。nil 时禁用插件拦截，按键直接走 handleKey。
+func (m *Master) SetPluginManager(pm *plugins.PluginManager) {
+	m.plugins = pm
 }
 
 // SetFrameRate 设置渲染帧率，预留动态帧率调整。
@@ -384,3 +398,152 @@ func (m *Master) handleTermExit(t *terminal.Terminal) {
 	m.refreshOSD()
 	m.dirty = true
 }
+
+// === plugins.PluginContext 实现 ===
+//
+// 以下方法实现 internal/plugins.PluginContext 接口。
+// 标签/缩放操作通过 channel 投递主线程执行（与渲染循环串行）。
+// 终端访问方法（FocusTerm/Terms/TabList）只读，假定在主线程调用；
+// 若外部 goroutine 调用需调用方自行保证不与渲染循环并发。
+
+// FocusTerm 返回当前焦点终端。未激活时返回 nil。
+func (m *Master) FocusTerm() *terminal.Terminal {
+	return m.focusTerm()
+}
+
+// Terms 返回所有活跃终端列表（跨屏幕）。
+func (m *Master) Terms() []*terminal.Terminal {
+	return m.terms
+}
+
+// NewTab 在当前焦点屏幕创建新标签。
+func (m *Master) NewTab() error {
+	select {
+	case m.tabReqCh <- tabReq{action: tabNew}:
+	case <-m.done:
+		return fmt.Errorf("master closed")
+	}
+	return nil
+}
+
+// CloseCurrentTab 关闭当前焦点标签。
+func (m *Master) CloseCurrentTab() {
+	select {
+	case m.tabReqCh <- tabReq{action: tabClose}:
+	case <-m.done:
+	}
+}
+
+// NextTab 切换到下一个标签。
+func (m *Master) NextTab() {
+	select {
+	case m.tabReqCh <- tabReq{action: tabNext}:
+	case <-m.done:
+	}
+}
+
+// PrevTab 切换到上一个标签。
+func (m *Master) PrevTab() {
+	select {
+	case m.tabReqCh <- tabReq{action: tabPrev}:
+	case <-m.done:
+	}
+}
+
+// TabList 返回当前焦点屏幕的标签列表。
+// 在主线程调用安全（Lua 钩子在主线程执行）。
+func (m *Master) TabList() []plugins.TabInfo {
+	if m.focusIdx >= len(m.slaves) {
+		return nil
+	}
+	slave := m.slaves[m.focusIdx]
+	if len(slave.terms) == 0 {
+		return nil
+	}
+	list := make([]plugins.TabInfo, len(slave.terms))
+	for i, t := range slave.terms {
+		list[i] = plugins.TabInfo{
+			Title:  t.Title(),
+			Active: i == slave.activeIdx,
+		}
+	}
+	return list
+}
+
+// NextScreen 切换到下一个屏幕（多屏场景）。
+func (m *Master) NextScreen() {
+	if len(m.slaves) == 0 {
+		return
+	}
+	m.setFocus((m.focusIdx + 1) % len(m.slaves))
+}
+
+// SwitchScreen 切换到指定索引的屏幕。
+func (m *Master) SwitchScreen(idx int) {
+	if idx >= 0 && idx < len(m.slaves) {
+		m.setFocus(idx)
+	}
+}
+
+// ScreenCount 返回屏幕数量。
+func (m *Master) ScreenCount() int {
+	return len(m.slaves)
+}
+
+// FocusScreenIdx 返回当前焦点屏幕索引。
+func (m *Master) FocusScreenIdx() int {
+	return m.focusIdx
+}
+
+// ZoomIn 放大字体。
+func (m *Master) ZoomIn() {
+	select {
+	case m.scaleReqCh <- scaleReq{delta: 1}:
+	case <-m.done:
+	}
+}
+
+// ZoomOut 缩小字体。
+func (m *Master) ZoomOut() {
+	select {
+	case m.scaleReqCh <- scaleReq{delta: -1}:
+	case <-m.done:
+	}
+}
+
+// ZoomReset 重置字体到初始大小。
+func (m *Master) ZoomReset() {
+	select {
+	case m.scaleReqCh <- scaleReq{delta: 0}:
+	case <-m.done:
+	}
+}
+
+// EnablePanel 启用 OSD 面板（运行期动态启用插件面板）。
+// 下一帧 renderPlugins 会同步到 OSD.SetPanelLines 使 Insets 扩大。
+func (m *Master) EnablePanel(side string, lines int) {
+	if m.plugins == nil {
+		return
+	}
+	m.plugins.SetPanel(side, lines)
+}
+
+// DisablePanel 禁用 OSD 面板（运行期动态禁用插件面板）。
+func (m *Master) DisablePanel(side string) {
+	if m.plugins == nil {
+		return
+	}
+	m.plugins.SetPanel(side, 0)
+}
+
+// ReloadPlugins 热重载插件：清空钩子与面板状态，重新执行 init.lua + Activate。
+// 须在主渲染线程调用（与 OnKey/OnRender 同线程，避免 LState 并发）。
+func (m *Master) ReloadPlugins() error {
+	if m.plugins == nil {
+		return nil
+	}
+	return m.plugins.Reload()
+}
+
+// 编译期断言：Master 实现 plugins.PluginContext 接口。
+var _ plugins.PluginContext = (*Master)(nil)
