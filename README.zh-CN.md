@@ -95,4 +95,4 @@ go run ./cmd/vistty -backend drm -tty 2
 
 ## 协议
 
-Vistty 基于 [GNU 通用公共许可证 v2](./LICENSE) 授权。
+Vistty 基于 [GNU 通用公共许可证 v2 或更高版本](./LICENSE) 授权。

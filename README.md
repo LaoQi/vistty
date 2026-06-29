@@ -106,4 +106,4 @@ go run ./cmd/vistty -config ./my-config.jsonc
 
 ## License
 
-Vistty is licensed under the [GNU General Public License v2](./LICENSE).
+Vistty is licensed under the [GNU General Public License v2 or later](./LICENSE).

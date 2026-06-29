@@ -1,3 +1,6 @@
 /vistty
 fix.md
 plan.md
+
+# rime-ice 词库源（构建时由 scripts/gen-dict.sh 拉取）
+/rime-ice

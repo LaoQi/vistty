@@ -48,32 +48,61 @@ vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
 	if super() then vistty.screen.switch(n - 1); return true end
 end)
 
--- === 输入拦截示例 ===
--- Ctrl+Space → 发送 PageDown 转义序列并吞掉原事件
+-- === 拼音输入法 ===
+-- Ctrl+Space 切换激活/去激活。on_key 钩子按注册顺序执行，
+-- 此钩子仅匹配 Ctrl+Space 时返回 true 吞掉，其他情况返回 nil 放行。
 vistty.input.on_key(function(ev)
-	-- 仅在按下时触发，忽略释放事件
 	if ev.state ~= vistty.state.PRESS then return end
-	-- Ctrl+Space → PageDown
-	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL and ev.code == vistty.keys.SPACE then
-		vistty.term.send("\x1b[6~")
+	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL
+	   and ev.code == vistty.keys.SPACE then
+		if vistty.ime.active() then
+			vistty.ime.deactivate()
+		else
+			vistty.ime.activate("pinyin")
+		end
 		return true
-	end
-	-- Ctrl+C 拦截示例：按 C 键 + Ctrl 修饰
-	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL and ev.code == vistty.keys.C then
-		vistty.log("Ctrl+C intercepted")
-		-- return true  -- 取消注释则吞掉 Ctrl+C
 	end
 end)
 
--- === 底部状态栏插件 ===
--- 启用 1 行底部面板，每帧渲染时钟与标签数
+-- 按键路由到 active 输入法。必须注册在切换钩子之后：
+-- IME 未激活直接放行；process_key 返回 consumed=true 则吞掉按键不传终端。
+vistty.input.on_key(function(ev)
+	if ev.state ~= vistty.state.PRESS then return end
+	if not vistty.ime.active() then return end
+	local r = vistty.ime.process_key(ev)
+	if r.commit and r.commit ~= "" then
+		vistty.term.send(r.commit)
+	end
+	return r.consumed
+end)
+
+-- === 底部状态栏 ===
+-- 启用 1 行底部面板：IME 激活时渲染 preedit + 候选词，否则渲染时钟与标签数。
 -- 颜色可用 vistty.colors 常量或 "#RRGGBB" / "#RRGGBBAA" 字符串
 vistty.ui.enable("bottom", 1)
 vistty.ui.on_render(function(ctx)
 	local w, h = ctx:size()
 	ctx:rect(0, 0, w, h, {bg=vistty.colors.DARKGRAY})
-	ctx:text(2, 0, os.date("%H:%M:%S"), {fg="#64C8FF"})
-	ctx:text(w - 10, 0, "tabs:" .. vistty.tab.count(), {fg=vistty.colors.GOLD})
+
+	if vistty.ime.active() then
+		local pre = vistty.ime.preedit()
+		if pre == "" then
+			ctx:text(2, 0, "中", {fg=vistty.colors.CYAN})
+		else
+			ctx:text(0, 0, pre .. "_", {fg=vistty.colors.CYAN})
+			local cands = vistty.ime.candidates()
+			local x = #pre + 2
+			for i, c in ipairs(cands) do
+				local idx = tostring(i)
+				ctx:text(x, 0, idx, {fg=vistty.colors.GRAY})
+				ctx:text(x + #idx, 0, c.word, {fg=vistty.colors.WHITE})
+				x = x + #idx + #c.word + 1
+			end
+		end
+	else
+		ctx:text(2, 0, os.date("%H:%M:%S"), {fg="#64C8FF"})
+		ctx:text(w - 10, 0, "tabs:" .. vistty.tab.count(), {fg=vistty.colors.GOLD})
+	end
 	return true
 end)
 
