@@ -101,8 +101,7 @@ func TestMasterCloseIdempotent(t *testing.T) {
 	opts.Shell = "/bin/cat"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, keybinds)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -134,8 +133,7 @@ func TestMasterPtyExit(t *testing.T) {
 	opts.Shell = "/bin/true"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, keybinds)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -159,8 +157,7 @@ func TestMasterInputNoDeadlock(t *testing.T) {
 	opts.Shell = "/bin/cat"
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
-	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, keybinds)
+	m, err := NewMaster(b, opts)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}

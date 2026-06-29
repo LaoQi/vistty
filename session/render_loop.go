@@ -368,14 +368,15 @@ func (m *Master) inputLoop() {
 		select {
 		case ev := <-m.input.KeyEvents():
 			stopRepeat()
-			if ev.State != platform.KeyPress {
-				continue
-			}
-			m.dispatchKey(ev)
-			if !platform.LookupModifierCode(ev.Code) {
-				repeatEv = ev
-				delayTimer = time.NewTimer(m.opts.RepeatDelay)
-				delayCh = delayTimer.C
+			if ev.State == platform.KeyPress {
+				m.dispatchKey(ev)
+				if !platform.LookupModifierCode(ev.Code) {
+					repeatEv = ev
+					delayTimer = time.NewTimer(m.opts.RepeatDelay)
+					delayCh = delayTimer.C
+				}
+			} else {
+				m.dispatchKey(ev)
 			}
 		case <-delayCh:
 			delayTimer = nil
@@ -402,32 +403,7 @@ func (m *Master) dispatchKey(ev platform.KeyEvent) {
 }
 
 func (m *Master) handleKey(ev platform.KeyEvent) {
-	if action, ok := m.keybinds.Match(ev); ok {
-		switch action {
-		case "zoom_in":
-			m.requestScale(1)
-		case "zoom_out":
-			m.requestScale(-1)
-		case "zoom_reset":
-			m.requestScale(0)
-		case "new_tab":
-			m.requestTab(tabNew)
-		case "close_tab":
-			m.requestTab(tabClose)
-		case "prev_tab":
-			m.requestTab(tabPrev)
-		case "next_tab":
-			m.requestTab(tabNext)
-		case "next_screen":
-			m.setFocus((m.focusIdx + 1) % len(m.slaves))
-		default:
-			if len(action) > 8 && action[:8] == "switch_n" {
-				idx := int(action[8] - '1')
-				if idx >= 0 && idx < len(m.slaves) {
-					m.setFocus(idx)
-				}
-			}
-		}
+	if ev.State != platform.KeyPress {
 		return
 	}
 	if ft := m.focusTerm(); ft != nil {

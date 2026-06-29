@@ -31,7 +31,7 @@
 
 ```
 cmd/vistty (入口，-backend 选择后端 + -config 指定 init.lua + PluginManager 注入)
-    └── session (协调层：枚举输出 + 焦点路由 + 渲染编排 + 缩放热键 + 标签管理)
+    └── session (协调层：枚举输出 + 焦点路由 + 渲染编排 + 标签管理)
             ├── terminal (纯逻辑会话：PTY + screen + parser + CSI 执行)
             │       ├── vte (转义解析)
             │       └── screen (缓冲区)
@@ -147,7 +147,6 @@ github.com/LaoQi/vistty/
 │   ├── master.go                # Master + 标签生命周期 + PluginContext 实现
 │   ├── slave.go                 # Slave 输出绑定 + OSD 联动
 │   ├── render_loop.go           # 主循环 + handleKey/Resize/Scale + 插件 OnRender
-│   ├── keybind.go               # KeybindTable/ResolvedKeybind
 │   └── master_test.go
 ├── terminal/
 │   ├── terminal.go              # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control
@@ -160,8 +159,8 @@ github.com/LaoQi/vistty/
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活
 │   │   ├── context.go           # PluginContext 接口 + TabInfo
-│   │   ├── config.go            # RunConfig + readConfig + toKeybindTable
-│   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui API
+│   │   ├── config.go            # RunConfig + readConfig
+│   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/keybind API
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
@@ -272,9 +271,9 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择
-- OSD 标签栏 + 多终端标签（Mod+T/W/左右切换）
-- 插件系统（gopher-lua init.lua + vistty.* API + 面板渲染 + 热重载）
-- 动态缩放（Mod+=/-/0）+ dirty 跳帧 + 光标时间戳闪烁
+- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）
+- 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_range/pressed + 面板渲染 + 热重载）
+- 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复
 - 两阶段关闭 + Close 幂等 + 渲染错误容错

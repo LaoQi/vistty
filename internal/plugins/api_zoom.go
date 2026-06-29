@@ -10,16 +10,14 @@ func registerZoom(L *lua.LState, pm *PluginManager) {
 	zoomT := L.NewTable()
 	vt.RawSetString("zoom", zoomT)
 
-	// vistty.zoom.in() — 放大字体
-	zoomT.RawSetString("in", L.NewFunction(func(L *lua.LState) int {
+	zoomT.RawSetString("increase", L.NewFunction(func(L *lua.LState) int {
 		if pm.ctx != nil {
 			pm.ctx.ZoomIn()
 		}
 		return 0
 	}))
 
-	// vistty.zoom.out() — 缩小字体
-	zoomT.RawSetString("out", L.NewFunction(func(L *lua.LState) int {
+	zoomT.RawSetString("decrease", L.NewFunction(func(L *lua.LState) int {
 		if pm.ctx != nil {
 			pm.ctx.ZoomOut()
 		}

@@ -177,8 +177,7 @@ func run() error {
 		return nil
 	}
 
-	keybinds := toSessionKeybinds(runCfg.Keybindings)
-	m, err := session.NewMaster(backend, opts, keybinds)
+	m, err := session.NewMaster(backend, opts)
 	if err != nil {
 		pm.Close()
 		return fmt.Errorf("failed to create master: %w", err)
@@ -212,14 +211,3 @@ func resolveTtyPath(tty string) string {
 	return tty
 }
 
-func toSessionKeybinds(pk plugins.KeybindTable) session.KeybindTable {
-	out := make(session.KeybindTable, len(pk))
-	for k, v := range pk {
-		out[k] = session.ResolvedKeybind{
-			Mod:  v.Mod,
-			Rune: v.Rune,
-			Code: v.Code,
-		}
-	}
-	return out
-}

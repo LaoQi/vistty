@@ -17,9 +17,6 @@ func TestP1DefaultConfig(t *testing.T) {
 	if cfg.Backend != "auto" || cfg.Shell != "/bin/bash" || cfg.FontSize != 14 {
 		t.Fatalf("default config mismatch: %+v", cfg)
 	}
-	if len(cfg.Keybindings) < 17 {
-		t.Fatalf("default keybindings count %d < 17", len(cfg.Keybindings))
-	}
 	pm.Close()
 }
 
@@ -27,7 +24,6 @@ func TestP1LuaConfig(t *testing.T) {
 	src := `
 vistty.config = {
 	backend = "wayland", shell = "/bin/zsh", fontsize = 18,
-	keybindings = { zoom_in = {key="=", mod="ctrl"}, new_tab = {key="t", mod="alt"} },
 }
 `
 	f := writeTemp(t, src)
@@ -39,18 +35,57 @@ vistty.config = {
 	if cfg.Backend != "wayland" || cfg.Shell != "/bin/zsh" || cfg.FontSize != 18 {
 		t.Fatalf("lua config mismatch: %+v", cfg)
 	}
-	if cfg.Keybindings["zoom_in"].Mod != platform.ModCtrl {
-		t.Fatalf("zoom_in mod != ctrl: %+v", cfg.Keybindings["zoom_in"])
+	pm.Close()
+}
+
+func TestP1Bind(t *testing.T) {
+	src := `
+vistty.input.bind(vistty.keys.EQUAL, function()
+	if vistty.input.pressed(vistty.keys.LEFT_SUPER) then
+		return true
+	end
+end)
+vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
+	if vistty.input.pressed(vistty.keys.LEFT_SUPER) then
+		return true
+	end
+end)
+`
+	f := writeTemp(t, src)
+	pm := NewPluginManager(f)
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
 	}
-	if cfg.Keybindings["new_tab"].Mod != platform.ModAlt {
-		t.Fatalf("new_tab mod != alt: %+v", cfg.Keybindings["new_tab"])
+	pm.Activate(nil)
+
+	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyPress})
+	consumed, _ := pm.OnKey(platform.KeyEvent{Code: 13, Mods: platform.ModSuper, State: platform.KeyPress})
+	if !consumed {
+		t.Fatal("Super+Equal bind should be consumed")
 	}
-	if cfg.Keybindings["zoom_out"].Mod != platform.ModSuper {
-		t.Fatalf("zoom_out default mod != super: %+v", cfg.Keybindings["zoom_out"])
+
+	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyRelease})
+	pm.OnKey(platform.KeyEvent{Code: 13, State: platform.KeyRelease})
+	consumed2, _ := pm.OnKey(platform.KeyEvent{Code: 13, State: platform.KeyPress})
+	if consumed2 {
+		t.Fatal("Equal without Super should not be consumed by bind")
 	}
-	if cfg.Keybindings["switch_n1"].Rune != '1' {
-		t.Fatalf("switch_n1 rune != 1: %+v", cfg.Keybindings["switch_n1"])
+
+	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyPress})
+	consumed3, _ := pm.OnKey(platform.KeyEvent{Code: 6, Mods: platform.ModSuper, State: platform.KeyPress})
+	if !consumed3 {
+		t.Fatal("Super+NUM5 bind_range should be consumed")
 	}
+
+	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyPress})
+	if !pm.pressedKeys[125] {
+		t.Fatal("LEFT_SUPER should be pressed")
+	}
+	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyRelease})
+	if pm.pressedKeys[125] {
+		t.Fatal("LEFT_SUPER should be released after KeyRelease")
+	}
+
 	pm.Close()
 }
 

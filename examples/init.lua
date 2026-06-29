@@ -13,18 +13,40 @@ vistty.config = {
 	fontsize  = 14,
 	primary   = "",           -- 主屏名称（如 HDMI-A-1）或索引
 	error_log = "",           -- 留空使用默认 ~/.local/share/vistty/error.log
-	keybindings = {
-		zoom_in     = {key="=",     mod="super"},
-		zoom_out    = {key="-",     mod="super"},
-		zoom_reset  = {key="0",     mod="super"},
-		new_tab     = {key="t",     mod="super"},
-		close_tab   = {key="w",     mod="super"},
-		prev_tab    = {key="Left",  mod="super"},
-		next_tab    = {key="Right", mod="super"},
-		next_screen = {key="Tab",   mod="super"},
-		switch_n    = {key="1-9",   mod="super"},  -- 展开为 switch_n1..switch_n9
-	},
 }
+
+local function super()
+	return vistty.input.pressed(vistty.keys.LEFT_SUPER) or
+	       vistty.input.pressed(vistty.keys.RIGHT_SUPER)
+end
+
+vistty.input.bind(vistty.keys.EQUAL, function()
+	if super() then vistty.zoom.increase(); return true end
+end)
+vistty.input.bind(vistty.keys.MINUS, function()
+	if super() then vistty.zoom.decrease(); return true end
+end)
+vistty.input.bind(vistty.keys.NUM0, function()
+	if super() then vistty.zoom.reset(); return true end
+end)
+vistty.input.bind(vistty.keys.T, function()
+	if super() then vistty.tab.new(); return true end
+end)
+vistty.input.bind(vistty.keys.W, function()
+	if super() then vistty.tab.close(); return true end
+end)
+vistty.input.bind(vistty.keys.LEFT, function()
+	if super() then vistty.tab.prev(); return true end
+end)
+vistty.input.bind(vistty.keys.RIGHT, function()
+	if super() then vistty.tab.next(); return true end
+end)
+vistty.input.bind(vistty.keys.TAB, function()
+	if super() then vistty.screen.next(); return true end
+end)
+vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
+	if super() then vistty.screen.switch(n - 1); return true end
+end)
 
 -- === 输入拦截示例 ===
 -- Ctrl+Space → 发送 PageDown 转义序列并吞掉原事件

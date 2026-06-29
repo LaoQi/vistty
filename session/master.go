@@ -56,8 +56,6 @@ type Master struct {
 	tabReqCh chan tabReq
 	osdDirty bool
 
-	keybinds KeybindTable
-
 	seqRelay chan seqMsg
 	exitCh   chan *terminal.Terminal
 
@@ -70,7 +68,7 @@ type Master struct {
 	cleanupOnce sync.Once
 }
 
-func NewMaster(backend platform.Backend, opts terminal.Options, keybinds KeybindTable) (*Master, error) {
+func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error) {
 	outputs, err := backend.ListOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("list outputs: %w", err)
@@ -135,7 +133,6 @@ func NewMaster(backend platform.Backend, opts terminal.Options, keybinds Keybind
 		renderReqCh:     make(chan struct{}, 1),
 		frameInterval:   time.Second / 60,
 		tabReqCh:        make(chan tabReq, 1),
-		keybinds:        keybinds,
 		keyEvCh:         make(chan platform.KeyEvent, 64),
 		done:            make(chan struct{}),
 	}

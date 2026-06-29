@@ -80,7 +80,6 @@ func TestP6EndToEnd(t *testing.T) {
 vistty.config = {
 	backend = "wayland", shell = "/bin/zsh", fontsize = 18,
 	osd = { top = true },
-	keybindings = { new_tab = {key="t", mod="alt"} },
 }
 
 vistty.input.on_key(function(ev)
@@ -116,9 +115,6 @@ end)
 	}
 	if cfg.FontSize != 18 {
 		t.Fatalf("fontsize want 18 got %v", cfg.FontSize)
-	}
-	if cfg.Keybindings["new_tab"].Mod != platform.ModAlt {
-		t.Fatalf("new_tab mod want alt got %+v", cfg.Keybindings["new_tab"])
 	}
 
 	panels := pm.EnabledPanels()
@@ -294,9 +290,6 @@ func TestP6ExampleInitLua(t *testing.T) {
 	}
 	if cfg.FontSize != 14 {
 		t.Fatalf("fontsize want 14 got %v", cfg.FontSize)
-	}
-	if cfg.Keybindings["switch_n1"].Rune != '1' {
-		t.Fatalf("switch_n1 rune want '1' got %q", string(cfg.Keybindings["switch_n1"].Rune))
 	}
 
 	panels := pm.EnabledPanels()

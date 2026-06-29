@@ -68,8 +68,8 @@ assert(vistty.screen.focused_idx() == 2, "after switch(2) focused should be 2")
 
 func TestP2ZoomAPI(t *testing.T) {
 	src := `
-vistty.zoom["in"]()
-vistty.zoom.out()
+vistty.zoom.increase()
+vistty.zoom.decrease()
 vistty.zoom.reset()
 `
 	fc := &fakeCtx{}
@@ -136,8 +136,8 @@ assert(type(vistty.screen.count) == "function")
 assert(type(vistty.screen.focused_idx) == "function")
 
 assert(type(vistty.zoom) == "table")
-	assert(type(vistty.zoom["in"]) == "function")
-	assert(type(vistty.zoom.out) == "function")
+	assert(type(vistty.zoom.increase) == "function")
+	assert(type(vistty.zoom.decrease) == "function")
 	assert(type(vistty.zoom.reset) == "function")
 `
 	f := writeTemp(t, src)

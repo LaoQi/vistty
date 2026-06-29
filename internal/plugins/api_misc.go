@@ -125,6 +125,7 @@ var colorsTable = map[string]string{
 // 由 NewPluginManager 与 Reload 调用，确保每次状态重建后 API 就位。
 func registerAPIs(L *lua.LState, pm *PluginManager) {
 	registerMisc(L, pm)
+	registerKeybind(L, pm)
 	registerTerm(L, pm)
 	registerTab(L, pm)
 	registerScreen(L, pm)
