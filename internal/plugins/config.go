@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/LaoQi/vistty/internal/platform"
-	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/yuin/gopher-lua"
 )
 
@@ -23,10 +22,7 @@ type RunConfig struct {
 	FontPath    string
 	FontSize    float64
 	Primary     string
-	ModKey      string
 	ErrorLog    string
-	Record      string
-	OSD         ui.Config
 	Keybindings KeybindTable
 }
 
@@ -85,12 +81,7 @@ func DefaultRunConfig() *RunConfig {
 		FontPath: "",
 		FontSize: 14,
 		Primary:  "",
-		ModKey:   "super",
 		ErrorLog: "",
-		Record:   "",
-		OSD: ui.Config{
-			Top: ui.SideConfig{Enabled: true},
-		},
 		Keybindings: defaultKeybindTable(),
 	}
 }
@@ -115,14 +106,14 @@ func defaultLuaKeybindings() *luaKeybindings {
 }
 
 func defaultKeybindTable() KeybindTable {
-	return toKeybindTable(defaultLuaKeybindings(), "super")
+	return toKeybindTable(defaultLuaKeybindings())
 }
 
 // toKeybindTable 将 luaKeybindings 转换为 KeybindTable。
-// 逻辑与 session.ResolveKeybindings 等价：modKey 作为默认 mod，
-// 各键绑定非空 mod 则覆盖；SwitchN 的 "1-9" 展开为 9 个条目。
-func toKeybindTable(lkb *luaKeybindings, modKey string) KeybindTable {
-	defaultMod := platform.ParseModKey(modKey)
+// 逻辑与 session.ResolveKeybindings 等价：各键绑定非空 mod 则用之，
+// 否则回退到 ModSuper（ParseModKey 默认值）；SwitchN 的 "1-9" 展开为 9 个条目。
+func toKeybindTable(lkb *luaKeybindings) KeybindTable {
+	defaultMod := platform.ModSuper
 	table := make(KeybindTable)
 
 	resolve := func(name string, kb luaKeybind) {
@@ -201,25 +192,12 @@ func (pm *PluginManager) readConfig() (*RunConfig, error) {
 	cfg.FontPath = getString(pm.L, ct, "font", cfg.FontPath)
 	cfg.FontSize = getNumber(pm.L, ct, "fontsize", cfg.FontSize)
 	cfg.Primary = getString(pm.L, ct, "primary", cfg.Primary)
-	cfg.ModKey = getString(pm.L, ct, "mod_key", cfg.ModKey)
 	cfg.ErrorLog = getString(pm.L, ct, "error_log", cfg.ErrorLog)
-	cfg.Record = getString(pm.L, ct, "record", cfg.Record)
-
-	if osdVal := pm.L.GetField(ct, "osd"); osdVal != lua.LNil {
-		if osdT, ok := osdVal.(*lua.LTable); ok {
-			cfg.OSD = ui.Config{
-				Top:    ui.SideConfig{Enabled: getBool(pm.L, osdT, "top", cfg.OSD.Top.Enabled)},
-				Bottom: ui.SideConfig{Enabled: getBool(pm.L, osdT, "bottom", cfg.OSD.Bottom.Enabled)},
-				Left:   ui.SideConfig{Enabled: getBool(pm.L, osdT, "left", cfg.OSD.Left.Enabled)},
-				Right:  ui.SideConfig{Enabled: getBool(pm.L, osdT, "right", cfg.OSD.Right.Enabled)},
-			}
-		}
-	}
 
 	if kbVal := pm.L.GetField(ct, "keybindings"); kbVal != lua.LNil {
 		if kbT, ok := kbVal.(*lua.LTable); ok {
 			lkb := readLuaKeybindings(pm.L, kbT)
-			cfg.Keybindings = toKeybindTable(lkb, cfg.ModKey)
+			cfg.Keybindings = toKeybindTable(lkb)
 		}
 	}
 

@@ -31,7 +31,7 @@ func run() error {
 	mutexProfile := flag.String("mutexprofile", "", "write mutex profile to file")
 	traceFile := flag.String("trace", "", "write execution trace to file")
 	fpsFlag := flag.Bool("fps", false, "print per-frame timing to stderr")
-	recordPath := flag.String("record", "", "record PTY output to file (overrides init.lua)")
+	recordPath := flag.String("record", "", "record PTY output to file")
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
 	configFlag := flag.String("config", "", "init.lua script path (default ~/.config/vistty/init.lua)")
@@ -57,11 +57,6 @@ func run() error {
 		backendName = *backendFlag
 	}
 
-	recordPathFinal := runCfg.Record
-	if explicit["record"] {
-		recordPathFinal = *recordPath
-	}
-
 	if runCfg.ErrorLog != "" {
 		if err := debug.ConfigureError(runCfg.ErrorLog, true); err != nil {
 			fmt.Fprintf(os.Stderr, "configure error log: %v\n", err)
@@ -79,8 +74,8 @@ func run() error {
 	opts.FontSize = runCfg.FontSize
 	opts.Primary = runCfg.Primary
 
-	if recordPathFinal != "" {
-		f, err := os.Create(recordPathFinal)
+	if *recordPath != "" {
+		f, err := os.Create(*recordPath)
 		if err != nil {
 			pm.Close()
 			return fmt.Errorf("create record file: %w", err)
@@ -182,9 +177,8 @@ func run() error {
 		return nil
 	}
 
-	uiCfg := runCfg.OSD
 	keybinds := toSessionKeybinds(runCfg.Keybindings)
-	m, err := session.NewMaster(backend, opts, uiCfg, keybinds)
+	m, err := session.NewMaster(backend, opts, keybinds)
 	if err != nil {
 		pm.Close()
 		return fmt.Errorf("failed to create master: %w", err)

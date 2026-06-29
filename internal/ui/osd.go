@@ -6,15 +6,6 @@ import (
 	"github.com/LaoQi/vistty/internal/render"
 )
 
-type SideConfig struct {
-	Enabled bool
-	Lines   int
-}
-
-type Config struct {
-	Top, Bottom, Left, Right SideConfig
-}
-
 type Tab struct {
 	Title  string
 	Active bool
@@ -34,8 +25,9 @@ var (
 	inactiveFg = [3]uint8{150, 150, 150}
 )
 
+// OSD 顶部标签栏默认开启；底/左/右边面板由插件系统
+// vistty.ui.enable / on_render 驱动，无需配置项。
 type OSD struct {
-	cfg      Config
 	face     font.Face
 	metrics  font.Metrics
 	tabs     []Tab
@@ -55,8 +47,8 @@ type PanelPrimitive struct {
 	X, Y int
 	W, H int
 	Text string
-	Fg   [3]uint8
-	Bg   [3]uint8
+	Fg   [4]uint8
+	Bg   [4]uint8
 	Bold bool
 }
 
@@ -108,44 +100,19 @@ loop:
 	return cells
 }
 
-func NewOSD(cfg Config, face font.Face) *OSD {
+func NewOSD(face font.Face) *OSD {
 	return &OSD{
-		cfg:     cfg,
 		face:    face,
 		metrics: face.Metrics(),
 	}
 }
 
 func (o *OSD) Insets() (top, bottom, left, right int) {
-	if o.cfg.Top.Enabled && o.metrics.Height > 0 {
-		lines := o.cfg.Top.Lines
-		if lines <= 0 {
-			lines = 1
-		}
-		top = lines * o.metrics.Height
+	// 顶部标签栏默认 1 行；插件 panelLines 可扩大（取 max）。
+	if o.metrics.Height > 0 {
+		top = o.metrics.Height
 	}
-	if o.cfg.Bottom.Enabled && o.metrics.Height > 0 {
-		lines := o.cfg.Bottom.Lines
-		if lines <= 0 {
-			lines = 1
-		}
-		bottom = lines * o.metrics.Height
-	}
-	if o.cfg.Left.Enabled && o.metrics.Width > 0 {
-		lines := o.cfg.Left.Lines
-		if lines <= 0 {
-			lines = 1
-		}
-		left = lines * o.metrics.Width
-	}
-	if o.cfg.Right.Enabled && o.metrics.Width > 0 {
-		lines := o.cfg.Right.Lines
-		if lines <= 0 {
-			lines = 1
-		}
-		right = lines * o.metrics.Width
-	}
-	// 合并插件声明的 panelLines，取 max。
+	// 底/左/右边面板完全由插件系统 panelLines 驱动（取 max 合并）。
 	if o.panelLines != nil {
 		if lines, ok := o.panelLines["top"]; ok && lines > 0 && o.metrics.Height > 0 {
 			h := lines * o.metrics.Height
@@ -212,19 +179,17 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 	if o.metrics.Height <= 0 || len(buf) == 0 {
 		return
 	}
-	if o.cfg.Top.Enabled {
-		cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
-		for _, c := range cells {
-			render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
-			if c.r != 0 && o.gp != nil {
-				g := o.gp.OverlayGlyph(c.r)
-				if g == nil {
-					continue
-				}
-				gx := c.x + g.XOffset
-				gy := 0 + o.metrics.Ascent + g.YOffset
-				render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, c.fgR, c.fgG, c.fgB)
+	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
+	for _, c := range cells {
+		render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
+		if c.r != 0 && o.gp != nil {
+			g := o.gp.OverlayGlyph(c.r)
+			if g == nil {
+				continue
 			}
+			gx := c.x + g.XOffset
+			gy := 0 + o.metrics.Ascent + g.YOffset
+			render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, c.fgR, c.fgG, c.fgB)
 		}
 	}
 	o.renderPluginPanelsCPU(buf, stride, width, height)
@@ -269,7 +234,7 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 		if w <= 0 || h <= 0 {
 			return
 		}
-		render.FillRect(buf, stride, absX, absY, w, h, p.Bg[0], p.Bg[1], p.Bg[2])
+		render.FillRectBlend(buf, stride, absX, absY, w, h, p.Bg[0], p.Bg[1], p.Bg[2], p.Bg[3])
 		return
 	}
 	// text
@@ -283,46 +248,44 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 		}
 		gx := absX + i*o.metrics.Width + g.XOffset
 		gy := absY + o.metrics.Ascent + g.YOffset
-		render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, p.Fg[0], p.Fg[1], p.Fg[2])
+		render.BlendGlyphAlpha(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, p.Fg[0], p.Fg[1], p.Fg[2], p.Fg[3])
 	}
 }
 
 func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 	if o.metrics.Height > 0 {
-		if o.cfg.Top.Enabled {
-			cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
-			cellW := float32(o.metrics.Width)
-			cellH := float32(o.metrics.Height)
-			for _, c := range cells {
-				inst := platform.CellInstance{
-					X:         float32(c.x),
-					Y:         0,
-					CellW:     cellW,
-					CellH:     cellH,
-					FgR:       float32(c.fgR) / 255,
-					FgG:       float32(c.fgG) / 255,
-					FgB:       float32(c.fgB) / 255,
-					BgR:       float32(c.bgR) / 255,
-					BgG:       float32(c.bgG) / 255,
-					BgB:       float32(c.bgB) / 255,
-					HasBg:     1,
-					GlyphOffY: 0,
-				}
-				if c.r != 0 && o.uploader != nil {
-					u0, v0, u1, v1, gw, gh, xoff, yoff, ok := o.uploader.OverlayUploadGlyph(c.r)
-					if ok {
-						inst.GlyphU0 = u0
-						inst.V0 = v0
-						inst.GlyphU1 = u1
-						inst.V1 = v1
-						inst.GlyphOffX = float32(xoff)
-						inst.GlyphOffY = float32(o.metrics.Ascent + yoff)
-						inst.GlyphW = float32(gw)
-						inst.GlyphH = float32(gh)
-					}
-				}
-				*instances = append(*instances, inst)
+		cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
+		cellW := float32(o.metrics.Width)
+		cellH := float32(o.metrics.Height)
+		for _, c := range cells {
+			inst := platform.CellInstance{
+				X:         float32(c.x),
+				Y:         0,
+				CellW:     cellW,
+				CellH:     cellH,
+				FgR:       float32(c.fgR) / 255,
+				FgG:       float32(c.fgG) / 255,
+				FgB:       float32(c.fgB) / 255,
+				BgR:       float32(c.bgR) / 255,
+				BgG:       float32(c.bgG) / 255,
+				BgB:       float32(c.bgB) / 255,
+				HasBg:     1,
+				GlyphOffY: 0,
 			}
+			if c.r != 0 && o.uploader != nil {
+				u0, v0, u1, v1, gw, gh, xoff, yoff, ok := o.uploader.OverlayUploadGlyph(c.r)
+				if ok {
+					inst.GlyphU0 = u0
+					inst.V0 = v0
+					inst.GlyphU1 = u1
+					inst.V1 = v1
+					inst.GlyphOffX = float32(xoff)
+					inst.GlyphOffY = float32(o.metrics.Ascent + yoff)
+					inst.GlyphW = float32(gw)
+					inst.GlyphH = float32(gh)
+				}
+			}
+			*instances = append(*instances, inst)
 		}
 		o.renderPluginPanelsGPU(instances, width, height)
 	}
@@ -339,6 +302,8 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 	cellH := float32(o.metrics.Height)
 
 	drawPrimGPU := func(p PanelPrimitive, xOff, yOff float32) {
+		bgA := float32(p.Bg[3]) / 255
+		fgA := float32(p.Fg[3]) / 255
 		if p.Kind == primRect {
 			for j := 0; j < p.H; j++ {
 				for i := 0; i < p.W; i++ {
@@ -346,10 +311,10 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 						X:     xOff + float32(p.X+i)*cellW,
 						Y:     yOff + float32(p.Y+j)*cellH,
 						CellW: cellW, CellH: cellH,
-						BgR:   float32(p.Bg[0]) / 255,
-						BgG:   float32(p.Bg[1]) / 255,
-						BgB:   float32(p.Bg[2]) / 255,
-						HasBg: 1,
+						BgR:   float32(p.Bg[0]) / 255 * bgA,
+						BgG:   float32(p.Bg[1]) / 255 * bgA,
+						BgB:   float32(p.Bg[2]) / 255 * bgA,
+						HasBg: bgA,
 					}
 					*instances = append(*instances, inst)
 				}
@@ -362,13 +327,13 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 				X:     xOff + float32(p.X+i)*cellW,
 				Y:     yOff + float32(p.Y)*cellH,
 				CellW: cellW, CellH: cellH,
-				FgR:   float32(p.Fg[0]) / 255,
-				FgG:   float32(p.Fg[1]) / 255,
-				FgB:   float32(p.Fg[2]) / 255,
-				BgR:   float32(p.Bg[0]) / 255,
-				BgG:   float32(p.Bg[1]) / 255,
-				BgB:   float32(p.Bg[2]) / 255,
-				HasBg: 1,
+				FgR:   float32(p.Fg[0]) / 255 * fgA,
+				FgG:   float32(p.Fg[1]) / 255 * fgA,
+				FgB:   float32(p.Fg[2]) / 255 * fgA,
+				BgR:   float32(p.Bg[0]) / 255 * bgA,
+				BgG:   float32(p.Bg[1]) / 255 * bgA,
+				BgB:   float32(p.Bg[2]) / 255 * bgA,
+				HasBg: bgA,
 			}
 			if ch != 0 && o.uploader != nil {
 				u0, v0, u1, v1, gw, gh, xoff, yoff, ok := o.uploader.OverlayUploadGlyph(ch)

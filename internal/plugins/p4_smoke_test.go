@@ -57,7 +57,7 @@ end)
 	if prims[0].X != 0 || prims[0].Y != 0 || prims[0].W != 10 || prims[0].H != 1 {
 		t.Fatalf("prim0 rect geom mismatch: %+v", prims[0])
 	}
-	if prims[0].Bg != [3]uint8{10, 20, 30} {
+	if prims[0].Bg != [4]uint8{10, 20, 30, 255} {
 		t.Fatalf("prim0 bg mismatch: %v", prims[0].Bg)
 	}
 	// text
@@ -67,10 +67,10 @@ end)
 	if prims[1].X != 2 || prims[1].Y != 0 || prims[1].Text != "hi" {
 		t.Fatalf("prim1 text geom/content mismatch: %+v", prims[1])
 	}
-	if prims[1].Fg != [3]uint8{255, 0, 0} {
+	if prims[1].Fg != [4]uint8{255, 0, 0, 255} {
 		t.Fatalf("prim1 fg mismatch: %v", prims[1].Fg)
 	}
-	if prims[1].Bg != [3]uint8{0, 0, 0} {
+	if prims[1].Bg != [4]uint8{0, 0, 0, 255} {
 		t.Fatalf("prim1 bg mismatch: %v", prims[1].Bg)
 	}
 	if !prims[1].Bold {

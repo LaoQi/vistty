@@ -57,7 +57,7 @@ func (s *Slave) Output() platform.Output {
 	return s.output
 }
 
-func (s *Slave) InitIndependent(fontData []byte, fontSize float64, osdCfg ui.Config) error {
+func (s *Slave) InitIndependent(fontData []byte, fontSize float64) error {
 	fc, err := font.NewFaceCache(fontData, 72)
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func (s *Slave) InitIndependent(fontData []byte, fontSize float64, osdCfg ui.Con
 	s.faceCache = fc
 	s.face = face
 	s.compositor = render.NewCompositor(s.surface, face)
-	s.osd = ui.NewOSD(osdCfg, face)
+	s.osd = ui.NewOSD(face)
 	s.compositor.SetOverlay(s.osd)
 	s.osd.SetGlyphProvider(s.compositor)
 	s.osd.SetGPUGlyphUploader(s.compositor)

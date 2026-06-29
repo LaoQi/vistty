@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/LaoQi/vistty/internal/platform"
-	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -103,7 +102,7 @@ func TestMasterCloseIdempotent(t *testing.T) {
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
 	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, ui.Config{}, keybinds)
+	m, err := NewMaster(b, opts, keybinds)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -136,7 +135,7 @@ func TestMasterPtyExit(t *testing.T) {
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
 	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, ui.Config{}, keybinds)
+	m, err := NewMaster(b, opts, keybinds)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}
@@ -161,7 +160,7 @@ func TestMasterInputNoDeadlock(t *testing.T) {
 	opts.FontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 	opts.FontSize = 14
 	keybinds := defaultTestKeybinds(platform.ModSuper)
-	m, err := NewMaster(b, opts, ui.Config{}, keybinds)
+	m, err := NewMaster(b, opts, keybinds)
 	if err != nil {
 		t.Skipf("skip: cannot create master: %v", err)
 	}

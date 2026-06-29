@@ -148,20 +148,19 @@ func luaCtxSize(L *lua.LState) int {
 }
 
 // parsePrimitiveOpts 从 idx 处的 Lua table 读取 fg/bg/bold 字段写入 prim。
+// fg/bg 接受：
+//   - 字符串 "#RGB" / "#RGBA" / "#RRGGBB" / "#RRGGBBAA"（可省略 #）
+//   - table {r,g,b} 或 {r,g,b,a}
 func parsePrimitiveOpts(L *lua.LState, idx int, prim *Primitive) {
 	t := L.OptTable(idx, nil)
 	if t == nil {
 		return
 	}
 	if v := L.GetField(t, "fg"); v != lua.LNil {
-		if ct, ok := v.(*lua.LTable); ok {
-			prim.Fg = parseColor3(L, ct)
-		}
+		prim.Fg = parseColor(L, v)
 	}
 	if v := L.GetField(t, "bg"); v != lua.LNil {
-		if ct, ok := v.(*lua.LTable); ok {
-			prim.Bg = parseColor3(L, ct)
-		}
+		prim.Bg = parseColor(L, v)
 	}
 	if v := L.GetField(t, "bold"); v != lua.LNil {
 		if b, ok := v.(lua.LBool); ok {
@@ -170,9 +169,64 @@ func parsePrimitiveOpts(L *lua.LState, idx int, prim *Primitive) {
 	}
 }
 
-// parseColor3 从 Lua table {r, g, b} 读取 3 字节颜色。
-func parseColor3(L *lua.LState, t *lua.LTable) [3]uint8 {
-	var c [3]uint8
+// parseColor 将 Lua 值解析为 [4]uint8 RGBA 颜色。
+// 接受字符串 "#RRGGBB"/"#RRGGBBAA"/"#RGB"/"#RGBA" 或 table {r,g,b}/{r,g,b,a}。
+func parseColor(L *lua.LState, v lua.LValue) [4]uint8 {
+	if s, ok := v.(lua.LString); ok {
+		return parseHexColor(string(s))
+	}
+	if t, ok := v.(*lua.LTable); ok {
+		return parseTableColor(L, t)
+	}
+	return [4]uint8{}
+}
+
+// parseHexColor 解析 "#RRGGBB"/"#RRGGBBAA"/"#RGB"/"#RGBA" 格式。
+// # 可省略。缺省 alpha 时默认 255。
+func parseHexColor(s string) [4]uint8 {
+	if len(s) > 0 && s[0] == '#' {
+		s = s[1:]
+	}
+	var r, g, b, a uint8 = 0, 0, 0, 255
+	switch len(s) {
+	case 3: // RGB
+		r = hexVal(s[0]) * 17
+		g = hexVal(s[1]) * 17
+		b = hexVal(s[2]) * 17
+	case 4: // RGBA
+		r = hexVal(s[0]) * 17
+		g = hexVal(s[1]) * 17
+		b = hexVal(s[2]) * 17
+		a = hexVal(s[3]) * 17
+	case 6: // RRGGBB
+		r = hexVal(s[0])*16 + hexVal(s[1])
+		g = hexVal(s[2])*16 + hexVal(s[3])
+		b = hexVal(s[4])*16 + hexVal(s[5])
+	case 8: // RRGGBBAA
+		r = hexVal(s[0])*16 + hexVal(s[1])
+		g = hexVal(s[2])*16 + hexVal(s[3])
+		b = hexVal(s[4])*16 + hexVal(s[5])
+		a = hexVal(s[6])*16 + hexVal(s[7])
+	}
+	return [4]uint8{r, g, b, a}
+}
+
+func hexVal(c byte) uint8 {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 0
+}
+
+// parseTableColor 从 Lua table {r,g,b} 或 {r,g,b,a} 读取颜色。
+func parseTableColor(L *lua.LState, t *lua.LTable) [4]uint8 {
+	var c [4]uint8
+	c[3] = 255 // 默认不透明
 	if v := t.RawGetInt(1); v != lua.LNil {
 		if n, ok := v.(lua.LNumber); ok {
 			c[0] = uint8(n)
@@ -186,6 +240,11 @@ func parseColor3(L *lua.LState, t *lua.LTable) [3]uint8 {
 	if v := t.RawGetInt(3); v != lua.LNil {
 		if n, ok := v.(lua.LNumber); ok {
 			c[2] = uint8(n)
+		}
+	}
+	if v := t.RawGetInt(4); v != lua.LNil {
+		if n, ok := v.(lua.LNumber); ok {
+			c[3] = uint8(n)
 		}
 	}
 	return c

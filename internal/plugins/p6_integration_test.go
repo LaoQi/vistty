@@ -79,8 +79,7 @@ func TestP6EndToEnd(t *testing.T) {
 	src := `
 vistty.config = {
 	backend = "wayland", shell = "/bin/zsh", fontsize = 18,
-	mod_key = "ctrl",
-	osd = { top = true, bottom = true, left = false, right = false },
+	osd = { top = true },
 	keybindings = { new_tab = {key="t", mod="alt"} },
 }
 
@@ -117,12 +116,6 @@ end)
 	}
 	if cfg.FontSize != 18 {
 		t.Fatalf("fontsize want 18 got %v", cfg.FontSize)
-	}
-	if cfg.ModKey != "ctrl" {
-		t.Fatalf("mod_key want ctrl got %s", cfg.ModKey)
-	}
-	if !cfg.OSD.Top.Enabled || !cfg.OSD.Bottom.Enabled || cfg.OSD.Left.Enabled {
-		t.Fatalf("osd mismatch: %+v", cfg.OSD)
 	}
 	if cfg.Keybindings["new_tab"].Mod != platform.ModAlt {
 		t.Fatalf("new_tab mod want alt got %+v", cfg.Keybindings["new_tab"])
@@ -164,13 +157,13 @@ end)
 	if prims[0].Kind != PrimRect || prims[0].W != 80 || prims[0].H != 2 {
 		t.Fatalf("prim0 rect mismatch: %+v", prims[0])
 	}
-	if prims[0].Bg != [3]uint8{10, 20, 30} {
+	if prims[0].Bg != [4]uint8{10, 20, 30, 255} {
 		t.Fatalf("prim0 bg mismatch: %v", prims[0].Bg)
 	}
 	if prims[1].Kind != PrimText || prims[1].Text != "hello" {
 		t.Fatalf("prim1 text mismatch: %+v", prims[1])
 	}
-	if prims[1].Fg != [3]uint8{255, 0, 0} {
+	if prims[1].Fg != [4]uint8{255, 0, 0, 255} {
 		t.Fatalf("prim1 fg mismatch: %v", prims[1].Fg)
 	}
 }
@@ -302,12 +295,6 @@ func TestP6ExampleInitLua(t *testing.T) {
 	if cfg.FontSize != 14 {
 		t.Fatalf("fontsize want 14 got %v", cfg.FontSize)
 	}
-	if cfg.ModKey != "super" {
-		t.Fatalf("mod_key want super got %s", cfg.ModKey)
-	}
-	if !cfg.OSD.Top.Enabled {
-		t.Fatal("osd.top should be enabled")
-	}
 	if cfg.Keybindings["switch_n1"].Rune != '1' {
 		t.Fatalf("switch_n1 rune want '1' got %q", string(cfg.Keybindings["switch_n1"].Rune))
 	}
@@ -330,8 +317,8 @@ func TestP6ExampleInitLua(t *testing.T) {
 	if prims[0].Kind != PrimRect {
 		t.Fatalf("prim0 should be rect got kind=%d", prims[0].Kind)
 	}
-	if prims[0].Bg != [3]uint8{40, 40, 40} {
-		t.Fatalf("prim0 bg want {40,40,40} got %v", prims[0].Bg)
+	if prims[0].Bg != [4]uint8{68, 68, 68, 255} {
+		t.Fatalf("prim0 bg want {68,68,68} got %v", prims[0].Bg)
 	}
 }
 
@@ -439,7 +426,7 @@ end)
 		prims[0].W != 80 || prims[0].H != 2 {
 		t.Fatalf("prim0 rect mismatch: %+v", prims[0])
 	}
-	if prims[0].Bg != [3]uint8{5, 10, 15} {
+	if prims[0].Bg != [4]uint8{5, 10, 15, 255} {
 		t.Fatalf("prim0 bg mismatch: %v", prims[0].Bg)
 	}
 	// top-left 文本
@@ -447,7 +434,7 @@ end)
 		prims[1].Text != "top-left" {
 		t.Fatalf("prim1 text mismatch: %+v", prims[1])
 	}
-	if prims[1].Fg != [3]uint8{255, 255, 255} || !prims[1].Bold {
+	if prims[1].Fg != [4]uint8{255, 255, 255, 255} || !prims[1].Bold {
 		t.Fatalf("prim1 fg/bold mismatch: fg=%v bold=%v", prims[1].Fg, prims[1].Bold)
 	}
 	// end 文本 (76, 1)
@@ -455,7 +442,7 @@ end)
 		prims[2].Text != "end" {
 		t.Fatalf("prim2 text mismatch: %+v", prims[2])
 	}
-	if prims[2].Fg != [3]uint8{0, 255, 0} {
+	if prims[2].Fg != [4]uint8{0, 255, 0, 255} {
 		t.Fatalf("prim2 fg mismatch: %v", prims[2].Fg)
 	}
 }

@@ -12,15 +12,7 @@ vistty.config = {
 	font      = "",           -- 留空使用内置 Sarasa Fixed SC
 	fontsize  = 14,
 	primary   = "",           -- 主屏名称（如 HDMI-A-1）或索引
-	mod_key   = "ctrl",      -- super / ctrl / alt
 	error_log = "",           -- 留空使用默认 ~/.local/share/vistty/error.log
-	record    = "",           -- PTY 录制文件路径
-	osd = {
-		top    = true,
-		bottom = false,
-		left   = false,
-		right  = false,
-	},
 	keybindings = {
 		zoom_in     = {key="=",     mod="super"},
 		zoom_out    = {key="-",     mod="super"},
@@ -37,20 +29,29 @@ vistty.config = {
 -- === 输入拦截示例 ===
 -- Ctrl+Space → 发送 PageDown 转义序列并吞掉原事件
 vistty.input.on_key(function(ev)
+	-- 仅在按下时触发，忽略释放事件
+	if ev.state ~= vistty.state.PRESS then return end
+	-- Ctrl+Space → PageDown
 	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL and ev.code == vistty.keys.SPACE then
 		vistty.term.send("\x1b[6~")
 		return true
+	end
+	-- Ctrl+C 拦截示例：按 C 键 + Ctrl 修饰
+	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL and ev.code == vistty.keys.C then
+		vistty.log("Ctrl+C intercepted")
+		-- return true  -- 取消注释则吞掉 Ctrl+C
 	end
 end)
 
 -- === 底部状态栏插件 ===
 -- 启用 1 行底部面板，每帧渲染时钟与标签数
+-- 颜色可用 vistty.colors 常量或 "#RRGGBB" / "#RRGGBBAA" 字符串
 vistty.ui.enable("bottom", 1)
 vistty.ui.on_render(function(ctx)
 	local w, h = ctx:size()
-	ctx:rect(0, 0, w, h, {bg={40, 40, 40}})
-	ctx:text(2, 0, os.date("%H:%M:%S"), {fg={100, 200, 255}})
-	ctx:text(w - 10, 0, "tabs:" .. vistty.tab.count(), {fg={200, 200, 50}})
+	ctx:rect(0, 0, w, h, {bg=vistty.colors.DARKGRAY})
+	ctx:text(2, 0, os.date("%H:%M:%S"), {fg="#64C8FF"})
+	ctx:text(w - 10, 0, "tabs:" .. vistty.tab.count(), {fg=vistty.colors.GOLD})
 	return true
 end)
 
