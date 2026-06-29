@@ -91,9 +91,10 @@ type Backend interface {
 | Surface | Dumb buffer mmap + Page Flip | wl_shm 共享内存 + wl_surface.commit |
 | InputSource | go-evdev 读 /dev/input/eventN | wl_keyboard + wl_pointer 事件 |
 | 键盘映射 | 自研 scancode→Unicode | 简化 XKB keymap 解析 |
-| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口（可调整大小） |
+| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口（可调整大小）+ SSD 标题栏 |
 | VT 切换 | SIGUSR1/2 + KD_GRAPHICS | 不适用 |
 | 双缓冲 | 2 个 dumb buffer + Page Flip | 2 个 wl_shm buffer + commit |
+| 窗口装饰 | 不适用 | zxdg_decoration_manager_v1 请求 SSD（可选，不支持时回退 CSD） |
 
 ### 数据流
 
@@ -207,7 +208,7 @@ github.com/LaoQi/vistty/
 │       └── wayland/            # Wayland 后端（单虚拟输出，wl_shm CPU 渲染）
 │           ├── backend.go / surface.go / input.go
 │           ├── keymap.go             # XKB keymap 解析 + evdev code 索引 + US 布局回退
-│           └── wl.go                # 自研纯 Go Wayland 协议层（conn+全部对象，替代 go-wayland）
+│           └── wl.go                # 自研纯 Go Wayland 协议层（conn+17对象含xdg-decoration，替代 go-wayland）
 ```
 
 ### 依赖方向
@@ -423,3 +424,4 @@ Wayland 后端实现细节：
 - ✅ DRMSurface Swap 双缓冲+flip 重试+幂等 Close（flipPending/done/closeOnce 字段从外部管理移入 DRMSurface；Swap 等上次 flip 完成再提交新帧；DoPageFlip 失败最多重试 5 次；Close sync.Once 幂等防 panic）
 - ✅ 渲染错误容错（renderFrame 错误不再立即退出，累计 maxRenderErrors=10 次连续错误才退出；成功渲染重置计数器）
 - ✅ GBM 首帧黑屏修复（gpu/renderer.go：Init 检查 TexImage2D glErr 提前返回错误而非静默继续；DrawInstances 空 instances 也执行 Clear 清屏；gbm/surface.go：BeginFrame 延迟 GL 初始化确保首帧时 GL 就绪；DrawInstances/BeginFrame GPU nil 返回错误而非静默跳过；compositor.go：renderGPU 失败时 gpu=nil 降级到 CPU 渲染；drm/backend.go：eventLoop 仅处理 FlipComplete 忽略 VBlank；Close 遍历所有 outputs 恢复 savedCrtc 修复多屏 CRTC 恢复）
+- ✅ Wayland SSD 窗口装饰（wl.go 新增 zxdgDecorationManagerV1 + zxdgToplevelDecorationV1 协议对象；backend.go 绑定 zxdg_decoration_manager_v1 全局（可选，不支持时 decoMgr 为 nil 回退 CSD）；surface.go 创建 toplevel 后请求 setMode(server_side)，Close 时先销毁 toplevelDeco 再销毁 toplevel（协议要求）；合成器不支持装饰协议时自动回退无装饰）

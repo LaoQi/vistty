@@ -29,6 +29,7 @@ type WaylandBackend struct {
 	shm        *wlShm
 	wmBase     *wlXdgWmBase
 	seat       *wlSeat
+	decoMgr    *zxdgDecorationManagerV1
 	shmFormat  uint32
 	swapBR     bool
 
@@ -61,8 +62,8 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 	registry := c.getRegistry()
 	b.registry = registry
 
-	var compositorName, shmName, wmBaseName, seatName uint32
-	var compositorVersion, seatVersion, wmBaseVersion uint32
+	var compositorName, shmName, wmBaseName, seatName, decoMgrName uint32
+	var compositorVersion, seatVersion, wmBaseVersion, decoMgrVersion uint32
 
 	registry.onGlobal = func(name uint32, iface string, version uint32) {
 		switch iface {
@@ -77,6 +78,9 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 		case "wl_seat":
 			seatName = name
 			seatVersion = version
+		case "zxdg_decoration_manager_v1":
+			decoMgrName = name
+			decoMgrVersion = version
 		}
 	}
 
@@ -159,6 +163,13 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 
 	b.wmBase = c.bindWmBase(registry, wmBaseName, wmBaseVersion)
 	b.seat = c.bindSeat(registry, seatName, seatVersion)
+
+	if decoMgrName != 0 {
+		if decoMgrVersion > 2 {
+			decoMgrVersion = 2
+		}
+		b.decoMgr = c.bindDecoManager(registry, decoMgrName, decoMgrVersion)
+	}
 
 	return b, nil
 }
@@ -273,6 +284,9 @@ func (b *WaylandBackend) close() error {
 	b.closeOnce.Do(func() {
 		if b.seat != nil {
 			b.seat.release()
+		}
+		if b.decoMgr != nil {
+			b.decoMgr.destroy()
 		}
 		if b.wmBase != nil {
 			b.wmBase.destroy()

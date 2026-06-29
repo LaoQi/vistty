@@ -725,3 +725,64 @@ func (t *wlXdgToplevel) destroy() {
 	_ = t.c.writeMsg(t.id, 0, nil, nil) // destroy: opcode 0
 	t.c.removeObject(t.id)
 }
+
+// ---------- XDG Decoration (zxdg_decoration_manager_v1) ----------
+
+const (
+	decoModeClientSide uint32 = 1
+	decoModeServerSide uint32 = 2
+)
+
+type zxdgDecorationManagerV1 struct {
+	c  *conn
+	id uint32
+}
+
+func (c *conn) bindDecoManager(reg *wlRegistry, name, version uint32) *zxdgDecorationManagerV1 {
+	id := reg.bind(name, "zxdg_decoration_manager_v1", min(version, 2))
+	return &zxdgDecorationManagerV1{c: c, id: id}
+}
+
+func (m *zxdgDecorationManagerV1) getToplevelDecoration(tl *wlXdgToplevel) *zxdgToplevelDecorationV1 {
+	id := m.c.newID()
+	deco := &zxdgToplevelDecorationV1{c: m.c, id: id}
+	m.c.addObject(id, func(opcode uint16, msg []byte, fds []int) {
+		if opcode == 0 && len(msg) >= 4 { // configure: mode(u32)
+			mode := binary.LittleEndian.Uint32(msg[0:4])
+			if deco.onConfigure != nil {
+				deco.onConfigure(mode)
+			}
+		}
+	})
+	payload := make([]byte, 8)
+	putU32(payload[0:4], id)
+	putU32(payload[4:8], tl.id)
+	_ = m.c.writeMsg(m.id, 1, payload, nil) // get_toplevel_decoration: opcode 1
+	return deco
+}
+
+func (m *zxdgDecorationManagerV1) destroy() {
+	_ = m.c.writeMsg(m.id, 0, nil, nil) // destroy: opcode 0
+	m.c.removeObject(m.id)
+}
+
+type zxdgToplevelDecorationV1 struct {
+	c           *conn
+	id          uint32
+	onConfigure func(mode uint32)
+}
+
+func (d *zxdgToplevelDecorationV1) setMode(mode uint32) {
+	payload := make([]byte, 4)
+	putU32(payload, mode)
+	_ = d.c.writeMsg(d.id, 1, payload, nil) // set_mode: opcode 1
+}
+
+func (d *zxdgToplevelDecorationV1) unsetMode() {
+	_ = d.c.writeMsg(d.id, 2, nil, nil) // unset_mode: opcode 2
+}
+
+func (d *zxdgToplevelDecorationV1) destroy() {
+	_ = d.c.writeMsg(d.id, 0, nil, nil) // destroy: opcode 0
+	d.c.removeObject(d.id)
+}

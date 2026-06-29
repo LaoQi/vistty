@@ -18,10 +18,11 @@ type shmBuf struct {
 }
 
 type WaylandSurface struct {
-	backend    *WaylandBackend
-	wlSurface  *wlSurface
-	xdgSurface *wlXdgSurface
-	toplevel   *wlXdgToplevel
+	backend      *WaylandBackend
+	wlSurface    *wlSurface
+	xdgSurface   *wlXdgSurface
+	toplevel     *wlXdgToplevel
+	toplevelDeco *zxdgToplevelDecorationV1
 
 	mu     sync.Mutex
 	width  int
@@ -55,6 +56,11 @@ func newWaylandSurface(backend *WaylandBackend, width, height int) (*WaylandSurf
 
 	s.toplevel.setTitle("vistty")
 	s.toplevel.setAppId("github.com.LaoQi.vistty")
+
+	if s.backend.decoMgr != nil {
+		s.toplevelDeco = s.backend.decoMgr.getToplevelDecoration(s.toplevel)
+		s.toplevelDeco.setMode(decoModeServerSide)
+	}
 
 	bufSize := s.stride * height
 	for i := 0; i < 2; i++ {
@@ -161,6 +167,9 @@ func (s *WaylandSurface) Swap() error {
 
 func (s *WaylandSurface) Close() error {
 	s.closeBufs(2)
+	if s.toplevelDeco != nil {
+		s.toplevelDeco.destroy()
+	}
 	if s.toplevel != nil {
 		s.toplevel.destroy()
 	}
