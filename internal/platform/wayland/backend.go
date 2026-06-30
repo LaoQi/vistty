@@ -7,19 +7,17 @@ import (
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
-// FourCC 格式码（Wayland wl_shm 规范值）
+// wl_shm.format 枚举值（Wayland 协议 XML 定义）。
+// 注意：ARGB8888/XRGB8888 的值是 0/1（枚举索引），与 DRM FourCC 不同。
+// 协议说明："The drm format codes match the macros defined in drm_fourcc.h,
+// except argb8888 and xrgb8888." — 只有这两个是特例，其余格式使用 DRM FourCC。
 const (
-	wlFmtXRGB8888 uint32 = 0x34325258
-	wlFmtARGB8888 uint32 = 0x34325241
+	wlFmtARGB8888 uint32 = 0
+	wlFmtXRGB8888 uint32 = 1
 	wlFmtXBGR8888 uint32 = 0x34324258
 	wlFmtABGR8888 uint32 = 0x34324241
 	wlFmtBGRX8888 uint32 = 0x34325842
 	wlFmtBGRA8888 uint32 = 0x34324142
-
-	// niri 对 XRGB8888/ARGB8888 广播枚举索引(1/0)而非 FourCC 码。
-	// 需同时匹配两种值，create_buffer 发送时用合成器广播的原值。
-	wlEnumARGB8888 uint32 = 0
-	wlEnumXRGB8888 uint32 = 1
 )
 
 type WaylandBackend struct {
@@ -133,20 +131,11 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 
 	// 优先 RGB 序格式以避免 Surface.Swap 中的逐像素 B/R 交换。
 	// XRGB8888 是所有 Wayland 合成器的必备格式，必然可用。
-	// niri 对 XRGB/ARGB 广播枚举索引(1/0)而非 FourCC 码，需同时匹配；
-	// 但 create_buffer 发送时必须用 FourCC 码（协议规范要求）。
-	hasFmt := func(vs ...uint32) bool {
-		for _, v := range vs {
-			if formats[v] {
-				return true
-			}
-		}
-		return false
-	}
+	// 协议中 ARGB8888=0, XRGB8888=1（枚举值，非 DRM FourCC），其余格式为 DRM FourCC。
 	switch {
-	case hasFmt(wlFmtXRGB8888, wlEnumXRGB8888):
+	case formats[wlFmtXRGB8888]:
 		b.shmFormat = wlFmtXRGB8888
-	case hasFmt(wlFmtARGB8888, wlEnumARGB8888):
+	case formats[wlFmtARGB8888]:
 		b.shmFormat = wlFmtARGB8888
 	case formats[wlFmtXBGR8888]:
 		b.shmFormat = wlFmtXBGR8888

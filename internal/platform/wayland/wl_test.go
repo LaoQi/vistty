@@ -361,19 +361,13 @@ func TestShmFormatSelection(t *testing.T) {
 		wantSwap bool
 	}{
 		{
-			name:     "XRGB8888 FourCC",
+			name:     "XRGB8888",
 			formats:  map[uint32]bool{wlFmtXRGB8888: true},
 			wantFmt:  wlFmtXRGB8888,
 			wantSwap: false,
 		},
 		{
-			name:     "niri enum XRGB8888",
-			formats:  map[uint32]bool{wlEnumXRGB8888: true},
-			wantFmt:  wlFmtXRGB8888,
-			wantSwap: false,
-		},
-		{
-			name:     "ARGB8888 FourCC",
+			name:     "ARGB8888",
 			formats:  map[uint32]bool{wlFmtARGB8888: true},
 			wantFmt:  wlFmtARGB8888,
 			wantSwap: false,
@@ -391,6 +385,24 @@ func TestShmFormatSelection(t *testing.T) {
 			wantSwap: false,
 		},
 		{
+			name:     "ABGR8888 needs swap",
+			formats:  map[uint32]bool{wlFmtABGR8888: true},
+			wantFmt:  wlFmtABGR8888,
+			wantSwap: true,
+		},
+		{
+			name:     "BGRX8888 needs swap",
+			formats:  map[uint32]bool{wlFmtBGRX8888: true},
+			wantFmt:  wlFmtBGRX8888,
+			wantSwap: true,
+		},
+		{
+			name:     "BGRA8888 needs swap",
+			formats:  map[uint32]bool{wlFmtBGRA8888: true},
+			wantFmt:  wlFmtBGRA8888,
+			wantSwap: true,
+		},
+		{
 			name:     "fallback XRGB8888",
 			formats:  map[uint32]bool{},
 			wantFmt:  wlFmtXRGB8888,
@@ -399,20 +411,12 @@ func TestShmFormatSelection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hasFmt := func(vs ...uint32) bool {
-				for _, v := range vs {
-					if tt.formats[v] {
-						return true
-					}
-				}
-				return false
-			}
 			var shmFormat uint32
 			var swapBR bool
 			switch {
-			case hasFmt(wlFmtXRGB8888, wlEnumXRGB8888):
+			case tt.formats[wlFmtXRGB8888]:
 				shmFormat = wlFmtXRGB8888
-			case hasFmt(wlFmtARGB8888, wlEnumARGB8888):
+			case tt.formats[wlFmtARGB8888]:
 				shmFormat = wlFmtARGB8888
 			case tt.formats[wlFmtXBGR8888]:
 				shmFormat = wlFmtXBGR8888
@@ -710,12 +714,24 @@ func TestDisplayDeleteIdEvent(t *testing.T) {
 	}
 }
 
-func TestFourCCConstants(t *testing.T) {
-	if wlFmtXRGB8888 != 0x34325258 {
-		t.Errorf("wlFmtXRGB8888 = 0x%08x, want 0x34325258", wlFmtXRGB8888)
+func TestWlShmFormatConstants(t *testing.T) {
+	if wlFmtARGB8888 != 0 {
+		t.Errorf("wlFmtARGB8888 = %d, want 0 (Wayland protocol enum)", wlFmtARGB8888)
 	}
-	if wlFmtARGB8888 != 0x34325241 {
-		t.Errorf("wlFmtARGB8888 = 0x%08x, want 0x34325241", wlFmtARGB8888)
+	if wlFmtXRGB8888 != 1 {
+		t.Errorf("wlFmtXRGB8888 = %d, want 1 (Wayland protocol enum)", wlFmtXRGB8888)
+	}
+	if wlFmtXBGR8888 != 0x34324258 {
+		t.Errorf("wlFmtXBGR8888 = 0x%08x, want 0x34324258 (DRM FourCC)", wlFmtXBGR8888)
+	}
+	if wlFmtABGR8888 != 0x34324241 {
+		t.Errorf("wlFmtABGR8888 = 0x%08x, want 0x34324241 (DRM FourCC)", wlFmtABGR8888)
+	}
+	if wlFmtBGRX8888 != 0x34325842 {
+		t.Errorf("wlFmtBGRX8888 = 0x%08x, want 0x34325842 (DRM FourCC)", wlFmtBGRX8888)
+	}
+	if wlFmtBGRA8888 != 0x34324142 {
+		t.Errorf("wlFmtBGRA8888 = 0x%08x, want 0x34324142 (DRM FourCC)", wlFmtBGRA8888)
 	}
 	if decoModeClientSide != 1 {
 		t.Errorf("decoModeClientSide = %d, want 1", decoModeClientSide)
