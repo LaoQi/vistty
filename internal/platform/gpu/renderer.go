@@ -148,7 +148,7 @@ func (c *Renderer) Init() error {
 		maxInstances = 1
 	}
 	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
-	gl.BufferData(glLib.GL_ARRAY_BUFFER, make([]byte, maxInstances*int(unsafe.Sizeof(platform.CellInstance{}))), glLib.GL_DYNAMIC_DRAW)
+	gl.BufferDataEmpty(glLib.GL_ARRAY_BUFFER, maxInstances*int(unsafe.Sizeof(platform.CellInstance{})), glLib.GL_DYNAMIC_DRAW)
 
 	c.gpuReady = true
 	major, minor := gl.GetGLVersion()
@@ -261,10 +261,6 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	if !c.gpuReady {
 		return nil
-	}
-
-	if err := c.egl.MakeCurrent(c.display, c.surface, c.surface, c.context); err != nil {
-		return fmt.Errorf("eglMakeCurrent: %w", err)
 	}
 
 	gl := c.gles

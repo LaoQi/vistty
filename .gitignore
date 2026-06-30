@@ -2,5 +2,8 @@
 fix.md
 plan.md
 
+# go test -c 编译产物
+*.test
+
 # rime-ice 词库源（构建时由 scripts/gen-dict.sh 拉取）
 /rime-ice

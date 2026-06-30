@@ -329,6 +329,12 @@ func (l *GLESLoader) BufferData(target uint32, data []byte, usage uint32) {
 	l.bufferData(target, uintptr(len(data)), ptr, usage)
 }
 
+// BufferDataEmpty 预分配 VBO 存储但不上传数据（data=nil）。
+// 用于 DYNAMIC_DRAW instance VBO 预分配，避免 Go 侧分配大切片造成 GC 峰值。
+func (l *GLESLoader) BufferDataEmpty(target uint32, size int, usage uint32) {
+	l.bufferData(target, uintptr(size), nil, usage)
+}
+
 func (l *GLESLoader) VertexAttribPointer(index uint32, size int32, typ uint32, normalized bool, stride int32, offset uintptr) {
 	l.vertexAttribPointer(index, size, typ, normalized, stride, unsafe.Add(unsafe.Pointer(nil), offset))
 }
