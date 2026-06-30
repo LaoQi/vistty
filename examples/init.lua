@@ -44,7 +44,11 @@ end)
 vistty.input.bind(vistty.keys.TAB, function()
 	if super() then vistty.screen.next(); return true end
 end)
-vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
+vistty.input.bind_keys({
+	vistty.keys.NUM1, vistty.keys.NUM2, vistty.keys.NUM3,
+	vistty.keys.NUM4, vistty.keys.NUM5, vistty.keys.NUM6,
+	vistty.keys.NUM7, vistty.keys.NUM8, vistty.keys.NUM9,
+}, function(n)
 	if super() then vistty.screen.switch(n - 1); return true end
 end)
 

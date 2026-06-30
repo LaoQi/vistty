@@ -45,7 +45,11 @@ vistty.input.bind(vistty.keys.EQUAL, function()
 		return true
 	end
 end)
-vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
+vistty.input.bind_keys({
+	vistty.keys.NUM1, vistty.keys.NUM2, vistty.keys.NUM3,
+	vistty.keys.NUM4, vistty.keys.NUM5, vistty.keys.NUM6,
+	vistty.keys.NUM7, vistty.keys.NUM8, vistty.keys.NUM9,
+}, function(n)
 	if vistty.input.pressed(vistty.keys.LEFT_SUPER) then
 		return true
 	end
@@ -74,7 +78,7 @@ end)
 	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyPress})
 	consumed3, _ := pm.OnKey(platform.KeyEvent{Code: 6, Mods: platform.ModSuper, State: platform.KeyPress})
 	if !consumed3 {
-		t.Fatal("Super+NUM5 bind_range should be consumed")
+		t.Fatal("Super+NUM5 bind_keys should be consumed")
 	}
 
 	pm.OnKey(platform.KeyEvent{Code: 125, State: platform.KeyPress})

@@ -87,7 +87,7 @@ IME 的按键路由**不是独立的 Go→Lua 调用**，而是嵌套在 `OnKey`
 | Lua API | Go 实现 | 存储位置 |
 |---|---|---|
 | `vistty.input.bind(code, fn)` | api_keybind.go:16 | `pm.bindings` (slice) |
-| `vistty.input.bind_range(s,e,fn)` | api_keybind.go:23 | `pm.bindings` (slice) |
+| `vistty.input.bind_keys(tbl,fn)` | api_keybind.go:23 | `pm.bindings` (slice) |
 | `vistty.input.on_key(fn)` | api_misc.go:190 | `pm.keyHooks` (LTable) |
 | `vistty.ui.on_render(fn)` | api_ui.go:41 | `pm.renderHooks` (LTable) |
 | `vistty.ime.register(name, hooks)` | api_ime.go:20 | `pm.registry`（闭包捕获 `*lua.LFunction`） |

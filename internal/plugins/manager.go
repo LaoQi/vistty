@@ -13,11 +13,9 @@ import (
 )
 
 type keyBinding struct {
-	code       uint16
-	fn         *lua.LFunction
-	isRange    bool
-	rangeStart uint16
-	rangeEnd   uint16
+	codes   []uint16
+	indexed bool
+	fn      *lua.LFunction
 }
 
 type PluginManager struct {
@@ -132,34 +130,29 @@ func (pm *PluginManager) OnKey(ev platform.KeyEvent) (consumed bool, out platfor
 	if pm.active {
 		for i := range pm.bindings {
 			b := &pm.bindings[i]
-			if b.isRange {
-				if ev.Code >= b.rangeStart && ev.Code <= b.rangeEnd {
-					n := int(ev.Code - b.rangeStart + 1)
-					pm.L.Push(b.fn)
-					pm.L.Push(lua.LNumber(n))
-					if err := pm.L.PCall(1, 1, nil); err != nil {
-						debug.Errorf("plugin bind error: %v", err)
-					}
-					ret := pm.L.Get(-1)
-					pm.L.Pop(1)
-					if ret == lua.LTrue || (ret.Type() == lua.LTBool && bool(ret.(lua.LBool))) {
-						return true, ev
-					}
-					continue
+			idx := -1
+			for j, c := range b.codes {
+				if ev.Code == c {
+					idx = j
+					break
 				}
+			}
+			if idx < 0 {
 				continue
 			}
-			if ev.Code == b.code {
-				pm.L.Push(b.fn)
-				if err := pm.L.PCall(0, 1, nil); err != nil {
-					debug.Errorf("plugin bind error: %v", err)
-				}
-				ret := pm.L.Get(-1)
-				pm.L.Pop(1)
-				if ret == lua.LTrue || (ret.Type() == lua.LTBool && bool(ret.(lua.LBool))) {
-					return true, ev
-				}
-				continue
+			pm.L.Push(b.fn)
+			nargs := 0
+			if b.indexed {
+				pm.L.Push(lua.LNumber(idx + 1))
+				nargs = 1
+			}
+			if err := pm.L.PCall(nargs, 1, nil); err != nil {
+				debug.Errorf("plugin bind error: %v", err)
+			}
+			ret := pm.L.Get(-1)
+			pm.L.Pop(1)
+			if ret == lua.LTrue || (ret.Type() == lua.LTBool && bool(ret.(lua.LBool))) {
+				return true, ev
 			}
 		}
 	}

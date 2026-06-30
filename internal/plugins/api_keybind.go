@@ -16,20 +16,18 @@ func registerKeybind(L *lua.LState, pm *PluginManager) {
 	inputT.RawSetString("bind", L.NewFunction(func(L *lua.LState) int {
 		code := uint16(L.CheckInt(1))
 		fn := L.CheckFunction(2)
-		pm.bindings = append(pm.bindings, keyBinding{code: code, fn: fn})
+		pm.bindings = append(pm.bindings, keyBinding{codes: []uint16{code}, fn: fn})
 		return 0
 	}))
 
-	inputT.RawSetString("bind_range", L.NewFunction(func(L *lua.LState) int {
-		start := uint16(L.CheckInt(1))
-		end := uint16(L.CheckInt(2))
-		fn := L.CheckFunction(3)
-		pm.bindings = append(pm.bindings, keyBinding{
-			isRange:    true,
-			rangeStart: start,
-			rangeEnd:   end,
-			fn:         fn,
+	inputT.RawSetString("bind_keys", L.NewFunction(func(L *lua.LState) int {
+		tbl := L.CheckTable(1)
+		fn := L.CheckFunction(2)
+		var codes []uint16
+		tbl.ForEach(func(_, v lua.LValue) {
+			codes = append(codes, uint16(v.(lua.LNumber)))
 		})
+		pm.bindings = append(pm.bindings, keyBinding{codes: codes, indexed: true, fn: fn})
 		return 0
 	}))
 
