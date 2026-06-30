@@ -48,6 +48,16 @@ vistty.input.bind_range(vistty.keys.NUM1, vistty.keys.NUM9, function(n)
 	if super() then vistty.screen.switch(n - 1); return true end
 end)
 
+-- === 插件热重载 / 退出 ===
+-- Super+R 热重载 init.lua（开发期调试用，修改配置后无需重启 vistty）
+-- Super+Q 退出 vistty（走两阶段关闭路径，与窗口关闭/信号一致）
+vistty.input.bind(vistty.keys.R, function()
+	if super() then vistty.reload(); return true end
+end)
+vistty.input.bind(vistty.keys.Q, function()
+	if super() then vistty.exit(); return true end
+end)
+
 -- === 拼音输入法 ===
 -- Ctrl+Space 切换激活/去激活。on_key 钩子按注册顺序执行，
 -- 此钩子仅匹配 Ctrl+Space 时返回 true 吞掉，其他情况返回 nil 放行。

@@ -27,6 +27,7 @@ func (f *p4FakeCtx) ZoomReset()                    {}
 func (f *p4FakeCtx) EnablePanel(s string, n int)   {}
 func (f *p4FakeCtx) DisablePanel(s string)         {}
 func (f *p4FakeCtx) ReloadPlugins() error          { return nil }
+func (f *p4FakeCtx) Exit()                          {}
 
 // TestP4CtxTextRectOpts 验证 ctx:text/ctx:rect 的 opts 参数解析（fg/bg/bold）。
 func TestP4CtxTextRectOpts(t *testing.T) {

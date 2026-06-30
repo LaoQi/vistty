@@ -145,7 +145,7 @@ func ensureVisttyTable(L *lua.LState) *lua.LTable {
 }
 
 // registerMisc 注册 vistty.keys / vistty.mods 常量表，
-// 以及 vistty.log / vistty.reload / vistty.on_key 函数。
+// 以及 vistty.log / vistty.reload / vistty.exit / vistty.on_key 函数。
 func registerMisc(L *lua.LState, pm *PluginManager) {
 	vt := ensureVisttyTable(L)
 
@@ -181,6 +181,13 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 	vt.RawSetString("reload", L.NewFunction(func(L *lua.LState) int {
 		if err := pm.Reload(); err != nil {
 			L.RaiseError("vistty.reload: %v", err)
+		}
+		return 0
+	}))
+	// vistty.exit() — 请求退出主循环（幂等）
+	vt.RawSetString("exit", L.NewFunction(func(L *lua.LState) int {
+		if pm.ctx != nil {
+			pm.ctx.Exit()
 		}
 		return 0
 	}))

@@ -30,6 +30,7 @@ func (f *fakeCtx) ZoomReset()                    { f.zoomCalls = append(f.zoomCa
 func (f *fakeCtx) EnablePanel(s string, n int)   {}
 func (f *fakeCtx) DisablePanel(s string)         {}
 func (f *fakeCtx) ReloadPlugins() error          { return nil }
+func (f *fakeCtx) Exit()                          {}
 
 func TestP2TabAPI(t *testing.T) {
 	src := `

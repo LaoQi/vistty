@@ -33,4 +33,5 @@ type PluginContext interface {
 	EnablePanel(side string, lines int)
 	DisablePanel(side string)
 	ReloadPlugins() error
+	Exit()
 }

@@ -539,5 +539,11 @@ func (m *Master) ReloadPlugins() error {
 	return m.plugins.Reload()
 }
 
+// Exit 请求退出主循环（幂等，signalClose 用 closeOnce 保护）。
+// 供插件层通过 vistty.exit() 调用，复用现有的两阶段关闭路径。
+func (m *Master) Exit() {
+	m.signalClose()
+}
+
 // 编译期断言：Master 实现 plugins.PluginContext 接口。
 var _ plugins.PluginContext = (*Master)(nil)

@@ -60,6 +60,7 @@ func (f *p6FakeCtx) DisablePanel(s string) {
 	}
 }
 func (f *p6FakeCtx) ReloadPlugins() error { return nil }
+func (f *p6FakeCtx) Exit()                {}
 
 // examplesDir 返回仓库根目录下的 examples 目录绝对路径。
 // go test 的工作目录为包目录 internal/plugins，因此向上回溯两层。

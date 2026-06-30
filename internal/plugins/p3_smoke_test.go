@@ -29,6 +29,7 @@ func (f *p3FakeCtx) ZoomReset()                    {}
 func (f *p3FakeCtx) EnablePanel(s string, n int)   {}
 func (f *p3FakeCtx) DisablePanel(s string)         {}
 func (f *p3FakeCtx) ReloadPlugins() error          { return nil }
+func (f *p3FakeCtx) Exit()                          {}
 
 // TestP3OnKeyConsume 验证插件消费事件后 consumed=true
 func TestP3OnKeyConsume(t *testing.T) {
