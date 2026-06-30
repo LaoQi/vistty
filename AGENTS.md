@@ -132,7 +132,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 | input-watch | inotify 监听 /dev/input 热插拔 — 仅 DRM |
 | resize-fanin | reflect.Select 扇入所有 slave 的 ResizeEvents — 多屏 |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() |
-| drm-event | DRM fd 事件（Page Flip 完成）— 仅 DRM |
+| drm-event | DRM fd 事件读取（Page Flip 完成）— 仅 DRM；用 EventReader 缓存残差防多事件丢失 |
 | vt-signal | SIGUSR1/2 VT 切换 — 仅 DRM |
 
 ### 退出路径
@@ -228,7 +228,7 @@ debug → 无内部依赖
 - CGO_ENABLED=0：所有内核接口通过 syscall/unix ioctl 或纯 Go 库实现
 - DRM 是内核 UAPI — 基于 ioctl，需精确匹配 C 结构体内存布局
 - GBM 是 Mesa 用户空间库 — 通过 purego dlopen 访问，非 ioctl
-- DRM Page Flip 回调必须在同一线程 — 所有 DRM 操作集中在 drm-event goroutine
+- DRM Page Flip 事件读取在 drm-event goroutine（EventReader 有状态缓存防多事件丢失），flip 提交在 render main goroutine；两者通过 channel/回调跨 goroutine 通信
 - 键盘映射：DRM 自研 scancode→Unicode，Wayland 自研 XKB keymap 解析，初期仅 US 布局
 
 ## 预留扩展点
@@ -293,7 +293,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）
-- 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步 + 两阶段渲染（Render→Present）60fps
+- 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
 - 中文拼音输入法（ime 顶层包 + InputMethod 接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板）
@@ -301,4 +301,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复
 - 输入设备热插拔（DRM: inotify + epoll 监听 /dev/input；Wayland: wl_seat.capabilities 动态创建/释放 keyboard/pointer）
-- 两阶段关闭 + Close 幂等 + 渲染错误容错
+- 两阶段关闭 + Close 幅等 + 渲染错误容错
+- GBM flip 超时兜底（channel+select+time.After 5s，防止内核 flip 事件丢失导致 Swap 永久阻塞）
+- DRM EventReader 有状态事件读取（缓存残差 buffer 逐个解析，防止多屏同时 flip 完成时事件丢失）
+- GBM active/closed 统一 commitMu 保护（消除跨锁 data race）

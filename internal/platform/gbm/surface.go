@@ -3,6 +3,7 @@ package gbm
 import (
 	"fmt"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/LaoQi/vistty/internal/debug"
@@ -60,12 +61,14 @@ type GBMSurface struct {
 	crtcID      uint32
 	connectorID uint32
 
-	mu     sync.Mutex
+	// active/closed 由 commitMu 保护，避免跨锁读写 closed 的 data race。
 	active bool
 	closed bool
 
 	commitMu    sync.Mutex
-	commitCond  *sync.Cond
+	flipDone    chan struct{}
+	closedCh    chan struct{}
+	flipTimeout time.Duration
 	committed   *pendingFrame
 	scanout     *pendingFrame
 	releaseBO   *pendingFrame
@@ -285,19 +288,20 @@ func (s *GBMSurface) drawTexturedQuad() {
 }
 
 func (s *GBMSurface) Swap() error {
-	s.mu.Lock()
+	s.commitMu.Lock()
 	if !s.active || s.closed {
-		s.mu.Unlock()
+		s.commitMu.Unlock()
 		return nil
 	}
-	s.mu.Unlock()
+	s.commitMu.Unlock()
 
 	s.ensureCPUBuf()
 
-	s.commitMu.Lock()
-	for s.flipPending && !s.closed {
-		s.commitCond.Wait()
+	if !s.waitForFlipComplete() {
+		return nil
 	}
+
+	s.commitMu.Lock()
 	if s.closed {
 		s.commitMu.Unlock()
 		return nil
@@ -387,6 +391,47 @@ func (s *GBMSurface) Swap() error {
 	return nil
 }
 
+// waitForFlipComplete 等待上一次 atomic page flip 完成。
+//
+// 返回 true 表示可以继续渲染（flip 已完成、无 pending 或超时跳过本帧）；
+// 返回 false 表示 surface 已关闭。超时机制防止内核 flip 事件丢失导致
+// Swap 永久阻塞（与 dumb buffer 后端的 time.After 兜底一致）。
+func (s *GBMSurface) waitForFlipComplete() bool {
+	s.commitMu.Lock()
+	if s.closed {
+		s.commitMu.Unlock()
+		return false
+	}
+	pending := s.flipPending
+	if !pending {
+		select {
+		case <-s.flipDone:
+		default:
+		}
+	}
+	s.commitMu.Unlock()
+	if !pending {
+		return true
+	}
+
+	select {
+	case <-s.flipDone:
+		return true
+	case <-s.closedCh:
+		return false
+	case <-time.After(s.flipTimeout):
+		debug.Warningf("GBM Swap: flip 超时 crtc=%d，跳过本帧等待（内核可能未发送 flip complete 事件）\n", s.crtcID)
+		s.commitMu.Lock()
+		s.flipPending = false
+		select {
+		case <-s.flipDone:
+		default:
+		}
+		s.commitMu.Unlock()
+		return true
+	}
+}
+
 func (s *GBMSurface) onFlipComplete() {
 	s.commitMu.Lock()
 	if s.closed {
@@ -398,29 +443,29 @@ func (s *GBMSurface) onFlipComplete() {
 	s.scanout = s.committed
 	s.committed = nil
 	s.flipPending = false
-	s.commitCond.Signal()
+	select {
+	case s.flipDone <- struct{}{}:
+	default:
+	}
 
 	s.commitMu.Unlock()
 }
 
 func (s *GBMSurface) SetActive(active bool) {
-	s.mu.Lock()
+	s.commitMu.Lock()
 	s.active = active
-	s.mu.Unlock()
+	s.commitMu.Unlock()
 }
 
 func (s *GBMSurface) Close() error {
-	s.mu.Lock()
+	s.commitMu.Lock()
 	if s.closed {
-		s.mu.Unlock()
+		s.commitMu.Unlock()
 		return nil
 	}
 	s.closed = true
 	s.active = false
-	s.mu.Unlock()
-
-	s.commitMu.Lock()
-	s.commitCond.Signal()
+	close(s.closedCh)
 	for _, frame := range []*pendingFrame{s.committed, s.scanout, s.releaseBO} {
 		if frame != nil {
 			if frame.fbID != 0 {

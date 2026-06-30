@@ -188,8 +188,9 @@ func (b *DRMBackend) Stop() error {
 }
 
 func (b *DRMBackend) eventLoop() {
+	reader := NewEventReader(int(b.fd.Fd()))
 	for {
-		ev, err := ReadEvent(int(b.fd.Fd()))
+		ev, err := reader.ReadEvent()
 		if err != nil {
 			select {
 			case <-b.doneCh:

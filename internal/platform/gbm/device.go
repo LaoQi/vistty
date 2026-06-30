@@ -3,6 +3,7 @@ package gbm
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -191,7 +192,9 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		connectorID: connectorID,
 		active:      true,
 	}
-	s.commitCond = sync.NewCond(&s.commitMu)
+	s.flipDone = make(chan struct{}, 1)
+	s.closedCh = make(chan struct{})
+	s.flipTimeout = 5 * time.Second
 	s.ensureCPUBuf()
 
 	d.mu.Lock()

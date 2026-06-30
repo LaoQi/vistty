@@ -202,6 +202,10 @@ func (b *WaylandBackend) ListOutputs() ([]platform.Output, error) {
 
 func (b *WaylandBackend) CreateSurfaceFor(out platform.Output) (platform.Surface, error) {
 	w, h := out.Size()
+	if w <= 0 || h <= 0 {
+		w = 800
+		h = 600
+	}
 	return newWaylandSurface(b, w, h, out.ID())
 }
 
