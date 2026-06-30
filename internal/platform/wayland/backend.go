@@ -32,6 +32,8 @@ type WaylandBackend struct {
 	decoMgr    *zxdgDecorationManagerV1
 	shmFormat  uint32
 	swapBR     bool
+	savedCap   uint32
+	input      *WaylandInput
 
 	mu        sync.Mutex
 	closed    bool
@@ -163,6 +165,12 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 
 	b.wmBase = c.bindWmBase(registry, wmBaseName, wmBaseVersion)
 	b.seat = c.bindSeat(registry, seatName, seatVersion)
+	b.seat.onCapabilities = func(cap uint32) {
+		b.savedCap = cap
+		if b.input != nil {
+			b.input.HandleCapabilities(cap)
+		}
+	}
 
 	if decoMgrName != 0 {
 		if decoMgrVersion > 2 {
@@ -208,7 +216,15 @@ func (b *WaylandBackend) CreateSurfaceFor(out platform.Output) (platform.Surface
 }
 
 func (b *WaylandBackend) CreateInputSource() (platform.InputSource, error) {
-	return newWaylandInput(b.c, b.seat)
+	input, err := newWaylandInput(b.c, b.seat)
+	if err != nil {
+		return nil, err
+	}
+	b.input = input
+	if b.savedCap != 0 {
+		input.HandleCapabilities(b.savedCap)
+	}
+	return input, nil
 }
 
 func (b *WaylandBackend) Run(fn func()) {

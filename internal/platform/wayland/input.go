@@ -9,6 +9,7 @@ import (
 
 type WaylandInput struct {
 	c        *conn
+	seat     *wlSeat
 	keyboard *wlKeyboard
 	pointer  *wlPointer
 
@@ -22,21 +23,21 @@ type WaylandInput struct {
 
 	keymap keymap
 
-	done     chan struct{}
+	done      chan struct{}
 	closeOnce sync.Once
 }
 
 func newWaylandInput(c *conn, seat *wlSeat) (*WaylandInput, error) {
-	i := &WaylandInput{
+	return &WaylandInput{
 		c:       c,
+		seat:    seat,
 		keyCh:   make(chan platform.KeyEvent, 64),
 		mouseCh: make(chan platform.MouseEvent, 16),
 		done:    make(chan struct{}),
-	}
+	}, nil
+}
 
-	i.keyboard = seat.getKeyboard()
-	i.pointer = seat.getPointer()
-
+func (i *WaylandInput) registerKeyboardCallbacks() {
 	i.keyboard.onKeymap = func(format uint32, fd int, size uint32) {
 		if format == 1 && size > 0 {
 			if km, err := parseKeymap(fd, size); err == nil {
@@ -116,7 +117,9 @@ func newWaylandInput(c *conn, seat *wlSeat) (*WaylandInput, error) {
 		default:
 		}
 	}
+}
 
+func (i *WaylandInput) registerPointerCallbacks() {
 	i.pointer.onMotion = func(time uint32, x, y float64) {
 		i.mu.Lock()
 		i.posX = int(x)
@@ -160,8 +163,32 @@ func newWaylandInput(c *conn, seat *wlSeat) (*WaylandInput, error) {
 		default:
 		}
 	}
+}
 
-	return i, nil
+func (i *WaylandInput) HandleCapabilities(cap uint32) {
+	const (
+		WL_SEAT_CAPABILITY_POINTER  = 1
+		WL_SEAT_CAPABILITY_KEYBOARD = 2
+	)
+
+	if cap&WL_SEAT_CAPABILITY_KEYBOARD != 0 && i.keyboard == nil {
+		i.keyboard = i.seat.getKeyboard()
+		i.registerKeyboardCallbacks()
+	} else if cap&WL_SEAT_CAPABILITY_KEYBOARD == 0 && i.keyboard != nil {
+		i.keyboard.release()
+		i.keyboard = nil
+		i.mu.Lock()
+		i.mods = 0
+		i.mu.Unlock()
+	}
+
+	if cap&WL_SEAT_CAPABILITY_POINTER != 0 && i.pointer == nil {
+		i.pointer = i.seat.getPointer()
+		i.registerPointerCallbacks()
+	} else if cap&WL_SEAT_CAPABILITY_POINTER == 0 && i.pointer != nil {
+		i.pointer.release()
+		i.pointer = nil
+	}
 }
 
 func (i *WaylandInput) KeyEvents() <-chan platform.KeyEvent {

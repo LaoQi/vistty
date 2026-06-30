@@ -2,27 +2,44 @@ package drm
 
 import (
 	"fmt"
+	"strings"
 	"sync"
+	"time"
+	"unsafe"
 
 	"github.com/holoplot/go-evdev"
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
+	"golang.org/x/sys/unix"
 )
 
+type deviceEntry struct {
+	dev  *evdev.InputDevice
+	path string
+	done chan struct{}
+}
+
 type DRMInput struct {
-	keyCh    chan platform.KeyEvent
-	mouseCh  chan platform.MouseEvent
-	devices  []*evdev.InputDevice
-	done     chan struct{}
+	keyCh     chan platform.KeyEvent
+	mouseCh   chan platform.MouseEvent
+	devices   map[string]*deviceEntry
+	done      chan struct{}
 	closeOnce sync.Once
-	mods     platform.Modifiers
-	mu       sync.Mutex
+	mods      platform.Modifiers
+	mu        sync.Mutex
+	inotifyFd int
+	watchDone chan struct{}
+	exitFd    int
 }
 
 func newDRMInput() (*DRMInput, error) {
 	i := &DRMInput{
-		keyCh:   make(chan platform.KeyEvent, 64),
-		mouseCh: make(chan platform.MouseEvent, 16),
-		done:    make(chan struct{}),
+		keyCh:     make(chan platform.KeyEvent, 64),
+		mouseCh:   make(chan platform.MouseEvent, 16),
+		devices:   make(map[string]*deviceEntry),
+		done:      make(chan struct{}),
+		inotifyFd: -1,
+		watchDone: make(chan struct{}),
 	}
 
 	paths, err := evdev.ListDevicePaths()
@@ -31,41 +48,107 @@ func newDRMInput() (*DRMInput, error) {
 	}
 
 	for _, p := range paths {
-		dev, err := evdev.Open(p.Path)
-		if err != nil {
-			continue
-		}
-
-		hasKey := false
-		for _, t := range dev.CapableTypes() {
-			if t == evdev.EV_KEY {
-				hasKey = true
-				break
-			}
-		}
-		if !hasKey {
-			dev.Close()
-			continue
-		}
-
-		if err := dev.Grab(); err != nil {
-			dev.Close()
-			continue
-		}
-
-		i.devices = append(i.devices, dev)
-		go i.readLoop(dev)
+		_ = i.openDevice(p.Path)
 	}
+
+	go i.watchLoop()
 
 	return i, nil
 }
 
-func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
+func (i *DRMInput) openDevice(path string) error {
+	dev, err := evdev.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+
+	hasKey := false
+	for _, t := range dev.CapableTypes() {
+		if t == evdev.EV_KEY {
+			hasKey = true
+			break
+		}
+	}
+	if !hasKey {
+		dev.Close()
+		return fmt.Errorf("device %s has no EV_KEY capability", path)
+	}
+
+	if err := dev.Grab(); err != nil {
+		dev.Close()
+		return fmt.Errorf("grab %s: %w", path, err)
+	}
+
+	e := &deviceEntry{
+		dev:  dev,
+		path: path,
+		done: make(chan struct{}),
+	}
+
+	i.mu.Lock()
+	i.devices[path] = e
+	i.mu.Unlock()
+
+	go i.readLoop(e)
+
+	debug.Debugf("input device connected: %s", path)
+	return nil
+}
+
+func (i *DRMInput) closeDevice(path string) {
+	i.mu.Lock()
+	e, ok := i.devices[path]
+	if !ok {
+		i.mu.Unlock()
+		return
+	}
+	delete(i.devices, path)
+	remaining := len(i.devices)
+	i.mu.Unlock()
+
+	close(e.done)
+	e.dev.Ungrab()
+	e.dev.Close()
+
+	if remaining == 0 {
+		i.mu.Lock()
+		i.mods = 0
+		i.mu.Unlock()
+	}
+}
+
+func (i *DRMInput) handleDeviceLost(e *deviceEntry) {
+	i.mu.Lock()
+	if cur, ok := i.devices[e.path]; !ok || cur != e {
+		i.mu.Unlock()
+		return
+	}
+	delete(i.devices, e.path)
+	remaining := len(i.devices)
+	i.mu.Unlock()
+
+	e.dev.Ungrab()
+	e.dev.Close()
+
+	if remaining == 0 {
+		i.mu.Lock()
+		i.mods = 0
+		i.mu.Unlock()
+	}
+
+	debug.Debugf("input device disconnected: %s", e.path)
+}
+
+func (i *DRMInput) readLoop(e *deviceEntry) {
+	defer i.handleDeviceLost(e)
+
 	for {
-		ev, err := dev.ReadOne()
+		ev, err := e.dev.ReadOne()
 		if err != nil {
 			select {
 			case <-i.done:
+				return
+			case <-e.done:
 				return
 			default:
 				return
@@ -100,6 +183,8 @@ func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
 			}:
 			case <-i.done:
 				return
+			case <-e.done:
+				return
 			}
 			continue
 		}
@@ -117,6 +202,182 @@ func (i *DRMInput) readLoop(dev *evdev.InputDevice) {
 		}:
 		case <-i.done:
 			return
+		case <-e.done:
+			return
+		}
+	}
+}
+
+func (i *DRMInput) openDeviceWithRetry(path string) {
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := i.openDevice(path); err != nil {
+			if attempt == 2 {
+				debug.Warningf("failed to open device %s after 3 attempts: %v", path, err)
+			}
+			continue
+		}
+		return
+	}
+}
+
+func (i *DRMInput) rescanDevices() {
+	paths, err := evdev.ListDevicePaths()
+	if err != nil {
+		debug.Warningf("rescan devices failed: %v", err)
+		return
+	}
+
+	current := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		current[p.Path] = true
+	}
+
+	i.mu.Lock()
+	existing := make(map[string]bool, len(i.devices))
+	for path := range i.devices {
+		existing[path] = true
+	}
+	i.mu.Unlock()
+
+	for path := range current {
+		if !existing[path] {
+			i.openDeviceWithRetry(path)
+		}
+	}
+
+	for path := range existing {
+		if !current[path] {
+			i.closeDevice(path)
+		}
+	}
+}
+
+func (i *DRMInput) watchLoop() {
+	defer close(i.watchDone)
+
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		debug.Warningf("inotify init failed: %v", err)
+		return
+	}
+	i.inotifyFd = fd
+
+	wd, err := unix.InotifyAddWatch(fd, "/dev/input", unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_TO)
+	if err != nil {
+		debug.Warningf("inotify add watch failed: %v", err)
+		unix.Close(fd)
+		i.inotifyFd = -1
+		return
+	}
+	_ = wd
+
+	epollFd, err := unix.EpollCreate1(unix.EPOLL_CLOEXEC)
+	if err != nil {
+		debug.Warningf("epoll create failed: %v", err)
+		unix.Close(fd)
+		i.inotifyFd = -1
+		return
+	}
+	defer unix.Close(epollFd)
+
+	exitFd, err := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.EFD_CLOEXEC)
+	if err != nil {
+		debug.Warningf("eventfd create failed: %v", err)
+		unix.Close(fd)
+		i.inotifyFd = -1
+		return
+	}
+	i.exitFd = exitFd
+	defer unix.Close(exitFd)
+
+	inotifyEvent := &unix.EpollEvent{
+		Events: unix.EPOLLIN,
+		Fd:     int32(fd),
+	}
+	exitEvent := &unix.EpollEvent{
+		Events: unix.EPOLLIN,
+		Fd:     int32(exitFd),
+	}
+
+	if err := unix.EpollCtl(epollFd, unix.EPOLL_CTL_ADD, fd, inotifyEvent); err != nil {
+		debug.Warningf("epoll add inotify failed: %v", err)
+		unix.Close(exitFd)
+		i.exitFd = -1
+		unix.Close(fd)
+		i.inotifyFd = -1
+		return
+	}
+	if err := unix.EpollCtl(epollFd, unix.EPOLL_CTL_ADD, exitFd, exitEvent); err != nil {
+		debug.Warningf("epoll add eventfd failed: %v", err)
+		unix.Close(exitFd)
+		i.exitFd = -1
+		unix.Close(fd)
+		i.inotifyFd = -1
+		return
+	}
+
+	events := make([]unix.EpollEvent, 8)
+	buf := make([]byte, 4096)
+
+	for {
+		n, err := unix.EpollWait(epollFd, events, -1)
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			return
+		}
+
+		for j := 0; j < n; j++ {
+			if int(events[j].Fd) == exitFd {
+				return
+			}
+
+			if int(events[j].Fd) == fd {
+				nr, readErr := unix.Read(fd, buf)
+				if readErr != nil {
+					continue
+				}
+
+				var offset uint32
+				for offset < uint32(nr) {
+					if offset+uint32(unsafe.Sizeof(unix.InotifyEvent{})) > uint32(nr) {
+						break
+					}
+					hdr := (*unix.InotifyEvent)(unsafe.Pointer(&buf[offset]))
+					nameLen := hdr.Len
+					offset += uint32(unsafe.Sizeof(unix.InotifyEvent{}))
+
+					var name string
+					if nameLen > 0 {
+						end := offset + nameLen
+						if end > uint32(nr) {
+							break
+						}
+						name = strings.TrimRight(string(buf[offset:end]), "\x00")
+						offset = end
+					}
+
+					if !strings.HasPrefix(name, "event") {
+						continue
+					}
+
+					fullPath := "/dev/input/" + name
+
+					if hdr.Mask&(unix.IN_CREATE|unix.IN_MOVED_TO) != 0 {
+						i.openDeviceWithRetry(fullPath)
+					}
+					if hdr.Mask&unix.IN_DELETE != 0 {
+						i.closeDevice(fullPath)
+					}
+					if hdr.Mask&unix.IN_Q_OVERFLOW != 0 {
+						i.rescanDevices()
+					}
+				}
+			}
 		}
 	}
 }
@@ -132,10 +393,25 @@ func (i *DRMInput) MouseEvents() <-chan platform.MouseEvent {
 func (i *DRMInput) Close() error {
 	i.closeOnce.Do(func() {
 		close(i.done)
-		for _, dev := range i.devices {
-			dev.Ungrab()
-			dev.Close()
+
+		if i.exitFd >= 0 {
+			buf := make([]byte, 8)
+			buf[0] = 1
+			_, _ = unix.Write(i.exitFd, buf)
 		}
+		<-i.watchDone
+
+		if i.inotifyFd >= 0 {
+			unix.Close(i.inotifyFd)
+		}
+
+		i.mu.Lock()
+		for _, e := range i.devices {
+			close(e.done)
+			e.dev.Ungrab()
+			e.dev.Close()
+		}
+		i.mu.Unlock()
 	})
 	return nil
 }

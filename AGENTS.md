@@ -14,7 +14,7 @@
 |---|------|------|------|
 | 1 | DRM/KMS 后端 | 参考 NeowayLabs/drm 自研 | ioctl 封装模式按需实现 |
 | 2 | 帧缓冲管理 | 自研抽象接口 | DRM dumb buffer CPU 渲染 + GBM GPU 渲染 |
-| 3 | 输入处理 | `holoplot/go-evdev` | 纯 Go，含 Grab 独占、uinput |
+| 3 | 输入处理 | `holoplot/go-evdev` + inotify | 纯 Go，含 Grab 独占、uinput；DRM 后端 inotify 热插拔 |
 | 4 | PTY 管理 | `creack/pty` | Go 生态标准方案，纯 Go |
 | 5 | 转义序列解析 | 自研 | 参考 go-vte 状态机 + darktile termutil |
 | 6 | 终端缓冲区 | 自研 | 参考 darktile termutil Cell/Line/Buffer |
@@ -95,7 +95,7 @@ type Backend interface {
 | | DRM 后端 | Wayland 后端 |
 |---|---------|-------------|
 | Surface | Dumb buffer mmap / GBM BO + Page Flip | wl_shm 共享内存 + wl_surface.commit |
-| InputSource | go-evdev 读 /dev/input/eventN | wl_keyboard + wl_pointer 事件 |
+| InputSource | go-evdev 读 /dev/input/eventN + inotify 热插拔 | wl_keyboard + wl_pointer 事件 + capabilities 动态创建/释放 |
 | 键盘映射 | 自研 scancode→Unicode | 简化 XKB keymap 解析 |
 | 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + SSD 标题栏 |
 | VT 切换 | SIGUSR1/2 + KD_GRAPHICS | 不适用 |
@@ -125,6 +125,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 | seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 |
 | exit-watch | Terminal.EofCh()/Done() → m.exitCh |
 | input | InputSource 事件 → terminal |
+| input-watch | inotify 监听 /dev/input 热插拔 — 仅 DRM |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() |
 | drm-event | DRM fd 事件（Page Flip 完成）— 仅 DRM |
 | vt-signal | SIGUSR1/2 VT 切换 — 仅 DRM |
@@ -204,7 +205,7 @@ session → render, font, platform, terminal, ui, plugins (PluginContext 接口)
 plugins → terminal, platform, ui, ime, ime/pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置；registry 注入 pinyin）
 render → font, platform (Surface 接口)
 ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform, runeutil
-platform/drm → platform (Surface/GBMProvider 接口), go-evdev, debug
+platform/drm → platform (Surface/GBMProvider 接口), go-evdev, golang.org/x/sys/unix (inotify/epoll), debug
 platform/gbm → platform (GBMProvider/Surface/Output), platform/gl, platform/gpu, debug
 platform/gpu → platform/gl, platform (CellInstance/GPURenderer), debug
 platform/gl → purego
@@ -294,4 +295,5 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复
+- 输入设备热插拔（DRM: inotify + epoll 监听 /dev/input；Wayland: wl_seat.capabilities 动态创建/释放 keyboard/pointer）
 - 两阶段关闭 + Close 幂等 + 渲染错误容错
