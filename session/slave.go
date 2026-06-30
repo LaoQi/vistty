@@ -18,6 +18,11 @@ type Slave struct {
 	faceCache  *font.FaceCache
 	face       font.Face
 	osd        *ui.OSD
+
+	prevTop    int
+	prevBottom int
+	prevLeft   int
+	prevRight  int
 }
 
 func NewSlave(output platform.Output, surface platform.Surface) *Slave {
@@ -101,6 +106,24 @@ func (s *Slave) Insets() (top, bottom, left, right int) {
 		return 0, 0, 0, 0
 	}
 	return s.osd.Insets()
+}
+
+func (s *Slave) CheckInsetsChanged() bool {
+	top, bottom, left, right := s.Insets()
+	changed := top != s.prevTop || bottom != s.prevBottom || left != s.prevLeft || right != s.prevRight
+	s.prevTop = top
+	s.prevBottom = bottom
+	s.prevLeft = left
+	s.prevRight = right
+	return changed
+}
+
+func (s *Slave) ResizeTerms(cols, rows int) {
+	for _, t := range s.terms {
+		t.Resize(cols, rows)
+		t.SetPtySize(rows, cols)
+	}
+	s.compositor.Resize(cols, rows)
 }
 
 func (s *Slave) UpdateTabs() {

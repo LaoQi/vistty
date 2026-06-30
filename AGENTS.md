@@ -289,7 +289,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择
-- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）
+- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_range/pressed + 面板渲染 + 热重载）
 - 中文拼音输入法（ime 顶层包 + InputMethod 接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板）
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁

@@ -170,6 +170,25 @@ func (m *Master) renderPlugins() {
 		if metrics.Width <= 0 || metrics.Height <= 0 {
 			continue
 		}
+		if s.CheckInsetsChanged() {
+			top, bot, left, right := s.Insets()
+			surfW, surfH := s.Surface().Size()
+			innerW := surfW - left - right
+			innerH := surfH - top - bot
+			cols := innerW / metrics.Width
+			rows := 0
+			if metrics.Height > 0 {
+				rows = innerH / metrics.Height
+			}
+			if cols <= 0 {
+				cols = 80
+			}
+			if rows <= 0 {
+				rows = 24
+			}
+			s.ResizeTerms(cols, rows)
+			m.dirty = true
+		}
 		top, bottom, left, right := s.Insets()
 		surfW, surfH := s.Surface().Size()
 		for _, side := range []string{"bottom", "left", "right"} {
@@ -252,10 +271,6 @@ func (m *Master) handleResize(ev platform.ResizeEvent) {
 
 func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
 	s := m.slaves[m.primaryIdx]
-	ft := s.ActiveTerm()
-	if ft == nil {
-		return
-	}
 	metrics := s.Face().Metrics()
 	top, bot, left, right := s.Insets()
 	innerW := ev.Width - left - right
@@ -271,9 +286,7 @@ func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
 	if rows <= 0 {
 		rows = 24
 	}
-	ft.Resize(cols, rows)
-	s.Compositor().Resize(cols, rows)
-	ft.SetPtySize(rows, cols)
+	s.ResizeTerms(cols, rows)
 }
 
 func (m *Master) requestScale(delta int) {
@@ -329,12 +342,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	if rows <= 0 {
 		rows = 24
 	}
-	ft := s.ActiveTerm()
-	if ft != nil {
-		ft.Resize(cols, rows)
-		s.Compositor().Resize(cols, rows)
-		ft.SetPtySize(rows, cols)
-	}
+	s.ResizeTerms(cols, rows)
 	if err := m.renderFrame(); err != nil {
 		debug.Errorf("handleScale: render error: %v\n", err)
 	}
