@@ -300,7 +300,16 @@ func (t *Terminal) PtyReadLoop() {
 	for {
 		n, err := t.pty.Read(buf)
 		if err != nil {
-			debug.Errorf("PtyReadLoop: read error: %v\n", err)
+			select {
+			case <-t.done:
+				debug.Debugf("PtyReadLoop: pty closed during shutdown\n")
+			default:
+				if err == io.EOF {
+					debug.Debugf("PtyReadLoop: EOF, child process exited\n")
+				} else {
+					debug.Errorf("PtyReadLoop: read error: %v\n", err)
+				}
+			}
 			select {
 			case <-t.done:
 			case t.eofCh <- struct{}{}:
