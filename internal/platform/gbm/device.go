@@ -17,7 +17,6 @@ type GBMDevice struct {
 	glesLoader     *gl.GLESLoader
 	gbmDev         uintptr
 	eglDisplay     uintptr
-	eglContext     uintptr
 	eglConfig      uintptr
 	nativeVisualID uint32
 
@@ -100,26 +99,8 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	debug.Debugf("GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)\n",
 		rSize, gSize, bSize, aSize, uint32(nativeVisual), visualName(uint32(nativeVisual)))
 
-	ctxAttribs := gl.EGLAttribList(
-		gl.EGL_CONTEXT_CLIENT_VERSION, 3,
-	)
-	eglContext := eglLoader.CreateContext(eglDisplay, eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs)
-	if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
-		ctxAttribs2 := gl.EGLAttribList(
-			gl.EGL_CONTEXT_CLIENT_VERSION, 2,
-		)
-		eglContext = eglLoader.CreateContext(eglDisplay, eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs2)
-		if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
-			eglLoader.Terminate(eglDisplay)
-			gbmLoader.DeviceDestroy(gbmDev)
-			return nil, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
-		}
-		debug.Warningf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
-	}
-
 	glesLoader, err := gl.LoadGLES()
 	if err != nil {
-		eglLoader.DestroyContext(eglDisplay, eglContext)
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
 		return nil, fmt.Errorf("load GLES: %w", err)
@@ -132,12 +113,29 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 		glesLoader:     glesLoader,
 		gbmDev:         gbmDev,
 		eglDisplay:     eglDisplay,
-		eglContext:     eglContext,
 		eglConfig:      eglConfig,
 		nativeVisualID: uint32(nativeVisual),
 		commitor:       NewAtomicCommitor(fd),
 		surfaces:       make(map[uint32]*GBMSurface),
 	}, nil
+}
+
+func (d *GBMDevice) CreateContext() (uintptr, error) {
+	ctxAttribs := gl.EGLAttribList(
+		gl.EGL_CONTEXT_CLIENT_VERSION, 3,
+	)
+	eglContext := d.eglLoader.CreateContext(d.eglDisplay, d.eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs)
+	if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
+		ctxAttribs2 := gl.EGLAttribList(
+			gl.EGL_CONTEXT_CLIENT_VERSION, 2,
+		)
+		eglContext = d.eglLoader.CreateContext(d.eglDisplay, d.eglConfig, gl.EGL_NO_CONTEXT, ctxAttribs2)
+		if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
+			return 0, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
+		}
+		debug.Warningf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
+	}
+	return eglContext, nil
 }
 
 func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32, mode *drm.ModeInfoPublic) (*GBMSurface, error) {
@@ -173,19 +171,27 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		return nil, fmt.Errorf("commitor register: %w", err)
 	}
 
+	eglCtx, err := d.CreateContext()
+	if err != nil {
+		d.eglLoader.DestroySurface(d.eglDisplay, eglSurface)
+		d.gbmLoader.SurfaceDestroy(gbmSurface)
+		return nil, fmt.Errorf("create egl context: %w", err)
+	}
+
 	s := &GBMSurface{
 		device:      d,
 		commitor:    d.commitor,
 		info:        info,
 		gbmSurface:  gbmSurface,
 		eglSurface:  eglSurface,
+		eglContext:  eglCtx,
 		width:       width,
 		height:      height,
 		crtcID:      crtcID,
 		connectorID: connectorID,
 		active:      true,
-		commitErr:   make(chan error, 1),
 	}
+	s.commitCond = sync.NewCond(&s.commitMu)
 	s.ensureCPUBuf()
 
 	d.mu.Lock()
@@ -208,10 +214,6 @@ func (d *GBMDevice) Close() {
 		d.commitor = nil
 	}
 
-	if d.eglContext != 0 {
-		d.eglLoader.DestroyContext(d.eglDisplay, d.eglContext)
-		d.eglContext = 0
-	}
 	if d.eglDisplay != 0 {
 		d.eglLoader.Terminate(d.eglDisplay)
 		d.eglDisplay = 0
@@ -222,11 +224,10 @@ func (d *GBMDevice) Close() {
 	}
 }
 
-func (d *GBMDevice) GBMLoader() *GBMLoader  { return d.gbmLoader }
-func (d *GBMDevice) EGLLoader() *gl.EGLLoader { return d.eglLoader }
+func (d *GBMDevice) GBMLoader() *GBMLoader      { return d.gbmLoader }
+func (d *GBMDevice) EGLLoader() *gl.EGLLoader   { return d.eglLoader }
 func (d *GBMDevice) GLESLoader() *gl.GLESLoader { return d.glesLoader }
-func (d *GBMDevice) EGLDisplay() uintptr       { return d.eglDisplay }
-func (d *GBMDevice) EGLContext() uintptr        { return d.eglContext }
+func (d *GBMDevice) EGLDisplay() uintptr        { return d.eglDisplay }
 func (d *GBMDevice) FD() int                    { return d.fd }
 
 func (d *GBMDevice) CreateSurfaceForOutput(out platform.Output) (platform.Surface, error) {

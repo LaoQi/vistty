@@ -54,6 +54,7 @@ type GBMSurface struct {
 	info        *surfaceAtomicInfo
 	gbmSurface  uintptr
 	eglSurface  uintptr
+	eglContext  uintptr
 	width       int
 	height      int
 	crtcID      uint32
@@ -64,11 +65,11 @@ type GBMSurface struct {
 	closed bool
 
 	commitMu    sync.Mutex
-	mailbox     *pendingFrame
+	commitCond  *sync.Cond
 	committed   *pendingFrame
+	scanout     *pendingFrame
 	releaseBO   *pendingFrame
 	flipPending bool
-	commitErr   chan error
 
 	frameCount uint64
 
@@ -205,7 +206,7 @@ func (s *GBMSurface) initGL() error {
 	s.glInitDone = true
 
 	if gles.HasInstancedDraw() {
-		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.device.eglContext, s.width, s.height)
+		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.eglContext, s.width, s.height)
 		if err := s.gpu.Init(); err != nil {
 			debug.Warningf("GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
 			s.gpu = nil
@@ -235,7 +236,7 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 
 func (s *GBMSurface) BeginFrame() error {
 	if !s.glInitDone {
-		if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
+		if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext); err != nil {
 			return fmt.Errorf("eglMakeCurrent: %w", err)
 		}
 		if err := s.initGL(); err != nil {
@@ -284,12 +285,6 @@ func (s *GBMSurface) drawTexturedQuad() {
 }
 
 func (s *GBMSurface) Swap() error {
-	select {
-	case err := <-s.commitErr:
-		return err
-	default:
-	}
-
 	s.mu.Lock()
 	if !s.active || s.closed {
 		s.mu.Unlock()
@@ -298,15 +293,35 @@ func (s *GBMSurface) Swap() error {
 	s.mu.Unlock()
 
 	s.ensureCPUBuf()
+
+	s.commitMu.Lock()
+	for s.flipPending && !s.closed {
+		s.commitCond.Wait()
+	}
+	if s.closed {
+		s.commitMu.Unlock()
+		return nil
+	}
+	if s.releaseBO != nil {
+		if s.releaseBO.fbID != 0 {
+			drm.RmFB(s.device.fd, s.releaseBO.fbID)
+		}
+		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, s.releaseBO.bo)
+		s.releaseBO = nil
+	}
+	s.commitMu.Unlock()
+
 	s.frameCount++
 	if s.frameCount <= 3 || s.frameCount%100 == 0 {
 		debug.Debugf("GBM Swap: crtc=%d frame=%d\n", s.crtcID, s.frameCount)
 	}
 
-	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext); err != nil {
+	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext); err != nil {
 		errCode := s.device.eglLoader.GetError()
 		return fmt.Errorf("eglMakeCurrent: %w (eglErr=%s)", err, gl.EGLErrorString(errCode))
 	}
+
+	s.device.eglLoader.SwapInterval(s.device.eglDisplay, 0)
 
 	if !s.glInitDone {
 		if err := s.initGL(); err != nil {
@@ -353,25 +368,21 @@ func (s *GBMSurface) Swap() error {
 	frame := &pendingFrame{bo, fbID, stride}
 
 	s.commitMu.Lock()
-	if s.flipPending {
-		if old := s.mailbox; old != nil {
-			drm.RmFB(s.device.fd, old.fbID)
-			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, old.bo)
-		}
-		s.mailbox = frame
+	if s.closed {
 		s.commitMu.Unlock()
-	} else {
-		s.commitMu.Unlock()
-		if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
-			drm.RmFB(s.device.fd, fbID)
-			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
-			return fmt.Errorf("atomic commit: %w", err)
-		}
-		s.commitMu.Lock()
-		s.committed = frame
-		s.flipPending = true
-		s.commitMu.Unlock()
+		drm.RmFB(s.device.fd, fbID)
+		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
+		return nil
 	}
+	if err := s.commitor.CommitSingle(s.info, fbID, modeset); err != nil {
+		s.commitMu.Unlock()
+		drm.RmFB(s.device.fd, fbID)
+		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, bo)
+		return fmt.Errorf("atomic commit: %w", err)
+	}
+	s.committed = frame
+	s.flipPending = true
+	s.commitMu.Unlock()
 
 	return nil
 }
@@ -383,32 +394,11 @@ func (s *GBMSurface) onFlipComplete() {
 		return
 	}
 
-	if s.releaseBO != nil {
-		drm.RmFB(s.device.fd, s.releaseBO.fbID)
-		s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, s.releaseBO.bo)
-		s.releaseBO = nil
-	}
-
-	s.releaseBO = s.committed
+	s.releaseBO = s.scanout
+	s.scanout = s.committed
 	s.committed = nil
 	s.flipPending = false
-
-	if s.mailbox != nil {
-		frame := s.mailbox
-		s.mailbox = nil
-		modeset := !s.info.modesetDone
-		if err := s.commitor.CommitSingle(s.info, frame.fbID, modeset); err != nil {
-			drm.RmFB(s.device.fd, frame.fbID)
-			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
-			select {
-			case s.commitErr <- fmt.Errorf("atomic commit: %w", err):
-			default:
-			}
-		} else {
-			s.committed = frame
-			s.flipPending = true
-		}
-	}
+	s.commitCond.Signal()
 
 	s.commitMu.Unlock()
 }
@@ -430,7 +420,8 @@ func (s *GBMSurface) Close() error {
 	s.mu.Unlock()
 
 	s.commitMu.Lock()
-	for _, frame := range []*pendingFrame{s.mailbox, s.committed, s.releaseBO} {
+	s.commitCond.Signal()
+	for _, frame := range []*pendingFrame{s.committed, s.scanout, s.releaseBO} {
 		if frame != nil {
 			if frame.fbID != 0 {
 				drm.RmFB(s.device.fd, frame.fbID)
@@ -438,13 +429,13 @@ func (s *GBMSurface) Close() error {
 			s.device.gbmLoader.SurfaceReleaseBuffer(s.gbmSurface, frame.bo)
 		}
 	}
-	s.mailbox = nil
 	s.committed = nil
+	s.scanout = nil
 	s.releaseBO = nil
 	s.flipPending = false
 	s.commitMu.Unlock()
 
-	_ = s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.device.eglContext)
+	_ = s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext)
 	if s.gpu != nil {
 		s.gpu.Close()
 		s.gpu = nil
@@ -466,6 +457,11 @@ func (s *GBMSurface) Close() error {
 			s.program = 0
 		}
 		s.glInitDone = false
+	}
+
+	if s.eglContext != 0 {
+		s.device.eglLoader.DestroyContext(s.device.eglDisplay, s.eglContext)
+		s.eglContext = 0
 	}
 
 	if s.eglSurface != 0 {

@@ -6,17 +6,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ebitengine/purego"
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/platform/gl"
 	"github.com/LaoQi/vistty/internal/platform/gpu"
+	"github.com/ebitengine/purego"
 )
 
 // glFinish 刷新 GL 命令队列。render node 上 GBM surface 在 TexSubImage2D 后
 // 若不刷新，后续 MakeCurrent 偶发 BAD_ACCESS（Mesa/i915 驱动问题）。
 var (
-	glFinishFn  func()
+	glFinishFn   func()
 	glFinishOnce sync.Once
 )
 
@@ -86,12 +86,12 @@ func setupBenchSurface(b *testing.B, cols, rows, cellW, cellH int) *benchEnv {
 		eglLoader:  env.egl,
 		glesLoader: env.gles,
 		eglDisplay: env.disp,
-		eglContext: env.ctx,
 		eglConfig:  env.cfg,
 	}
 	s := &GBMSurface{
 		device:     dev,
 		eglSurface: eglSurf,
+		eglContext: env.ctx,
 		width:      w,
 		height:     h,
 		active:     true,
@@ -157,15 +157,15 @@ func (be *benchEnv) makeGlyphInstances(b *testing.B, s *GBMSurface, runeSet []ru
 				glFinish()
 			}
 			insts = append(insts, platform.CellInstance{
-				X:          float32(c * be.cellW),
-				Y:          float32(r * be.cellH),
-				CellW:      float32(be.cellW),
-				CellH:      float32(be.cellH),
-				GlyphOffX:  float32(g.XOffset),
-				GlyphOffY:  float32(m.Ascent + g.YOffset),
-				GlyphW:     float32(g.Width),
-				GlyphH:     float32(g.Height),
-				GlyphU0:    u0, V0: v0, GlyphU1: u1, V1: v1,
+				X:         float32(c * be.cellW),
+				Y:         float32(r * be.cellH),
+				CellW:     float32(be.cellW),
+				CellH:     float32(be.cellH),
+				GlyphOffX: float32(g.XOffset),
+				GlyphOffY: float32(m.Ascent + g.YOffset),
+				GlyphW:    float32(g.Width),
+				GlyphH:    float32(g.Height),
+				GlyphU0:   u0, V0: v0, GlyphU1: u1, V1: v1,
 				FgR: 1, FgG: 1, FgB: 1,
 			})
 		}

@@ -53,12 +53,12 @@ func BenchmarkGBMDrawStandalone(b *testing.B) {
 		eglLoader:  env.egl,
 		glesLoader: env.gles,
 		eglDisplay: env.disp,
-		eglContext: env.ctx,
 		eglConfig:  env.cfg,
 	}
 	s := &GBMSurface{
 		device:     dev,
 		eglSurface: eglSurf,
+		eglContext: env.ctx,
 		width:      w,
 		height:     h,
 		active:     true,
@@ -97,15 +97,15 @@ func BenchmarkGBMDrawStandalone(b *testing.B) {
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
 			insts[r*cols+c] = platform.CellInstance{
-				X:          float32(c * cellW),
-				Y:          float32(r * cellH),
-				CellW:      float32(cellW),
-				CellH:      float32(cellH),
-				GlyphOffX:  float32(g.XOffset),
-				GlyphOffY:  float32(m.Ascent + g.YOffset),
-				GlyphW:     float32(g.Width),
-				GlyphH:     float32(g.Height),
-				GlyphU0:    u0, V0: v0, GlyphU1: u1, V1: v1,
+				X:         float32(c * cellW),
+				Y:         float32(r * cellH),
+				CellW:     float32(cellW),
+				CellH:     float32(cellH),
+				GlyphOffX: float32(g.XOffset),
+				GlyphOffY: float32(m.Ascent + g.YOffset),
+				GlyphW:    float32(g.Width),
+				GlyphH:    float32(g.Height),
+				GlyphU0:   u0, V0: v0, GlyphU1: u1, V1: v1,
 				FgR: 1, FgG: 1, FgB: 1,
 			}
 		}

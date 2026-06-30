@@ -177,7 +177,7 @@ func (b *WaylandBackend) CreateSurface(width, height int) (platform.Surface, err
 		width = 800
 		height = 600
 	}
-	return newWaylandSurface(b, width, height)
+	return newWaylandSurface(b, width, height, 0)
 }
 
 type waylandOutput struct {
@@ -202,7 +202,7 @@ func (b *WaylandBackend) ListOutputs() ([]platform.Output, error) {
 
 func (b *WaylandBackend) CreateSurfaceFor(out platform.Output) (platform.Surface, error) {
 	w, h := out.Size()
-	return b.CreateSurface(w, h)
+	return newWaylandSurface(b, w, h, out.ID())
 }
 
 func (b *WaylandBackend) CreateInputSource() (platform.InputSource, error) {

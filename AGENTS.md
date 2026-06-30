@@ -99,7 +99,7 @@ type Backend interface {
 | 键盘映射 | 自研 scancode→Unicode | 简化 XKB keymap 解析 |
 | 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + zxdg_decoration SSD/CSD |
 | VT 切换 | SIGUSR1/2 + KD_GRAPHICS | 不适用 |
-| GPU 渲染 | GBM+EGL+GLES instanced draw | 不支持（wl_shm CPU 路径） |
+| GPU 渲染 | GBM+EGL+GLES instanced draw（每 Surface 独立 EGLContext） | 不支持（wl_shm CPU 路径） |
 
 ### 数据流
 
@@ -112,20 +112,25 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
                                                               ↓
                                                OSD.RenderCPU/RenderGPU 叠加标签栏
                                                               ↓
-                                               backBuf → Surface.Data() → Surface.Swap()
+                                               backBuf → Surface.Data()
+                                                              ↓
+                                               Compositor.Render()（所有 slave 绘制）
+                                                              ↓
+                                               Compositor.Present() → Surface.Swap()（page flip）
 ```
 
 ### Goroutine 模型
 
 | goroutine | 职责 |
 |-----------|------|
-| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/exit） |
+| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/exit）；两阶段渲染：Render 所有 slave → Present 所有 slave |
 | backend-loop | backend.Run()（DRM: 空操作; Wayland: dispatch 事件循环） |
 | pty-read | PTY stdout → Read → FeedInto → seqCh |
 | seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 |
 | exit-watch | Terminal.EofCh()/Done() → m.exitCh |
 | input | InputSource 事件 → terminal |
 | input-watch | inotify 监听 /dev/input 热插拔 — 仅 DRM |
+| resize-fanin | reflect.Select 扇入所有 slave 的 ResizeEvents — 多屏 |
 | signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() |
 | drm-event | DRM fd 事件（Page Flip 完成）— 仅 DRM |
 | vt-signal | SIGUSR1/2 VT 切换 — 仅 DRM |
@@ -288,7 +293,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）
-- 多屏 DRM 输出 + 独立显示模式 + 主屏选择
+- 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步 + 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
 - 中文拼音输入法（ime 顶层包 + InputMethod 接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板）

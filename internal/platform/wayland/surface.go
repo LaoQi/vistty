@@ -34,9 +34,10 @@ type WaylandSurface struct {
 	decoMode uint32
 
 	resizeCh chan platform.ResizeEvent
+	outputID uint32
 }
 
-func newWaylandSurface(backend *WaylandBackend, width, height int) (*WaylandSurface, error) {
+func newWaylandSurface(backend *WaylandBackend, width, height int, outputID uint32) (*WaylandSurface, error) {
 	s := &WaylandSurface{
 		backend:  backend,
 		width:    width,
@@ -44,6 +45,7 @@ func newWaylandSurface(backend *WaylandBackend, width, height int) (*WaylandSurf
 		stride:   width * 4,
 		resizeCh: make(chan platform.ResizeEvent, 4),
 		swapBR:   backend.swapBR,
+		outputID: outputID,
 	}
 
 	s.wlSurface = backend.compositor.createSurface()
@@ -222,7 +224,7 @@ func (s *WaylandSurface) ResizeEvents() <-chan platform.ResizeEvent {
 }
 
 func (s *WaylandSurface) OutputID() uint32 {
-	return 0
+	return s.outputID
 }
 
 func (s *WaylandSurface) resize(newWidth, newHeight int) {
@@ -265,7 +267,7 @@ func (s *WaylandSurface) resize(newWidth, newHeight int) {
 	s.xdgSurface.setWindowGeometry(0, 0, int32(newWidth), int32(newHeight))
 
 	select {
-	case s.resizeCh <- platform.ResizeEvent{Width: newWidth, Height: newHeight}:
+	case s.resizeCh <- platform.ResizeEvent{Width: newWidth, Height: newHeight, OutputID: s.outputID}:
 	default:
 	}
 }

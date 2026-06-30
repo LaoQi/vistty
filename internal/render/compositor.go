@@ -301,11 +301,11 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		c.copyAllToSurface()
 	}
 
-	if err := c.surface.Swap(); err != nil {
-		return err
-	}
-
 	return nil
+}
+
+func (c *Compositor) Present() error {
+	return c.surface.Swap()
 }
 
 func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
@@ -380,21 +380,21 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			}
 
 			inst := platform.CellInstance{
-				X:        px,
-				Y:        py,
-				CellW:    cellW,
-				CellH:    cellH,
+				X:         px,
+				Y:         py,
+				CellW:     cellW,
+				CellH:     cellH,
 				GlyphOffX: 0,
 				GlyphOffY: float32(c.metrics.Ascent),
-				GlyphW:   float32(c.metrics.Width),
-				GlyphH:   float32(c.metrics.Height),
-				FgR:      fgR,
-				FgG:      fgG,
-				FgB:      fgB,
-				BgR:      bgR,
-				BgG:      bgG,
-				BgB:      bgB,
-				HasBg:    hasBg,
+				GlyphW:    float32(c.metrics.Width),
+				GlyphH:    float32(c.metrics.Height),
+				FgR:       fgR,
+				FgG:       fgG,
+				FgB:       fgB,
+				BgR:       bgR,
+				BgG:       bgG,
+				BgB:       bgB,
+				HasBg:     hasBg,
 			}
 			if cell.Attr&screen.AttrUnderline != 0 {
 				inst.AttrFlags += 1
@@ -459,7 +459,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 		return err
 	}
 
-	return c.surface.Swap()
+	return nil
 }
 
 func (c *Compositor) Resize(cols, rows int) {

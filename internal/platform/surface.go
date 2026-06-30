@@ -1,8 +1,9 @@
 package platform
 
 type ResizeEvent struct {
-	Width  int
-	Height int
+	Width    int
+	Height   int
+	OutputID uint32
 }
 
 type Surface interface {

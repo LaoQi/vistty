@@ -103,6 +103,8 @@ type GLESLoader struct {
 	uniform4fv          func(location int32, count int32, value unsafe.Pointer)
 	texStorage2D        func(target uint32, levels int32, internalFormat uint32, w, h int32)
 	readPixels          func(x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
+	finish              func()
+	flush               func()
 }
 
 func LoadGLES() (*GLESLoader, error) {
@@ -170,6 +172,8 @@ func LoadGLES() (*GLESLoader, error) {
 		{"glUniform4fv", &l.uniform4fv, true},
 		{"glTexStorage2D", &l.texStorage2D, true},
 		{"glReadPixels", &l.readPixels, true},
+		{"glFinish", &l.finish, false},
+		{"glFlush", &l.flush, false},
 	}
 
 	var errs []error
@@ -491,4 +495,12 @@ func (l *GLESLoader) ReadPixels(x, y, w, h int32, format, typ uint32, data []byt
 
 func (l *GLESLoader) GetTexLevelParameteriv(target uint32, level int32, pname uint32, params []int32) {
 	l.getTexLevelParameteriv(target, level, pname, unsafe.Pointer(&params[0]))
+}
+
+func (l *GLESLoader) Finish() {
+	l.finish()
+}
+
+func (l *GLESLoader) Flush() {
+	l.flush()
 }

@@ -68,6 +68,7 @@ type EGLLoader struct {
 	destroySurface      func(display, surface uintptr)
 	makeCurrent         func(display, draw, read, context uintptr) uintptr
 	swapBuffers         func(display, surface uintptr) uintptr
+	swapInterval        func(display uintptr, interval int32) uintptr
 	querySurface        func(display, surface uintptr, attribute uintptr, value unsafe.Pointer) uintptr
 	getConfigAttrib     func(display, config uintptr, attribute uintptr, value unsafe.Pointer) uintptr
 	getError            func() uintptr
@@ -102,6 +103,7 @@ func LoadEGL() (*EGLLoader, error) {
 		{"eglDestroySurface", &l.destroySurface, false},
 		{"eglMakeCurrent", &l.makeCurrent, false},
 		{"eglSwapBuffers", &l.swapBuffers, false},
+		{"eglSwapInterval", &l.swapInterval, true},
 		{"eglQuerySurface", &l.querySurface, true},
 		{"eglGetConfigAttrib", &l.getConfigAttrib, true},
 		{"eglGetError", &l.getError, false},
@@ -211,6 +213,17 @@ func (l *EGLLoader) SwapBuffers(display, surface uintptr) error {
 	ret := l.swapBuffers(display, surface)
 	if ret == 0 {
 		return fmt.Errorf("eglSwapBuffers failed")
+	}
+	return nil
+}
+
+func (l *EGLLoader) SwapInterval(display uintptr, interval int32) error {
+	if l.swapInterval == nil {
+		return nil
+	}
+	ret := l.swapInterval(display, interval)
+	if ret == 0 {
+		return fmt.Errorf("eglSwapInterval failed")
 	}
 	return nil
 }

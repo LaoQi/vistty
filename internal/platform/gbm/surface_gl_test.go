@@ -151,12 +151,12 @@ func TestGBMGL(t *testing.T) {
 		eglLoader:  env.egl,
 		glesLoader: env.gles,
 		eglDisplay: env.disp,
-		eglContext: env.ctx,
 		eglConfig:  env.cfg,
 	}
 	s := &GBMSurface{
 		device:     dev,
 		eglSurface: eglSurf,
+		eglContext: env.ctx,
 		width:      80,
 		height:     32,
 		active:     true,

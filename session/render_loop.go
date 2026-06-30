@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime"
 	"syscall"
 	"time"
@@ -58,7 +59,37 @@ func (m *Master) Run() error {
 
 	ticker := time.NewTicker(m.frameInterval)
 	defer ticker.Stop()
-	resizeCh := m.slaves[m.primaryIdx].Surface().ResizeEvents()
+	resizeCh := make(chan platform.ResizeEvent, 4)
+	go func() {
+		var cases []reflect.SelectCase
+		doneCase := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.done)}
+		cases = append(cases, doneCase)
+		for _, s := range m.slaves {
+			ch := s.Surface().ResizeEvents()
+			if ch == nil {
+				continue
+			}
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ch)})
+		}
+		for {
+			chosen, v, ok := reflect.Select(cases)
+			if chosen == 0 {
+				if !ok {
+					return
+				}
+				continue
+			}
+			if !ok {
+				continue
+			}
+			ev := v.Interface().(platform.ResizeEvent)
+			select {
+			case resizeCh <- ev:
+			case <-m.done:
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -247,6 +278,7 @@ func toUIPrimitives(prims []plugins.Primitive) []ui.PanelPrimitive {
 }
 
 func (m *Master) renderIndependent() error {
+	var firstErr error
 	for _, s := range m.slaves {
 		t := s.ActiveTerm()
 		if t == nil {
@@ -259,10 +291,22 @@ func (m *Master) renderIndependent() error {
 		err := s.Compositor().Render(t.Screen(), t.ScrollOffset())
 		t.RUnlock()
 		if err != nil {
-			return err
+			debug.Errorf("renderIndependent: slave %s render failed: %v\n", s.Output().Name(), err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 	}
-	return nil
+	for _, s := range m.slaves {
+		if err := s.Compositor().Present(); err != nil {
+			debug.Errorf("renderIndependent: slave %s present failed: %v\n", s.Output().Name(), err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
 }
 
 func (m *Master) handleResize(ev platform.ResizeEvent) {
@@ -270,7 +314,19 @@ func (m *Master) handleResize(ev platform.ResizeEvent) {
 }
 
 func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
-	s := m.slaves[m.primaryIdx]
+	var s *Slave
+	for _, sl := range m.slaves {
+		if sl.Surface().OutputID() == ev.OutputID {
+			s = sl
+			break
+		}
+	}
+	if s == nil {
+		s = m.slaves[m.primaryIdx]
+	}
+	if s == nil {
+		return
+	}
 	metrics := s.Face().Metrics()
 	top, bot, left, right := s.Insets()
 	innerW := ev.Width - left - right
