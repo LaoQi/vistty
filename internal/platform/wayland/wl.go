@@ -199,8 +199,14 @@ func (c *conn) handleDisplayEvent(opcode uint16, msg []byte, fds []int) {
 		code := binary.LittleEndian.Uint32(msg[4:8])
 		strLen := int(binary.LittleEndian.Uint32(msg[8:12]))
 		ml := strLen
-		if 12+ml > len(msg) {
+		if ml > 0 {
+			ml-- // 去掉末尾 NUL
+		}
+		if 12+strLen > len(msg) {
 			ml = len(msg) - 12
+			if ml > 0 {
+				ml--
+			}
 		}
 		m := string(msg[12 : 12+ml])
 		c.mu.Lock()

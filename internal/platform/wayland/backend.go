@@ -133,7 +133,8 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 
 	// 优先 RGB 序格式以避免 Surface.Swap 中的逐像素 B/R 交换。
 	// XRGB8888 是所有 Wayland 合成器的必备格式，必然可用。
-	// niri 对 XRGB/ARGB 广播枚举索引(1/0)，需同时匹配；create_buffer 用原值发送。
+	// niri 对 XRGB/ARGB 广播枚举索引(1/0)而非 FourCC 码，需同时匹配；
+	// 但 create_buffer 发送时必须用 FourCC 码（协议规范要求）。
 	hasFmt := func(vs ...uint32) bool {
 		for _, v := range vs {
 			if formats[v] {
@@ -144,9 +145,9 @@ func NewWaylandBackend() (*WaylandBackend, error) {
 	}
 	switch {
 	case hasFmt(wlFmtXRGB8888, wlEnumXRGB8888):
-		b.shmFormat = wlEnumXRGB8888 // 用枚举值发送
+		b.shmFormat = wlFmtXRGB8888
 	case hasFmt(wlFmtARGB8888, wlEnumARGB8888):
-		b.shmFormat = wlEnumARGB8888
+		b.shmFormat = wlFmtARGB8888
 	case formats[wlFmtXBGR8888]:
 		b.shmFormat = wlFmtXBGR8888
 		b.swapBR = true

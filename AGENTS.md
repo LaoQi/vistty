@@ -97,7 +97,7 @@ type Backend interface {
 | Surface | Dumb buffer mmap / GBM BO + Page Flip | wl_shm 共享内存 + wl_surface.commit |
 | InputSource | go-evdev 读 /dev/input/eventN + inotify 热插拔 | wl_keyboard + wl_pointer 事件 + capabilities 动态创建/释放 |
 | 键盘映射 | 自研 scancode→Unicode | 简化 XKB keymap 解析 |
-| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + SSD 标题栏 |
+| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + zxdg_decoration SSD/CSD |
 | VT 切换 | SIGUSR1/2 + KD_GRAPHICS | 不适用 |
 | GPU 渲染 | GBM+EGL+GLES instanced draw | 不支持（wl_shm CPU 路径） |
 
@@ -282,7 +282,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 ## 已实现功能概要
 
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw 渲染
-- Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 SSD 窗口装饰）
+- Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪）
 - 自动后端探测（drm-gbm → drm → wayland）
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap

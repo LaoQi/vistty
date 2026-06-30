@@ -24,13 +24,14 @@ type WaylandSurface struct {
 	toplevel     *wlXdgToplevel
 	toplevelDeco *zxdgToplevelDecorationV1
 
-	mu     sync.Mutex
-	width  int
-	height int
-	stride int
-	bufs   [2]shmBuf
-	front  int
-	swapBR bool
+	mu       sync.Mutex
+	width    int
+	height   int
+	stride   int
+	bufs     [2]shmBuf
+	front    int
+	swapBR   bool
+	decoMode uint32
 
 	resizeCh chan platform.ResizeEvent
 }
@@ -59,6 +60,12 @@ func newWaylandSurface(backend *WaylandBackend, width, height int) (*WaylandSurf
 
 	if s.backend.decoMgr != nil {
 		s.toplevelDeco = s.backend.decoMgr.getToplevelDecoration(s.toplevel)
+		s.decoMode = decoModeServerSide
+		s.toplevelDeco.onConfigure = func(mode uint32) {
+			s.mu.Lock()
+			s.decoMode = mode
+			s.mu.Unlock()
+		}
 		s.toplevelDeco.setMode(decoModeServerSide)
 	}
 
@@ -133,6 +140,12 @@ func (s *WaylandSurface) Data() []byte {
 
 func (s *WaylandSurface) DirectRender() bool {
 	return true
+}
+
+func (s *WaylandSurface) DecoMode() uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.decoMode
 }
 
 func (s *WaylandSurface) Stride() int {
