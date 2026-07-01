@@ -7,8 +7,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/LaoQi/vistty/ime"
-	"github.com/LaoQi/vistty/ime/pinyin"
+	"github.com/LaoQi/vistty/pinyin"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 )
@@ -23,7 +22,6 @@ type PluginManager struct {
 	L        *lua.LState
 	ctx      PluginContext
 	initPath string
-	registry    *ime.Registry
 	keyHooks    *lua.LTable
 	renderHooks *lua.LTable
 	panels      map[string]int
@@ -37,13 +35,12 @@ func NewPluginManager(initPath string) *PluginManager {
 	pm := &PluginManager{
 		L:           L,
 		initPath:    initPath,
-		registry:    ime.NewRegistry(),
 		keyHooks:    L.NewTable(),
 		renderHooks: L.NewTable(),
 		panels:      make(map[string]int),
 		active:      false,
 	}
-	pm.registry.Register(pinyin.New())
+	pinyin.Init()
 	registerAPIs(L, pm)
 	if initPath != "" {
 		if dir, err := filepath.Abs(filepath.Dir(initPath)); err == nil {
@@ -92,8 +89,6 @@ func (pm *PluginManager) Reload() error {
 	pm.bindings = nil
 	pm.pressedKeys = make(map[uint16]bool)
 	pm.active = false
-
-	pm.registry.ClearLuaMethods()
 
 	registerAPIs(pm.L, pm)
 

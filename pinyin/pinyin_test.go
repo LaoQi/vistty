@@ -6,6 +6,11 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	Init()
+	m.Run()
+}
+
 func TestIsSyllable(t *testing.T) {
 	cases := map[string]bool{
 		"a":   true,
@@ -104,31 +109,22 @@ func TestSplitInvalid(t *testing.T) {
 }
 
 func TestLoadDict(t *testing.T) {
-	dict, err := loadDict()
-	if err != nil {
-		t.Fatalf("loadDict error: %v", err)
+	if globalDict == nil {
+		t.Fatal("globalDict should be initialized after Init()")
 	}
-	if len(dict) == 0 {
+	if len(globalDict) == 0 {
 		t.Fatal("dict should not be empty")
 	}
-	if _, ok := dict["ni"]; !ok {
-		t.Errorf("dict missing single-syllable key 'ni', have %d keys", len(dict))
+	if _, ok := globalDict["ni"]; !ok {
+		t.Errorf("dict missing single-syllable key 'ni', have %d keys", len(globalDict))
 	}
-	if _, ok := dict["hao"]; !ok {
-		t.Errorf("dict missing single-syllable key 'hao', have %d keys", len(dict))
-	}
-}
-
-func TestPinyinName(t *testing.T) {
-	p := New()
-	if p.Name() != "pinyin" {
-		t.Fatalf("Name = %q, want pinyin", p.Name())
+	if _, ok := globalDict["hao"]; !ok {
+		t.Errorf("dict missing single-syllable key 'hao', have %d keys", len(globalDict))
 	}
 }
 
-func TestPinyinLookupBasic(t *testing.T) {
-	p := New()
-	cands := p.Lookup("nihao")
+func TestLookupBasic(t *testing.T) {
+	cands := Lookup("nihao")
 	if len(cands) == 0 {
 		t.Fatal("expected candidates for 'nihao'")
 	}
@@ -137,9 +133,8 @@ func TestPinyinLookupBasic(t *testing.T) {
 	}
 }
 
-func TestPinyinLookupShijie(t *testing.T) {
-	p := New()
-	cands := p.Lookup("shijie")
+func TestLookupShijie(t *testing.T) {
+	cands := Lookup("shijie")
 	if len(cands) == 0 {
 		t.Fatal("expected candidates for 'shijie'")
 	}
@@ -148,25 +143,22 @@ func TestPinyinLookupShijie(t *testing.T) {
 	}
 }
 
-func TestPinyinLookupEmpty(t *testing.T) {
-	p := New()
-	cands := p.Lookup("")
+func TestLookupEmpty(t *testing.T) {
+	cands := Lookup("")
 	if cands != nil {
 		t.Fatalf("Lookup('') = %v, want nil", cands)
 	}
 }
 
-func TestPinyinLookupInvalid(t *testing.T) {
-	p := New()
-	cands := p.Lookup("zzz")
+func TestLookupInvalid(t *testing.T) {
+	cands := Lookup("zzz")
 	if cands != nil {
 		t.Fatalf("Lookup('zzz') = %v, want nil", cands)
 	}
 }
 
-func TestPinyinLookupDedup(t *testing.T) {
-	p := New()
-	cands := p.Lookup("xian")
+func TestLookupDedup(t *testing.T) {
+	cands := Lookup("xian")
 	words := map[string]bool{}
 	for _, c := range cands {
 		if words[c.Word] {
@@ -176,17 +168,15 @@ func TestPinyinLookupDedup(t *testing.T) {
 	}
 }
 
-func TestPinyinLookupMaxCandidates(t *testing.T) {
-	p := New()
-	cands := p.Lookup("a")
+func TestLookupMaxCandidates(t *testing.T) {
+	cands := Lookup("a")
 	if len(cands) > maxCandidates {
 		t.Fatalf("Lookup('a') returned %d, should be <= %d", len(cands), maxCandidates)
 	}
 }
 
-func TestPinyinLookupRealPhraseBeatsCombo(t *testing.T) {
-	p := New()
-	cands := p.Lookup("nihao")
+func TestLookupRealPhraseBeatsCombo(t *testing.T) {
+	cands := Lookup("nihao")
 	if len(cands) == 0 {
 		t.Fatal("expected candidates")
 	}
@@ -195,9 +185,8 @@ func TestPinyinLookupRealPhraseBeatsCombo(t *testing.T) {
 	}
 }
 
-func TestPinyinFormatPreedit(t *testing.T) {
-	p := New()
-	pre := p.FormatPreedit("nihao")
+func TestFormatPreedit(t *testing.T) {
+	pre := FormatPreedit("nihao")
 	if !strings.Contains(pre, "ni") || !strings.Contains(pre, "hao") {
 		t.Fatalf("FormatPreedit(nihao) = %q", pre)
 	}
@@ -206,25 +195,22 @@ func TestPinyinFormatPreedit(t *testing.T) {
 	}
 }
 
-func TestPinyinFormatPreeditEmpty(t *testing.T) {
-	p := New()
-	pre := p.FormatPreedit("")
+func TestFormatPreeditEmpty(t *testing.T) {
+	pre := FormatPreedit("")
 	if pre != "" {
 		t.Fatalf("FormatPreedit('') = %q, want empty", pre)
 	}
 }
 
-func TestPinyinFormatPreeditInvalid(t *testing.T) {
-	p := New()
-	pre := p.FormatPreedit("zzz")
+func TestFormatPreeditInvalid(t *testing.T) {
+	pre := FormatPreedit("zzz")
 	if pre != "zzz" {
 		t.Fatalf("FormatPreedit('zzz') = %q, want zzz", pre)
 	}
 }
 
-func TestPinyinFormatPreeditXian(t *testing.T) {
-	p := New()
-	pre := p.FormatPreedit("xian")
+func TestFormatPreeditXian(t *testing.T) {
+	pre := FormatPreedit("xian")
 	if pre == "xian" {
 		t.Logf("FormatPreedit(xian) = %q (single syllable)", pre)
 	} else if !strings.Contains(pre, "'") {
@@ -247,11 +233,7 @@ func TestSplitMemoCorrectness(t *testing.T) {
 }
 
 func TestDictConsistentWeights(t *testing.T) {
-	dict, err := loadDict()
-	if err != nil {
-		t.Fatalf("loadDict: %v", err)
-	}
-	for key, entries := range dict {
+	for key, entries := range globalDict {
 		sorted := sort.SliceIsSorted(entries, func(i, j int) bool {
 			if entries[i].weight != entries[j].weight {
 				return entries[i].weight > entries[j].weight
@@ -265,10 +247,6 @@ func TestDictConsistentWeights(t *testing.T) {
 }
 
 func TestDictContainsCommonPhrases(t *testing.T) {
-	dict, err := loadDict()
-	if err != nil {
-		t.Fatalf("loadDict: %v", err)
-	}
 	want := []struct {
 		key  string
 		word string
@@ -283,7 +261,7 @@ func TestDictContainsCommonPhrases(t *testing.T) {
 		{"xianzai", "现在"},
 	}
 	for _, w := range want {
-		entries, ok := dict[w.key]
+		entries, ok := globalDict[w.key]
 		if !ok {
 			t.Errorf("dict missing key %q", w.key)
 			continue
@@ -302,8 +280,7 @@ func TestDictContainsCommonPhrases(t *testing.T) {
 }
 
 func TestComposeFromSingleCharsMulti(t *testing.T) {
-	p := New()
-	combos := p.composeFromSingleChars([]string{"nin", "hao"})
+	combos := composeFromSingleChars([]string{"nin", "hao"})
 	if len(combos) == 0 {
 		t.Fatal("expected combos for [nin hao]")
 	}
@@ -316,8 +293,7 @@ func TestComposeFromSingleCharsMulti(t *testing.T) {
 }
 
 func TestComposeFromSingleCharsMaxCombos(t *testing.T) {
-	p := New()
-	combos := p.composeFromSingleChars([]string{"ni", "hao", "ma", "a"})
+	combos := composeFromSingleChars([]string{"ni", "hao", "ma", "a"})
 	if len(combos) > 50 {
 		t.Fatalf("combos = %d, should be <= 50", len(combos))
 	}
@@ -327,8 +303,7 @@ func TestComposeFromSingleCharsMaxCombos(t *testing.T) {
 }
 
 func TestComposeFromSingleCharsSingleSyllable(t *testing.T) {
-	p := New()
-	combos := p.composeFromSingleChars([]string{"ni"})
+	combos := composeFromSingleChars([]string{"ni"})
 	if len(combos) != 0 {
 		t.Fatalf("single syllable should produce no combos, got %d", len(combos))
 	}

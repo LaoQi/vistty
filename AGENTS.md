@@ -24,7 +24,7 @@
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
 | 11 | OSD 四边 UI 层 | 自研 | 顶部多终端标签栏 + 底/左/右插件面板；实现 render.Overlay 接口 |
 | 12 | 插件系统 | `gopher-lua` | Lua 5.1 VM；init.lua 驱动配置+钩子；分层命名空间 API |
-| 13 | 输入法 | 自研 `ime` 顶层包 | InputMethod 无状态查询接口（Lookup+FormatPreedit）+ Registry 路由；Go 原生拼音 + Lua 注册扩展；交互状态全在 Lua 层 |
+| 13 | 拼音输入法 | 自研 `pinyin` 包 | 包级查询函数（Lookup/FormatPreedit/Split）+ rime-ice 词库；交互状态全在 Lua 层 |
 
 ## 架构
 
@@ -38,7 +38,7 @@ cmd/vistty (入口，-backend 选择后端 + -config 指定 init.lua + PluginMan
             │       └── screen (缓冲区)
             ├── session.Slave (输出绑定：surface + compositor + terms[] + osd)
             ├── plugins (Lua VM + 钩子暂存/激活 + PluginContext 接口)
-            │       └── ime.Registry (InputMethod 路由：Go 原生 pinyin + Lua 注册扩展)
+            │       └── pinyin (包级查询：Lookup/FormatPreedit/Split，Lua 层管理交互状态)
             └── render (合成+光标+overlay 扩展) → font (opentype + glyph cache)
                     ├── ui (OSD 标签栏 + 插件面板，实现 render.Overlay)
                     └── 依赖 platform.Surface 接口
@@ -153,15 +153,11 @@ github.com/LaoQi/vistty/
 ├── cmd/vistty/main.go          # 入口
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime-ice yaml → dict.bin）
 ├── scripts/gen-dict.sh         # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
-├── ime/                        # 输入法抽象层（顶层包，非 internal）
-│   ├── ime.go                  # InputMethod 接口 + Candidate 类型 + Registry（无状态查询：Lookup+FormatPreedit）
-│   ├── registry.go             # Registry：Register/Lookup/FormatPreedit/List + ClearLuaMethods
-│   ├── lua_adapter.go          # LuaIMM：Lua 回调闭包包装为 InputMethod（ime 包零依赖 gopher-lua）
-│   └── pinyin/                 # 拼音（Go 原生实现）
-│       ├── pinyin.go           # 无状态查询引擎 + 实现 InputMethod（Lookup+FormatPreedit）
-│       ├── syllable.go         # 全拼音节表（414 个）+ DP 切分 Split
-│       ├── dict.go             # go:embed 加载 dict.bin.gz（gzip 运行时解压）
-│       └── data/dict.bin.gz    # 预处理词库（rime-ice 全量 89万条，gzip 压缩 12MB）
+├── pinyin/                     # 拼音输入法（顶层包，非 internal）
+│   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型
+│   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split
+│   ├── dict.go                 # go:embed 加载 dict.bin.gz（gzip 运行时解压）
+│   └── data/dict.bin.gz        # 预处理词库（rime-ice 全量 89万条，gzip 压缩 12MB）
 ├── session/                     # 协调层
 │   ├── master.go                # Master + 标签生命周期 + PluginContext 实现
 │   ├── slave.go                 # Slave 输出绑定 + OSD 联动
@@ -176,10 +172,10 @@ github.com/LaoQi/vistty/
 │   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
-│   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + ime.Registry 注入
+│   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + pinyin.Init 注入
 │   │   ├── context.go           # PluginContext 接口 + TabInfo
 │   │   ├── config.go            # RunConfig + readConfig
-│   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/ime/keybind API
+│   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/pinyin/keybind API
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
@@ -209,11 +205,10 @@ github.com/LaoQi/vistty/
 ```
 cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
-ime → 无内部依赖（顶层包，InputMethod 接口 + Registry）
-ime/pinyin → ime（go:embed 词库）
+pinyin → 无内部依赖（顶层包，go:embed 词库）
 terminal → screen, vte, render, platform, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
-plugins → terminal, platform, ui, ime, ime/pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置；registry 注入 pinyin）
+plugins → terminal, platform, ui, pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置）
 render → font, platform (Surface 接口)
 ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform, runeutil
 platform/drm → platform (Surface/GBMProvider 接口), go-evdev, golang.org/x/sys/unix (inotify/epoll), debug
@@ -228,7 +223,7 @@ plugins → gopher-lua
 debug → 无内部依赖
 ```
 
-**依赖规则：** `drm` 不依赖 `gbm`（GBMProvider 接口由 cmd/vistty 注入）；`render` 不依赖 `ui`（Overlay 接口依赖倒置）；`plugins` 不依赖 `session`（PluginContext 接口依赖倒置）；`ime` 不依赖 `plugins`（LuaIMM 闭包由 plugins 构造注入，依赖倒置）。
+**依赖规则：** `drm` 不依赖 `gbm`（GBMProvider 接口由 cmd/vistty 注入）；`render` 不依赖 `ui`（Overlay 接口依赖倒置）；`plugins` 不依赖 `session`（PluginContext 接口依赖倒置）。
 
 ## 关键约束
 - CGO_ENABLED=0：所有内核接口通过 syscall/unix ioctl 或纯 Go 库实现
@@ -308,7 +303,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
-- 中文拼音输入法（ime 顶层包 + InputMethod 无状态查询接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
+- 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复

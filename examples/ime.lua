@@ -1,7 +1,6 @@
 local M = {}
 
 local ime_active = false
-local ime_active_name = ""
 local ime_buf = ""
 local ime_page = 0
 local ime_last_buf = ""
@@ -66,9 +65,8 @@ function M.active()
 	return ime_active
 end
 
-function M.activate(name)
+function M.activate()
 	ime_active = true
-	ime_active_name = name
 	ime_buf = ""
 	ime_page = 0
 	ime_last_buf = ""
@@ -76,7 +74,6 @@ end
 
 function M.deactivate()
 	ime_active = false
-	ime_active_name = ""
 	ime_buf = ""
 	ime_page = 0
 	ime_last_buf = ""
@@ -88,12 +85,12 @@ end
 
 function M.preedit()
 	if not ime_active or ime_buf == "" then return "" end
-	return vistty.ime.format_preedit(ime_active_name, ime_buf)
+	return vistty.pinyin.format_preedit(ime_buf)
 end
 
 function M.candidates()
 	if not ime_active or ime_buf == "" then return {} end
-	return vistty.ime.lookup(ime_active_name, ime_buf)
+	return vistty.pinyin.lookup(ime_buf)
 end
 
 function M.get_panel_width()

@@ -3,27 +3,29 @@ package pinyin
 import (
 	"sort"
 	"strings"
-
-	"github.com/LaoQi/vistty/ime"
 )
 
 const maxCandidates = 256
 
-type Pinyin struct {
-	dict map[string][]dictEntry
+type Candidate struct {
+	Word string
+	Code string
 }
 
-func New() *Pinyin {
-	dict, err := loadDict()
+var globalDict map[string][]dictEntry
+
+func Init() {
+	d, err := loadDict()
 	if err != nil {
-		dict = make(map[string][]dictEntry)
+		d = make(map[string][]dictEntry)
 	}
-	return &Pinyin{dict: dict}
+	globalDict = d
 }
 
-func (p *Pinyin) Name() string { return "pinyin" }
-
-func (p *Pinyin) Lookup(input string) []ime.Candidate {
+func Lookup(input string) []Candidate {
+	if globalDict == nil {
+		return nil
+	}
 	splits := Split(input)
 	if len(splits) == 0 {
 		return nil
@@ -32,7 +34,7 @@ func (p *Pinyin) Lookup(input string) []ime.Candidate {
 	merged := make(map[string]*seen)
 	for _, split := range splits {
 		key := strings.Join(split, "")
-		entries, ok := p.dict[key]
+		entries, ok := globalDict[key]
 		if ok {
 			code := strings.Join(split, " ")
 			for _, e := range entries {
@@ -45,7 +47,7 @@ func (p *Pinyin) Lookup(input string) []ime.Candidate {
 				merged[e.word] = &seen{word: e.word, weight: e.weight, code: code}
 			}
 		}
-		if combos := p.composeFromSingleChars(split); len(combos) > 0 {
+		if combos := composeFromSingleChars(split); len(combos) > 0 {
 			for _, combo := range combos {
 				if _, exists := merged[combo.word]; !exists {
 					merged[combo.word] = combo
@@ -68,14 +70,14 @@ func (p *Pinyin) Lookup(input string) []ime.Candidate {
 	if len(list) > maxCandidates {
 		list = list[:maxCandidates]
 	}
-	cands := make([]ime.Candidate, len(list))
+	cands := make([]Candidate, len(list))
 	for i, s := range list {
-		cands[i] = ime.Candidate{Word: s.word, Code: s.code}
+		cands[i] = Candidate{Word: s.word, Code: s.code}
 	}
 	return cands
 }
 
-func (p *Pinyin) FormatPreedit(input string) string {
+func FormatPreedit(input string) string {
 	splits := Split(input)
 	if len(splits) == 0 {
 		return input
@@ -95,7 +97,7 @@ type seen struct {
 	code   string
 }
 
-func (p *Pinyin) composeFromSingleChars(split []string) []*seen {
+func composeFromSingleChars(split []string) []*seen {
 	if len(split) < 2 {
 		return nil
 	}
@@ -112,7 +114,7 @@ func (p *Pinyin) composeFromSingleChars(split []string) []*seen {
 	}
 	perSyllable := make([][]charCand, n)
 	for i, syl := range split {
-		entries, ok := p.dict[syl]
+		entries, ok := globalDict[syl]
 		if !ok || len(entries) == 0 {
 			return nil
 		}

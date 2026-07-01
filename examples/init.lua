@@ -60,7 +60,7 @@ vistty.input.on_key(function(ev)
 		if ime.active() then
 			ime.deactivate()
 		else
-			ime.activate("pinyin")
+			ime.activate()
 		end
 		return true
 	end
