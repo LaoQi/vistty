@@ -3,6 +3,7 @@ package plugins
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	lua "github.com/yuin/gopher-lua"
 
@@ -44,6 +45,21 @@ func NewPluginManager(initPath string) *PluginManager {
 	}
 	pm.registry.Register(pinyin.New())
 	registerAPIs(L, pm)
+	if initPath != "" {
+		if dir, err := filepath.Abs(filepath.Dir(initPath)); err == nil {
+			pkg := L.GetField(L.Get(lua.EnvironIndex), "package")
+			if t, ok := pkg.(*lua.LTable); ok {
+				cur := L.GetField(t, "path")
+				curStr := ""
+				if s, ok := cur.(lua.LString); ok {
+					curStr = string(s)
+				}
+				extra := dir + string(os.PathSeparator) + "?.lua;" +
+					dir + string(os.PathSeparator) + "?" + string(os.PathSeparator) + "init.lua"
+				L.SetField(t, "path", lua.LString(extra+";"+curStr))
+			}
+		}
+	}
 	return pm
 }
 

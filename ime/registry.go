@@ -9,28 +9,18 @@ func (r *Registry) Register(m InputMethod) {
 	r.methods[m.Name()] = m
 }
 
-func (r *Registry) Activate(name string) bool {
-	m, ok := r.methods[name]
-	if !ok {
-		return false
+func (r *Registry) Lookup(name, input string) []Candidate {
+	if m, ok := r.methods[name]; ok {
+		return m.Lookup(input)
 	}
-	if r.active != nil {
-		r.active.Deactivate()
-	}
-	r.active = m
-	m.Activate()
-	return true
+	return nil
 }
 
-func (r *Registry) Deactivate() {
-	if r.active != nil {
-		r.active.Deactivate()
-		r.active = nil
+func (r *Registry) FormatPreedit(name, input string) string {
+	if m, ok := r.methods[name]; ok {
+		return m.FormatPreedit(input)
 	}
-}
-
-func (r *Registry) Active() InputMethod {
-	return r.active
+	return input
 }
 
 func (r *Registry) List() []string {
@@ -42,19 +32,7 @@ func (r *Registry) List() []string {
 	return names
 }
 
-func (r *Registry) ProcessKey(ev KeyEvent) Response {
-	if r.active == nil {
-		return Response{}
-	}
-	return r.active.ProcessKey(ev)
-}
-
 func (r *Registry) ClearLuaMethods() {
-	if r.active != nil {
-		if _, ok := r.active.(*LuaIMM); ok {
-			r.active = nil
-		}
-	}
 	for name, m := range r.methods {
 		if _, ok := m.(*LuaIMM); ok {
 			delete(r.methods, name)

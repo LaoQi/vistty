@@ -206,24 +206,28 @@ func (o *OSD) renderPluginPanelsCPU(buf []byte, stride, width, height int) {
 	_, bottom, left, right := o.Insets()
 	if prims, ok := o.pluginPanels["bottom"]; ok && bottom > 0 {
 		yOff := height - bottom
+		clipX := left
+		clipY := yOff
+		clipW := width - left - right
+		clipH := bottom
 		for _, p := range prims {
-			o.drawPrimitiveCPU(buf, stride, width, height, p, left, yOff)
+			o.drawPrimitiveCPU(buf, stride, width, height, p, left, yOff, clipX, clipY, clipW, clipH)
 		}
 	}
 	if prims, ok := o.pluginPanels["left"]; ok && left > 0 {
 		for _, p := range prims {
-			o.drawPrimitiveCPU(buf, stride, width, height, p, 0, 0)
+			o.drawPrimitiveCPU(buf, stride, width, height, p, 0, 0, 0, 0, left, height)
 		}
 	}
 	if prims, ok := o.pluginPanels["right"]; ok && right > 0 {
 		xOff := width - right
 		for _, p := range prims {
-			o.drawPrimitiveCPU(buf, stride, width, height, p, xOff, 0)
+			o.drawPrimitiveCPU(buf, stride, width, height, p, xOff, 0, xOff, 0, right, height)
 		}
 	}
 }
 
-func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPrimitive, xOff, yOff int) {
+func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPrimitive, xOff, yOff, clipX, clipY, clipW, clipH int) {
 	if o.metrics.Width <= 0 || o.metrics.Height <= 0 {
 		return
 	}
@@ -235,10 +239,28 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 		if w <= 0 || h <= 0 {
 			return
 		}
+		if absX < clipX {
+			dx := clipX - absX
+			w -= dx
+			absX = clipX
+		}
+		if absX+w > clipX+clipW {
+			w = clipX + clipW - absX
+		}
+		if absY < clipY {
+			dy := clipY - absY
+			h -= dy
+			absY = clipY
+		}
+		if absY+h > clipY+clipH {
+			h = clipY + clipH - absY
+		}
+		if w <= 0 || h <= 0 {
+			return
+		}
 		render.FillRectBlend(buf, stride, absX, absY, w, h, p.Bg[0], p.Bg[1], p.Bg[2], p.Bg[3])
 		return
 	}
-	// text
 	xpos := 0
 	for _, ch := range p.Text {
 		if ch == 0 || o.gp == nil {
@@ -254,7 +276,11 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 		if runeutil.IsWide(ch) {
 			rw = 2
 		}
-		gx := absX + xpos*o.metrics.Width + g.XOffset
+		cellX := absX + xpos*o.metrics.Width
+		if cellX >= clipX+clipW {
+			break
+		}
+		gx := cellX + g.XOffset
 		gy := absY + o.metrics.Ascent + g.YOffset
 		render.BlendGlyphAlpha(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, p.Fg[0], p.Fg[1], p.Fg[2], p.Fg[3])
 		xpos += rw
@@ -310,15 +336,20 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 	cellW := float32(o.metrics.Width)
 	cellH := float32(o.metrics.Height)
 
-	drawPrimGPU := func(p PanelPrimitive, xOff, yOff float32) {
+	drawPrimGPU := func(p PanelPrimitive, xOff, yOff, clipX, clipY, clipW, clipH float32) {
 		bgA := float32(p.Bg[3]) / 255
 		fgA := float32(p.Fg[3]) / 255
 		if p.Kind == primRect {
 			for j := 0; j < p.H; j++ {
 				for i := 0; i < p.W; i++ {
+					px := xOff + float32(p.X+i)*cellW
+					py := yOff + float32(p.Y+j)*cellH
+					if px < clipX || px >= clipX+clipW || py < clipY || py >= clipY+clipH {
+						continue
+					}
 					inst := platform.CellInstance{
-						X:     xOff + float32(p.X+i)*cellW,
-						Y:     yOff + float32(p.Y+j)*cellH,
+						X:     px,
+						Y:     py,
 						CellW: cellW, CellH: cellH,
 						BgR:   float32(p.Bg[0]) / 255 * bgA,
 						BgG:   float32(p.Bg[1]) / 255 * bgA,
@@ -330,15 +361,18 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 			}
 			return
 		}
-		// text：每个字符一个 cell，背景填充 + 前景字形；双宽字符 quad 加宽 2 倍
 		xpos := p.X
 		for _, ch := range p.Text {
 			rw := 1
 			if runeutil.IsWide(ch) {
 				rw = 2
 			}
+			cellX := xOff + float32(xpos)*cellW
+			if cellX >= clipX+clipW {
+				break
+			}
 			inst := platform.CellInstance{
-				X:     xOff + float32(xpos)*cellW,
+				X:     cellX,
 				Y:     yOff + float32(p.Y)*cellH,
 				CellW: float32(rw) * cellW, CellH: cellH,
 				FgR:   float32(p.Fg[0]) / 255 * fgA,
@@ -370,19 +404,23 @@ func (o *OSD) renderPluginPanelsGPU(instances *[]platform.CellInstance, width, h
 	if prims, ok := o.pluginPanels["bottom"]; ok && bottom > 0 {
 		yOff := float32(height - bottom)
 		xOff := float32(left)
+		clipX := xOff
+		clipY := yOff
+		clipW := float32(width - left - right)
+		clipH := float32(bottom)
 		for _, p := range prims {
-			drawPrimGPU(p, xOff, yOff)
+			drawPrimGPU(p, xOff, yOff, clipX, clipY, clipW, clipH)
 		}
 	}
 	if prims, ok := o.pluginPanels["left"]; ok && left > 0 {
 		for _, p := range prims {
-			drawPrimGPU(p, 0, 0)
+			drawPrimGPU(p, 0, 0, 0, 0, float32(left), float32(height))
 		}
 	}
 	if prims, ok := o.pluginPanels["right"]; ok && right > 0 {
 		xOff := float32(width - right)
 		for _, p := range prims {
-			drawPrimGPU(p, xOff, 0)
+			drawPrimGPU(p, xOff, 0, xOff, 0, float32(right), float32(height))
 		}
 	}
 }

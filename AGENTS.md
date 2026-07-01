@@ -24,7 +24,7 @@
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
 | 11 | OSD 四边 UI 层 | 自研 | 顶部多终端标签栏 + 底/左/右插件面板；实现 render.Overlay 接口 |
 | 12 | 插件系统 | `gopher-lua` | Lua 5.1 VM；init.lua 驱动配置+钩子；分层命名空间 API |
-| 13 | 输入法 | 自研 `ime` 顶层包 | InputMethod 接口 + Registry 多输入法路由；Go 原生拼音 + Lua 注册扩展 |
+| 13 | 输入法 | 自研 `ime` 顶层包 | InputMethod 无状态查询接口（Lookup+FormatPreedit）+ Registry 路由；Go 原生拼音 + Lua 注册扩展；交互状态全在 Lua 层 |
 
 ## 架构
 
@@ -154,11 +154,11 @@ github.com/LaoQi/vistty/
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime-ice yaml → dict.bin）
 ├── scripts/gen-dict.sh         # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 ├── ime/                        # 输入法抽象层（顶层包，非 internal）
-│   ├── ime.go                  # InputMethod 接口 + KeyEvent/Candidate/Response + Registry
-│   ├── registry.go             # Registry：Register/Activate/ProcessKey 路由 + ClearLuaMethods
+│   ├── ime.go                  # InputMethod 接口 + Candidate 类型 + Registry（无状态查询：Lookup+FormatPreedit）
+│   ├── registry.go             # Registry：Register/Lookup/FormatPreedit/List + ClearLuaMethods
 │   ├── lua_adapter.go          # LuaIMM：Lua 回调闭包包装为 InputMethod（ime 包零依赖 gopher-lua）
 │   └── pinyin/                 # 拼音（Go 原生实现）
-│       ├── pinyin.go           # 状态机 + 实现 InputMethod（buf/cands/page）
+│       ├── pinyin.go           # 无状态查询引擎 + 实现 InputMethod（Lookup+FormatPreedit）
 │       ├── syllable.go         # 全拼音节表（414 个）+ DP 切分 Split
 │       ├── dict.go             # go:embed 加载 dict.bin.gz（gzip 运行时解压）
 │       └── data/dict.bin.gz    # 预处理词库（rime-ice 全量 89万条，gzip 压缩 12MB）
@@ -173,7 +173,7 @@ github.com/LaoQi/vistty/
 │   ├── options.go               # Options + OnTitle/OnDefaultColor 回调
 │   └── render_harness.go        # 性能测量桥接 API
 ├── internal/
-│   ├── runeutil/               # runeutil.go (RuneWidth/IsWide，ASCII 快路径 + x/text/width)
+│   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + ime.Registry 注入
@@ -195,6 +195,7 @@ github.com/LaoQi/vistty/
 │       ├── gpu/                 # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/             # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
 ├── examples/init.lua            # 插件示例配置（含拼音输入法 + 底部状态栏）
+├── examples/ime.lua             # IME 模块：状态管理+自适应分页+按键处理+渲染
 ├── scripts/
 │   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）
 │   ├── gbm-check.sh             # GBM 运行中检测脚本（进程/帧/DRM/错误）
@@ -305,9 +306,9 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
-- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端
+- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
-- 中文拼音输入法（ime 顶层包 + InputMethod 接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板）
+- 中文拼音输入法（ime 顶层包 + InputMethod 无状态查询接口 + Registry 多输入法路由 + Lua 注册扩展 + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复

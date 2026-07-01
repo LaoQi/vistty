@@ -19,3 +19,11 @@ func RuneWidth(r rune) int {
 func IsWide(r rune) bool {
 	return RuneWidth(r) == 2
 }
+
+func StringWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += RuneWidth(r)
+	}
+	return w
+}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/runeutil"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -174,6 +175,12 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 		colors.RawSetString(k, lua.LString(v))
 	}
 	vt.RawSetString("colors", colors)
+
+	vt.RawSetString("display_width", L.NewFunction(func(L *lua.LState) int {
+		s := L.CheckString(1)
+		L.Push(lua.LNumber(runeutil.StringWidth(s)))
+		return 1
+	}))
 
 	// vistty.log(msg)
 	vt.RawSetString("log", L.NewFunction(luaVisttyLog))
