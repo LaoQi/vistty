@@ -35,6 +35,7 @@ func (f *p6FakeCtx) NewTab() error {
 func (f *p6FakeCtx) CloseCurrentTab() {}
 func (f *p6FakeCtx) NextTab()         {}
 func (f *p6FakeCtx) PrevTab()         {}
+func (f *p6FakeCtx) SwitchTab(i int)  {}
 func (f *p6FakeCtx) TabList() []TabInfo {
 	if f.tabs == nil {
 		return []TabInfo{{Title: "tab1", Active: true}}
@@ -42,9 +43,10 @@ func (f *p6FakeCtx) TabList() []TabInfo {
 	return f.tabs
 }
 func (f *p6FakeCtx) NextScreen()                { f.screenIdx++ }
-func (f *p6FakeCtx) SwitchScreen(i int)         { f.screenIdx = i }
+func (f *p6FakeCtx) PrevScreen()                { f.screenIdx-- }
+func (f *p6FakeCtx) SwitchScreen(i int)         { f.screenIdx = i - 1 }
 func (f *p6FakeCtx) ScreenCount() int           { return 3 }
-func (f *p6FakeCtx) FocusScreenIdx() int        { return f.screenIdx }
+func (f *p6FakeCtx) FocusScreenIdx() int        { return f.screenIdx + 1 }
 func (f *p6FakeCtx) ZoomIn()                    { f.zoomCalls = append(f.zoomCalls, 1) }
 func (f *p6FakeCtx) ZoomOut()                   { f.zoomCalls = append(f.zoomCalls, -1) }
 func (f *p6FakeCtx) ZoomReset()                 { f.zoomCalls = append(f.zoomCalls, 0) }

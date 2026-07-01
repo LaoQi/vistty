@@ -22,8 +22,10 @@ type PluginContext interface {
 	CloseCurrentTab()
 	NextTab()
 	PrevTab()
+	SwitchTab(idx int)
 	TabList() []TabInfo
 	NextScreen()
+	PrevScreen()
 	SwitchScreen(idx int)
 	ScreenCount() int
 	FocusScreenIdx() int

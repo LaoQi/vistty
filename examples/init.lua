@@ -28,20 +28,20 @@ vistty.input.bind(vistty.keys.W, function()
 	if super() then vistty.tab.close(); return true end
 end)
 vistty.input.bind(vistty.keys.LEFT, function()
-	if super() then vistty.tab.prev(); return true end
+	if super() then vistty.screen.prev(); return true end
 end)
 vistty.input.bind(vistty.keys.RIGHT, function()
-	if super() then vistty.tab.next(); return true end
+	if super() then vistty.screen.next(); return true end
 end)
 vistty.input.bind(vistty.keys.TAB, function()
-	if super() then vistty.screen.next(); return true end
+	if super() then vistty.tab.next(); return true end
 end)
 vistty.input.bind_keys({
 	vistty.keys.NUM1, vistty.keys.NUM2, vistty.keys.NUM3,
 	vistty.keys.NUM4, vistty.keys.NUM5, vistty.keys.NUM6,
 	vistty.keys.NUM7, vistty.keys.NUM8, vistty.keys.NUM9,
 }, function(n)
-	if super() then vistty.screen.switch(n - 1); return true end
+	if super() then vistty.tab.switch(n); return true end
 end)
 
 vistty.input.bind(vistty.keys.R, function()

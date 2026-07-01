@@ -308,3 +308,160 @@ func TestComposeFromSingleCharsSingleSyllable(t *testing.T) {
 		t.Fatalf("single syllable should produce no combos, got %d", len(combos))
 	}
 }
+
+func TestExpandPrefix(t *testing.T) {
+	exp := expandPrefix("h")
+	if len(exp) == 0 {
+		t.Fatal("expandPrefix('h') should return syllables starting with 'h'")
+	}
+	for _, s := range exp {
+		if !strings.HasPrefix(s, "h") {
+			t.Errorf("expandPrefix('h') returned %q, expected 'h' prefix", s)
+		}
+	}
+	if !sort.SliceIsSorted(exp, func(i, j int) bool { return exp[i] < exp[j] }) {
+		t.Error("expandPrefix result not sorted")
+	}
+}
+
+func TestExpandPrefixNoMatch(t *testing.T) {
+	exp := expandPrefix("xyz")
+	if len(exp) != 0 {
+		t.Fatalf("expandPrefix('xyz') = %v, want empty", exp)
+	}
+}
+
+func TestSplitFuzzyStrict(t *testing.T) {
+	splits, partial := SplitFuzzy("nihao")
+	if partial != "" {
+		t.Errorf("SplitFuzzy(nihao) partial = %q, want empty", partial)
+	}
+	strict := Split("nihao")
+	if len(splits) != len(strict) {
+		t.Fatalf("SplitFuzzy(nihao) = %d splits, Split = %d splits", len(splits), len(strict))
+	}
+}
+
+func TestSplitFuzzySinglePrefix(t *testing.T) {
+	splits, partial := SplitFuzzy("n")
+	if len(splits) == 0 {
+		t.Fatal("SplitFuzzy('n') should return expansions")
+	}
+	if partial != "n" {
+		t.Errorf("SplitFuzzy('n') partial = %q, want 'n'", partial)
+	}
+	for _, s := range splits {
+		if len(s) != 1 {
+			t.Errorf("SplitFuzzy('n') split = %v, expected single syllable", s)
+		}
+		if !strings.HasPrefix(s[0], "n") {
+			t.Errorf("SplitFuzzy('n') syllable %q doesn't start with 'n'", s[0])
+		}
+	}
+}
+
+func TestSplitFuzzyPartialTail(t *testing.T) {
+	splits, partial := SplitFuzzy("nih")
+	if len(splits) == 0 {
+		t.Fatal("SplitFuzzy('nih') should return results")
+	}
+	if partial != "h" {
+		t.Errorf("SplitFuzzy('nih') partial = %q, want 'h'", partial)
+	}
+	foundNiHao := false
+	for _, s := range splits {
+		if len(s) == 2 && s[0] == "ni" && strings.HasPrefix(s[1], "h") {
+			foundNiHao = true
+		}
+	}
+	if !foundNiHao {
+		t.Errorf("SplitFuzzy('nih') missing [ni h*], got %v", splits)
+	}
+}
+
+func TestSplitFuzzyEmpty(t *testing.T) {
+	splits, partial := SplitFuzzy("")
+	if splits != nil || partial != "" {
+		t.Fatalf("SplitFuzzy('') = %v, %q; want nil, empty", splits, partial)
+	}
+}
+
+func TestSplitFuzzyInvalid(t *testing.T) {
+	splits, partial := SplitFuzzy("zzz")
+	if len(splits) != 0 {
+		t.Fatalf("SplitFuzzy('zzz') = %v, want empty", splits)
+	}
+	if partial != "zzz" {
+		t.Errorf("SplitFuzzy('zzz') partial = %q, want 'zzz'", partial)
+	}
+}
+
+func TestLookupPrefix(t *testing.T) {
+	cands := Lookup("n")
+	if len(cands) == 0 {
+		t.Fatal("Lookup('n') should return candidates via prefix expansion")
+	}
+}
+
+func TestLookupPartialTail(t *testing.T) {
+	cands := Lookup("nih")
+	if len(cands) == 0 {
+		t.Fatal("Lookup('nih') should return candidates")
+	}
+	found := false
+	for _, c := range cands {
+		if c.Word == "你好" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Lookup('nih') missing '你好', got %v", cands[:min(5, len(cands))])
+	}
+}
+
+func TestLookupFuzzyWeightPenalty(t *testing.T) {
+	strict := Lookup("nihao")
+	fuzzy := Lookup("nih")
+	if len(strict) == 0 || len(fuzzy) == 0 {
+		t.Skip("need both strict and fuzzy results")
+	}
+	foundStrict := false
+	foundFuzzy := false
+	for _, c := range strict {
+		if c.Word == "你好" {
+			foundStrict = true
+		}
+	}
+	for _, c := range fuzzy {
+		if c.Word == "你好" {
+			foundFuzzy = true
+		}
+	}
+	if !foundStrict {
+		t.Error("Lookup('nihao') missing '你好'")
+	}
+	if !foundFuzzy {
+		t.Error("Lookup('nih') missing '你好'")
+	}
+}
+
+func TestFormatPreeditPartial(t *testing.T) {
+	pre := FormatPreedit("nih")
+	if !strings.Contains(pre, "ni") {
+		t.Errorf("FormatPreedit('nih') = %q, should contain 'ni'", pre)
+	}
+	if !strings.Contains(pre, "'h") && !strings.Contains(pre, "h") {
+		t.Errorf("FormatPreedit('nih') = %q, should contain partial 'h'", pre)
+	}
+}
+
+func TestFormatPreeditSinglePrefix(t *testing.T) {
+	pre := FormatPreedit("n")
+	if pre == "" {
+		t.Fatal("FormatPreedit('n') should not be empty")
+	}
+	if !strings.Contains(pre, "n") {
+		t.Errorf("FormatPreedit('n') = %q, should contain 'n'", pre)
+	}
+}

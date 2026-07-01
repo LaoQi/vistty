@@ -26,11 +26,12 @@ func Lookup(input string) []Candidate {
 	if globalDict == nil {
 		return nil
 	}
-	splits := Split(input)
+	splits, partial := SplitFuzzy(input)
 	if len(splits) == 0 {
 		return nil
 	}
 
+	const fuzzyWeightFactor = 0.5
 	merged := make(map[string]*seen)
 	for _, split := range splits {
 		key := strings.Join(split, "")
@@ -38,18 +39,27 @@ func Lookup(input string) []Candidate {
 		if ok {
 			code := strings.Join(split, " ")
 			for _, e := range entries {
+				w := e.weight
+				if partial != "" {
+					w = int(float64(w) * fuzzyWeightFactor)
+				}
 				if s, ok := merged[e.word]; ok {
-					if e.weight > s.weight {
-						s.weight = e.weight
+					if w > s.weight {
+						s.weight = w
 					}
 					continue
 				}
-				merged[e.word] = &seen{word: e.word, weight: e.weight, code: code}
+				merged[e.word] = &seen{word: e.word, weight: w, code: code}
 			}
 		}
 		if combos := composeFromSingleChars(split); len(combos) > 0 {
 			for _, combo := range combos {
+				w := combo.weight
+				if partial != "" {
+					w = int(float64(w) * fuzzyWeightFactor)
+				}
 				if _, exists := merged[combo.word]; !exists {
+					combo.weight = w
 					merged[combo.word] = combo
 				}
 			}
@@ -78,17 +88,26 @@ func Lookup(input string) []Candidate {
 }
 
 func FormatPreedit(input string) string {
-	splits := Split(input)
-	if len(splits) == 0 {
-		return input
+	if len(input) == 0 {
+		return ""
 	}
-	best := splits[0]
-	for _, s := range splits[1:] {
-		if len(s) < len(best) {
-			best = s
+	n := len(input)
+	for cut := n; cut >= 1; cut-- {
+		if strict := Split(input[:cut]); len(strict) > 0 {
+			best := strict[0]
+			for _, s := range strict[1:] {
+				if len(s) < len(best) {
+					best = s
+				}
+			}
+			formatted := strings.Join(best, "'")
+			if cut < n {
+				formatted += "'" + input[cut:]
+			}
+			return formatted
 		}
 	}
-	return strings.Join(best, "'")
+	return input
 }
 
 type seen struct {

@@ -19,11 +19,13 @@ func (f *fakeCtx) NewTab() error                 { f.tabs = append(f.tabs, TabIn
 func (f *fakeCtx) CloseCurrentTab()              {}
 func (f *fakeCtx) NextTab()                      {}
 func (f *fakeCtx) PrevTab()                      {}
+func (f *fakeCtx) SwitchTab(i int)               {}
 func (f *fakeCtx) TabList() []TabInfo            { return f.tabs }
 func (f *fakeCtx) NextScreen()                   { f.screenIdx++ }
-func (f *fakeCtx) SwitchScreen(i int)            { f.screenIdx = i }
+func (f *fakeCtx) PrevScreen()                   { f.screenIdx-- }
+func (f *fakeCtx) SwitchScreen(i int)            { f.screenIdx = i - 1 }
 func (f *fakeCtx) ScreenCount() int              { return 3 }
-func (f *fakeCtx) FocusScreenIdx() int           { return f.screenIdx }
+func (f *fakeCtx) FocusScreenIdx() int           { return f.screenIdx + 1 }
 func (f *fakeCtx) ZoomIn()                       { f.zoomCalls = append(f.zoomCalls, 1) }
 func (f *fakeCtx) ZoomOut()                      { f.zoomCalls = append(f.zoomCalls, -1) }
 func (f *fakeCtx) ZoomReset()                    { f.zoomCalls = append(f.zoomCalls, 0) }
@@ -54,11 +56,13 @@ vistty.tab.close()
 func TestP2ScreenAPI(t *testing.T) {
 	src := `
 assert(vistty.screen.count() == 3, "screen count should be 3")
-assert(vistty.screen.focused_idx() == 0, "focused should be 0")
+assert(vistty.screen.focused_idx() == 1, "focused should be 1")
 vistty.screen.next()
-assert(vistty.screen.focused_idx() == 1, "after next focused should be 1")
-vistty.screen.switch(2)
-assert(vistty.screen.focused_idx() == 2, "after switch(2) focused should be 2")
+assert(vistty.screen.focused_idx() == 2, "after next focused should be 2")
+vistty.screen.switch(3)
+assert(vistty.screen.focused_idx() == 3, "after switch(3) focused should be 3")
+vistty.screen.prev()
+assert(vistty.screen.focused_idx() == 2, "after prev focused should be 2")
 `
 	pm := newPMWithCtx(t, src, &fakeCtx{})
 	if pm == nil {
@@ -130,8 +134,11 @@ assert(type(vistty.tab.prev) == "function")
 assert(type(vistty.tab.count) == "function")
 assert(type(vistty.tab.list) == "function")
 
+assert(type(vistty.tab.switch) == "function")
+
 assert(type(vistty.screen) == "table")
 assert(type(vistty.screen.next) == "function")
+assert(type(vistty.screen.prev) == "function")
 assert(type(vistty.screen.switch) == "function")
 assert(type(vistty.screen.count) == "function")
 assert(type(vistty.screen.focused_idx) == "function")

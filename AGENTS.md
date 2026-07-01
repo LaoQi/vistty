@@ -24,7 +24,7 @@
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
 | 11 | OSD 四边 UI 层 | 自研 | 顶部多终端标签栏 + 底/左/右插件面板；实现 render.Overlay 接口 |
 | 12 | 插件系统 | `gopher-lua` | Lua 5.1 VM；init.lua 驱动配置+钩子；分层命名空间 API |
-| 13 | 拼音输入法 | 自研 `pinyin` 包 | 包级查询函数（Lookup/FormatPreedit/Split）+ rime-ice 词库；交互状态全在 Lua 层 |
+| 13 | 拼音输入法 | 自研 `pinyin` 包 | 包级查询函数（Lookup/FormatPreedit/Split/SplitFuzzy）+ rime-ice 词库；交互状态全在 Lua 层；SplitFuzzy 支持前缀推断+尾部补全 |
 
 ## 架构
 
@@ -38,7 +38,7 @@ cmd/vistty (入口，-backend 选择后端 + -config 指定 init.lua + PluginMan
             │       └── screen (缓冲区)
             ├── session.Slave (输出绑定：surface + compositor + terms[] + osd)
             ├── plugins (Lua VM + 钩子暂存/激活 + PluginContext 接口)
-            │       └── pinyin (包级查询：Lookup/FormatPreedit/Split，Lua 层管理交互状态)
+            │       └── pinyin (包级查询：Lookup/FormatPreedit/Split/SplitFuzzy，Lua 层管理交互状态)
             └── render (合成+光标+overlay 扩展) → font (opentype + glyph cache)
                     ├── ui (OSD 标签栏 + 插件面板，实现 render.Overlay)
                     └── 依赖 platform.Surface 接口
@@ -154,8 +154,8 @@ github.com/LaoQi/vistty/
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime-ice yaml → dict.bin）
 ├── scripts/gen-dict.sh         # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 ├── pinyin/                     # 拼音输入法（顶层包，非 internal）
-│   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型
-│   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split
+│   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型 + 模糊权重降级
+│   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split + SplitFuzzy（前缀推断+尾部补全）
 │   ├── dict.go                 # go:embed 加载 dict.bin.gz（gzip 运行时解压）
 │   └── data/dict.bin.gz        # 预处理词库（rime-ice 全量 89万条，gzip 压缩 12MB）
 ├── session/                     # 协调层
@@ -303,7 +303,8 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
-- 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
+- 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
+- SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复

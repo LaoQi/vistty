@@ -42,6 +42,15 @@ func registerTab(L *lua.LState, pm *PluginManager) {
 		return 0
 	}))
 
+	// vistty.tab.switch(n) — 切换到指定索引的标签（1-based，越界静默忽略）
+	tabT.RawSetString("switch", L.NewFunction(func(L *lua.LState) int {
+		if pm.ctx != nil {
+			idx := L.CheckInt(1)
+			pm.ctx.SwitchTab(idx)
+		}
+		return 0
+	}))
+
 	// vistty.tab.count() → number
 	tabT.RawSetString("count", L.NewFunction(func(L *lua.LState) int {
 		if pm.ctx == nil {

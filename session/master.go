@@ -26,10 +26,12 @@ const (
 	tabClose
 	tabPrev
 	tabNext
+	tabSwitch
 )
 
 type tabReq struct {
 	action tabAction
+	idx    int
 }
 
 type Master struct {
@@ -326,6 +328,13 @@ func (m *Master) handleTabRequest(req tabReq) {
 			m.refreshOSD()
 			m.dirty = true
 		}
+	case tabSwitch:
+		idx := req.idx - 1
+		if idx >= 0 && idx < len(s.terms) {
+			s.activeIdx = idx
+			m.refreshOSD()
+			m.dirty = true
+		}
 	}
 }
 
@@ -444,6 +453,15 @@ func (m *Master) PrevTab() {
 	}
 }
 
+// SwitchTab 切换到指定索引的标签（1-based）。
+// 索引越界时静默忽略。
+func (m *Master) SwitchTab(idx int) {
+	select {
+	case m.tabReqCh <- tabReq{action: tabSwitch, idx: idx}:
+	case <-m.done:
+	}
+}
+
 // TabList 返回当前焦点屏幕的标签列表。
 // 在主线程调用安全（Lua 钩子在主线程执行）。
 func (m *Master) TabList() []plugins.TabInfo {
@@ -472,10 +490,20 @@ func (m *Master) NextScreen() {
 	m.setFocus((m.focusIdx + 1) % len(m.slaves))
 }
 
-// SwitchScreen 切换到指定索引的屏幕。
+// PrevScreen 切换到上一个屏幕（多屏场景）。
+func (m *Master) PrevScreen() {
+	if len(m.slaves) == 0 {
+		return
+	}
+	m.setFocus((m.focusIdx - 1 + len(m.slaves)) % len(m.slaves))
+}
+
+// SwitchScreen 切换到指定索引的屏幕（1-based）。
+// 索引越界时静默忽略。
 func (m *Master) SwitchScreen(idx int) {
-	if idx >= 0 && idx < len(m.slaves) {
-		m.setFocus(idx)
+	i := idx - 1
+	if i >= 0 && i < len(m.slaves) {
+		m.setFocus(i)
 	}
 }
 
@@ -484,9 +512,9 @@ func (m *Master) ScreenCount() int {
 	return len(m.slaves)
 }
 
-// FocusScreenIdx 返回当前焦点屏幕索引。
+// FocusScreenIdx 返回当前焦点屏幕索引（1-based）。
 func (m *Master) FocusScreenIdx() int {
-	return m.focusIdx
+	return m.focusIdx + 1
 }
 
 // ZoomIn 放大字体。

@@ -1,5 +1,10 @@
 package pinyin
 
+import (
+	"sort"
+	"strings"
+)
+
 var syllables = map[string]bool{
 	"a": true, "o": true, "e": true, "er": true, "ai": true, "ei": true,
 	"ao": true, "ou": true, "an": true, "en": true, "ang": true, "eng": true,
@@ -88,9 +93,78 @@ func isSyllable(s string) bool {
 	return syllables[s]
 }
 
-// Split 对输入拼音串做 DP 切分，返回所有合法切分方案。
-// 每个切分是一个音节切片。例如 Split("xian") 返回 [["xi","an"],["xian"]]。
-// 用 memo 缓存位置 i 到末尾的所有切分，避免重复递归。
+func expandPrefix(prefix string) []string {
+	var result []string
+	for s := range syllables {
+		if strings.HasPrefix(s, prefix) {
+			result = append(result, s)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func SplitFuzzy(input string) ([][]string, string) {
+	if len(input) == 0 {
+		return nil, ""
+	}
+	if strict := Split(input); len(strict) > 0 {
+		return strict, ""
+	}
+	n := len(input)
+	for cut := n - 1; cut >= 1; cut-- {
+		prefix := input[:cut]
+		partial := input[cut:]
+		if strict := Split(prefix); len(strict) > 0 {
+			expansions := expandPrefix(partial)
+			if len(expansions) == 0 {
+				continue
+			}
+			var results [][]string
+			for _, base := range strict {
+				for _, exp := range expansions {
+					rest := Split(input[cut:])
+					if len(rest) == 0 {
+						continue
+					}
+					for _, r := range rest {
+						if len(r) == 0 || r[0] != exp {
+							continue
+						}
+						path := make([]string, 0, len(base)+len(r))
+						path = append(path, base...)
+						path = append(path, r...)
+						results = append(results, path)
+					}
+				}
+			}
+			if len(results) > 0 {
+				return results, partial
+			}
+			for _, base := range strict {
+				for _, exp := range expansions {
+					path := make([]string, 0, len(base)+1)
+					path = append(path, base...)
+					path = append(path, exp)
+					results = append(results, path)
+				}
+			}
+			if len(results) > 0 {
+				return results, partial
+			}
+		}
+	}
+	expansions := expandPrefix(input)
+	if len(expansions) > 0 {
+		results := make([][]string, len(expansions))
+		for i, exp := range expansions {
+			results[i] = []string{exp}
+		}
+		return results, input
+	}
+	return nil, input
+}
+
 func Split(input string) [][]string {
 	n := len(input)
 	if n == 0 {

@@ -16,11 +16,13 @@ func (f *p4FakeCtx) NewTab() error                 { return nil }
 func (f *p4FakeCtx) CloseCurrentTab()              {}
 func (f *p4FakeCtx) NextTab()                      {}
 func (f *p4FakeCtx) PrevTab()                      {}
+func (f *p4FakeCtx) SwitchTab(i int)               {}
 func (f *p4FakeCtx) TabList() []TabInfo            { return nil }
 func (f *p4FakeCtx) NextScreen()                   {}
+func (f *p4FakeCtx) PrevScreen()                   {}
 func (f *p4FakeCtx) SwitchScreen(i int)            {}
 func (f *p4FakeCtx) ScreenCount() int              { return 1 }
-func (f *p4FakeCtx) FocusScreenIdx() int           { return 0 }
+func (f *p4FakeCtx) FocusScreenIdx() int           { return 1 }
 func (f *p4FakeCtx) ZoomIn()                       {}
 func (f *p4FakeCtx) ZoomOut()                      {}
 func (f *p4FakeCtx) ZoomReset()                    {}
