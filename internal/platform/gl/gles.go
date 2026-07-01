@@ -45,12 +45,13 @@ const (
 	GL_EXT_texture_format_BGRA8888 = "GL_EXT_texture_format_BGRA8888"
 
 	// GLES 3.0
-	GL_DYNAMIC_DRAW       = 0x88E8
-	GL_R8                 = 0x8229
-	GL_RED                = 0x1903
-	GL_TEXTURE_BASE_LEVEL = 0x813C
-	GL_TEXTURE_MAX_LEVEL  = 0x813D
-	GL_UNIFORM_BUFFER     = 0x8A11
+	GL_DYNAMIC_DRAW         = 0x88E8
+	GL_R8                   = 0x8229
+	GL_RED                  = 0x1903
+	GL_TEXTURE_BASE_LEVEL   = 0x813C
+	GL_TEXTURE_MAX_LEVEL    = 0x813D
+	GL_UNIFORM_BUFFER       = 0x8A11
+	GL_VERTEX_ARRAY_BINDING = 0x85B5
 )
 
 type GLESLoader struct {
@@ -105,6 +106,10 @@ type GLESLoader struct {
 	readPixels          func(x, y int32, w, h int32, format, typ uint32, data unsafe.Pointer)
 	finish              func()
 	flush               func()
+	// GLES 3.0 VAO (optional)
+	genVertexArrays    func(n int32, arrays unsafe.Pointer)
+	bindVertexArray    func(array uint32)
+	deleteVertexArrays func(n int32, arrays unsafe.Pointer)
 }
 
 func LoadGLES() (*GLESLoader, error) {
@@ -174,6 +179,9 @@ func LoadGLES() (*GLESLoader, error) {
 		{"glReadPixels", &l.readPixels, true},
 		{"glFinish", &l.finish, false},
 		{"glFlush", &l.flush, false},
+		{"glGenVertexArrays", &l.genVertexArrays, true},
+		{"glBindVertexArray", &l.bindVertexArray, true},
+		{"glDeleteVertexArrays", &l.deleteVertexArrays, true},
 	}
 
 	var errs []error
@@ -503,4 +511,20 @@ func (l *GLESLoader) Finish() {
 
 func (l *GLESLoader) Flush() {
 	l.flush()
+}
+
+func (l *GLESLoader) GenVertexArrays(n int32, arrays []uint32) {
+	l.genVertexArrays(n, unsafe.Pointer(&arrays[0]))
+}
+
+func (l *GLESLoader) BindVertexArray(array uint32) {
+	l.bindVertexArray(array)
+}
+
+func (l *GLESLoader) DeleteVertexArrays(n int32, arrays []uint32) {
+	l.deleteVertexArrays(n, unsafe.Pointer(&arrays[0]))
+}
+
+func (l *GLESLoader) HasVAO() bool {
+	return l.genVertexArrays != nil && l.bindVertexArray != nil && l.deleteVertexArrays != nil
 }

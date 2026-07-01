@@ -29,6 +29,8 @@ type Renderer struct {
 	atlasH      int
 	quadVBO     uint32
 	instanceVBO uint32
+	vao         uint32
+	vaoReady    bool
 	resUni      int32
 	defBgUni    int32
 	atlasUni    int32
@@ -143,12 +145,58 @@ func (c *Renderer) Init() error {
 	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.quadVBO)
 	gl.BufferData(glLib.GL_ARRAY_BUFFER, float32ToBytes(quadVerts), glLib.GL_STATIC_DRAW)
 
-	maxInstances := c.width * c.height
+	maxInstances := 65536
 	if maxInstances < 1 {
 		maxInstances = 1
 	}
 	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
 	gl.BufferDataEmpty(glLib.GL_ARRAY_BUFFER, maxInstances*int(unsafe.Sizeof(platform.CellInstance{})), glLib.GL_DYNAMIC_DRAW)
+
+	if gl.HasVAO() {
+		var vaos [1]uint32
+		gl.GenVertexArrays(1, vaos[:])
+		c.vao = vaos[0]
+		gl.BindVertexArray(c.vao)
+
+		gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.quadVBO)
+		gl.VertexAttribPointer(0, 2, glLib.GL_FLOAT, false, 16, 0)
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(1, 2, glLib.GL_FLOAT, false, 16, 8)
+		gl.EnableVertexAttribArray(1)
+
+		gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
+		stride := int32(unsafe.Sizeof(platform.CellInstance{}))
+		gl.VertexAttribPointer(2, 2, glLib.GL_FLOAT, false, stride, 0)
+		gl.EnableVertexAttribArray(2)
+		gl.VertexAttribDivisor(2, 1)
+		gl.VertexAttribPointer(3, 2, glLib.GL_FLOAT, false, stride, 8)
+		gl.EnableVertexAttribArray(3)
+		gl.VertexAttribDivisor(3, 1)
+		gl.VertexAttribPointer(4, 2, glLib.GL_FLOAT, false, stride, 16)
+		gl.EnableVertexAttribArray(4)
+		gl.VertexAttribDivisor(4, 1)
+		gl.VertexAttribPointer(5, 2, glLib.GL_FLOAT, false, stride, 24)
+		gl.EnableVertexAttribArray(5)
+		gl.VertexAttribDivisor(5, 1)
+		gl.VertexAttribPointer(6, 4, glLib.GL_FLOAT, false, stride, 32)
+		gl.EnableVertexAttribArray(6)
+		gl.VertexAttribDivisor(6, 1)
+		gl.VertexAttribPointer(7, 3, glLib.GL_FLOAT, false, stride, 48)
+		gl.EnableVertexAttribArray(7)
+		gl.VertexAttribDivisor(7, 1)
+		gl.VertexAttribPointer(8, 3, glLib.GL_FLOAT, false, stride, 60)
+		gl.EnableVertexAttribArray(8)
+		gl.VertexAttribDivisor(8, 1)
+		gl.VertexAttribPointer(9, 1, glLib.GL_FLOAT, false, stride, 72)
+		gl.EnableVertexAttribArray(9)
+		gl.VertexAttribDivisor(9, 1)
+		gl.VertexAttribPointer(10, 1, glLib.GL_FLOAT, false, stride, 76)
+		gl.EnableVertexAttribArray(10)
+		gl.VertexAttribDivisor(10, 1)
+
+		gl.BindVertexArray(0)
+		c.vaoReady = true
+	}
 
 	c.gpuReady = true
 	major, minor := gl.GetGLVersion()
@@ -272,6 +320,11 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 		return nil
 	}
 
+	const maxInstances = 65536
+	if len(instances) > maxInstances {
+		instances = instances[:maxInstances]
+	}
+
 	instanceBytes := (*[1 << 28]byte)(unsafe.Pointer(&instances[0]))[:len(instances)*int(unsafe.Sizeof(platform.CellInstance{}))]
 	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
 	gl.BufferSubData(glLib.GL_ARRAY_BUFFER, 0, instanceBytes)
@@ -288,56 +341,64 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 	gl.ActiveTexture(glLib.GL_TEXTURE0)
 	gl.BindTexture(glLib.GL_TEXTURE_2D, c.atlasTex)
 
-	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.quadVBO)
-	gl.VertexAttribPointer(0, 2, glLib.GL_FLOAT, false, 16, 0)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 2, glLib.GL_FLOAT, false, 16, 8)
-	gl.EnableVertexAttribArray(1)
+	if c.vaoReady {
+		gl.BindVertexArray(c.vao)
+	} else {
+		gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.quadVBO)
+		gl.VertexAttribPointer(0, 2, glLib.GL_FLOAT, false, 16, 0)
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(1, 2, glLib.GL_FLOAT, false, 16, 8)
+		gl.EnableVertexAttribArray(1)
 
-	gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
-	stride := int32(unsafe.Sizeof(platform.CellInstance{}))
+		gl.BindBuffer(glLib.GL_ARRAY_BUFFER, c.instanceVBO)
+		stride := int32(unsafe.Sizeof(platform.CellInstance{}))
 
-	gl.VertexAttribPointer(2, 2, glLib.GL_FLOAT, false, stride, 0)
-	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribDivisor(2, 1)
+		gl.VertexAttribPointer(2, 2, glLib.GL_FLOAT, false, stride, 0)
+		gl.EnableVertexAttribArray(2)
+		gl.VertexAttribDivisor(2, 1)
 
-	gl.VertexAttribPointer(3, 2, glLib.GL_FLOAT, false, stride, 8)
-	gl.EnableVertexAttribArray(3)
-	gl.VertexAttribDivisor(3, 1)
+		gl.VertexAttribPointer(3, 2, glLib.GL_FLOAT, false, stride, 8)
+		gl.EnableVertexAttribArray(3)
+		gl.VertexAttribDivisor(3, 1)
 
-	gl.VertexAttribPointer(4, 2, glLib.GL_FLOAT, false, stride, 16)
-	gl.EnableVertexAttribArray(4)
-	gl.VertexAttribDivisor(4, 1)
+		gl.VertexAttribPointer(4, 2, glLib.GL_FLOAT, false, stride, 16)
+		gl.EnableVertexAttribArray(4)
+		gl.VertexAttribDivisor(4, 1)
 
-	gl.VertexAttribPointer(5, 2, glLib.GL_FLOAT, false, stride, 24)
-	gl.EnableVertexAttribArray(5)
-	gl.VertexAttribDivisor(5, 1)
+		gl.VertexAttribPointer(5, 2, glLib.GL_FLOAT, false, stride, 24)
+		gl.EnableVertexAttribArray(5)
+		gl.VertexAttribDivisor(5, 1)
 
-	gl.VertexAttribPointer(6, 4, glLib.GL_FLOAT, false, stride, 32)
-	gl.EnableVertexAttribArray(6)
-	gl.VertexAttribDivisor(6, 1)
+		gl.VertexAttribPointer(6, 4, glLib.GL_FLOAT, false, stride, 32)
+		gl.EnableVertexAttribArray(6)
+		gl.VertexAttribDivisor(6, 1)
 
-	gl.VertexAttribPointer(7, 3, glLib.GL_FLOAT, false, stride, 48)
-	gl.EnableVertexAttribArray(7)
-	gl.VertexAttribDivisor(7, 1)
+		gl.VertexAttribPointer(7, 3, glLib.GL_FLOAT, false, stride, 48)
+		gl.EnableVertexAttribArray(7)
+		gl.VertexAttribDivisor(7, 1)
 
-	gl.VertexAttribPointer(8, 3, glLib.GL_FLOAT, false, stride, 60)
-	gl.EnableVertexAttribArray(8)
-	gl.VertexAttribDivisor(8, 1)
+		gl.VertexAttribPointer(8, 3, glLib.GL_FLOAT, false, stride, 60)
+		gl.EnableVertexAttribArray(8)
+		gl.VertexAttribDivisor(8, 1)
 
-	gl.VertexAttribPointer(9, 1, glLib.GL_FLOAT, false, stride, 72)
-	gl.EnableVertexAttribArray(9)
-	gl.VertexAttribDivisor(9, 1)
+		gl.VertexAttribPointer(9, 1, glLib.GL_FLOAT, false, stride, 72)
+		gl.EnableVertexAttribArray(9)
+		gl.VertexAttribDivisor(9, 1)
 
-	gl.VertexAttribPointer(10, 1, glLib.GL_FLOAT, false, stride, 76)
-	gl.EnableVertexAttribArray(10)
-	gl.VertexAttribDivisor(10, 1)
+		gl.VertexAttribPointer(10, 1, glLib.GL_FLOAT, false, stride, 76)
+		gl.EnableVertexAttribArray(10)
+		gl.VertexAttribDivisor(10, 1)
+	}
 
 	gl.DrawArraysInstanced(glLib.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
 	drawErr := gl.GetError()
 
-	for i := uint32(2); i <= 10; i++ {
-		gl.VertexAttribDivisor(i, 0)
+	if c.vaoReady {
+		gl.BindVertexArray(0)
+	} else {
+		for i := uint32(2); i <= 10; i++ {
+			gl.VertexAttribDivisor(i, 0)
+		}
 	}
 
 	c.frameCount++
@@ -375,6 +436,11 @@ func (c *Renderer) Close() {
 		gl.DeleteBuffers(2, vbos[:])
 		c.quadVBO = 0
 		c.instanceVBO = 0
+	}
+	if c.vao != 0 {
+		vaos := [1]uint32{c.vao}
+		gl.DeleteVertexArrays(1, vaos[:])
+		c.vao = 0
 	}
 	c.gpuReady = false
 }

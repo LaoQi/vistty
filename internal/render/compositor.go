@@ -331,6 +331,14 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 	cursor := buf.Cursor()
 
 	defBg := c.defColor.bg
+	defBgR := float32(defBg.R) / 255
+	defBgG := float32(defBg.G) / 255
+	defBgB := float32(defBg.B) / 255
+	originXF := float32(c.originX)
+	originYF := float32(c.originY)
+	ascentF := float32(c.metrics.Ascent)
+	cellWF := float32(c.metrics.Width)
+	cellHF := float32(c.metrics.Height)
 
 	// 预分配 instance buffer（复用底层数组）
 	maxCells := c.cols * c.rows
@@ -356,10 +364,10 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				continue
 			}
 
-			px := float32(c.originX) + float32(col*c.metrics.Width)
-			py := float32(c.originY) + float32(row*c.metrics.Height)
-			cellW := float32(int(cell.Width) * c.metrics.Width)
-			cellH := float32(c.metrics.Height)
+			px := originXF + float32(col*c.metrics.Width)
+			py := originYF + float32(row*c.metrics.Height)
+			cellW := cellWF * float32(int(cell.Width))
+			cellH := cellHF
 
 			fg := c.resolveFg(cell.Fg)
 			bg := c.resolveBg(cell.Bg)
@@ -375,7 +383,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				fgG /= 2
 				fgB /= 2
 			}
-			if bgR != float32(defBg.R)/255 || bgG != float32(defBg.G)/255 || bgB != float32(defBg.B)/255 {
+			if bgR != defBgR || bgG != defBgG || bgB != defBgB {
 				hasBg = 1
 			}
 
@@ -385,9 +393,9 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 				CellW:     cellW,
 				CellH:     cellH,
 				GlyphOffX: 0,
-				GlyphOffY: float32(c.metrics.Ascent),
-				GlyphW:    float32(c.metrics.Width),
-				GlyphH:    float32(c.metrics.Height),
+				GlyphOffY: ascentF,
+				GlyphW:    cellWF,
+				GlyphH:    cellHF,
 				FgR:       fgR,
 				FgG:       fgG,
 				FgB:       fgB,
@@ -416,7 +424,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 						inst.GlyphU1 = u1
 						inst.V1 = v1
 						inst.GlyphOffX = float32(glyph.XOffset)
-						inst.GlyphOffY = float32(c.metrics.Ascent + glyph.YOffset)
+						inst.GlyphOffY = ascentF + float32(glyph.YOffset)
 						inst.GlyphW = float32(glyph.Width)
 						inst.GlyphH = float32(glyph.Height)
 						if cell.Attr&screen.AttrBold != 0 {
@@ -451,7 +459,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 		}
 	}
 
-	bgColor := [3]float32{float32(defBg.R) / 255, float32(defBg.G) / 255, float32(defBg.B) / 255}
+	bgColor := [3]float32{defBgR, defBgG, defBgB}
 	if c.overlay != nil {
 		c.overlay.RenderGPU(&c.instances, c.backWidth, c.backHeight)
 	}

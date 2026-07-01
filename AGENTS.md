@@ -195,6 +195,11 @@ github.com/LaoQi/vistty/
 │       ├── gpu/                 # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/             # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
 ├── examples/init.lua            # 插件示例配置（含拼音输入法 + 底部状态栏）
+├── scripts/
+│   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）
+│   ├── gbm-check.sh             # GBM 运行中检测脚本（进程/帧/DRM/错误）
+│   └── gen-dict.sh              # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
+│   └── htop-init.lua            # htop 专用 init.lua（shell=/usr/bin/htop, backend=drm-gbm）
 └── work_docs/                   # 开发过程文档
 ```
 
@@ -265,6 +270,12 @@ go test -run=^$ -bench=BenchmarkLayers -benchmem -benchtime=5s ./internal/perf/r
 ./vistty -record session.bin
 ```
 
+GBM 实机性能测试：
+```bash
+sudo ./scripts/gbm-bench.sh -t 2 -d 90         # 主测试（drm-gbm + htop，90s）
+./scripts/gbm-check.sh <pid>                     # 运行中检测（进程/帧/DRM/错误）
+```
+
 调试日志：
 ```bash
 VISTTY_DEBUG=1 ./vistty -backend drm
@@ -292,7 +303,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
-- GPU glyph atlas + instanced draw shader（GLES 3.00）
+- GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
