@@ -129,14 +129,14 @@ func TestLoadDict(t *testing.T) {
 	if globalDict == nil {
 		t.Fatal("globalDict should be initialized after Init()")
 	}
-	if len(globalDict) == 0 {
+	if globalDict.keyCount() == 0 {
 		t.Fatal("dict should not be empty")
 	}
-	if _, ok := globalDict["ni"]; !ok {
-		t.Errorf("dict missing single-syllable key 'ni', have %d keys", len(globalDict))
+	if _, _, ok := globalDict.findKey("ni"); !ok {
+		t.Errorf("dict missing single-syllable key 'ni', have %d keys", globalDict.keyCount())
 	}
-	if _, ok := globalDict["hao"]; !ok {
-		t.Errorf("dict missing single-syllable key 'hao', have %d keys", len(globalDict))
+	if _, _, ok := globalDict.findKey("hao"); !ok {
+		t.Errorf("dict missing single-syllable key 'hao', have %d keys", globalDict.keyCount())
 	}
 }
 
@@ -275,15 +275,22 @@ func TestSplitMemoCorrectness(t *testing.T) {
 }
 
 func TestDictConsistentWeights(t *testing.T) {
-	for key, entries := range globalDict {
-		sorted := sort.SliceIsSorted(entries, func(i, j int) bool {
-			if entries[i].weight != entries[j].weight {
-				return entries[i].weight > entries[j].weight
+	for i := 0; i < globalDict.keyCount(); i++ {
+		key := globalDict.keyAt(i)
+		r := globalDict.keyRanges[i]
+		for j := uint32(1); j < r.count; j++ {
+			prevOff, prevW := globalDict.readEntry(r.start + j - 1)
+			curOff, curW := globalDict.readEntry(r.start + j)
+			prevWord := globalDict.readWord(prevOff)
+			curWord := globalDict.readWord(curOff)
+			if curW > prevW {
+				t.Errorf("entries for key %q not sorted by weight desc", key)
+				break
 			}
-			return entries[i].word < entries[j].word
-		})
-		if !sorted {
-			t.Errorf("entries for key %q not sorted by weight desc", key)
+			if curW == prevW && curWord <= prevWord {
+				t.Errorf("entries for key %q not sorted by weight desc", key)
+				break
+			}
 		}
 	}
 }
@@ -303,14 +310,15 @@ func TestDictContainsCommonPhrases(t *testing.T) {
 		{"xianzai", "现在"},
 	}
 	for _, w := range want {
-		entries, ok := globalDict[w.key]
+		start, count, ok := globalDict.findKey(w.key)
 		if !ok {
 			t.Errorf("dict missing key %q", w.key)
 			continue
 		}
 		found := false
-		for _, e := range entries {
-			if e.word == w.word {
+		for i := uint32(0); i < count; i++ {
+			wordOff, _ := globalDict.readEntry(start + i)
+			if globalDict.readWord(wordOff) == w.word {
 				found = true
 				break
 			}

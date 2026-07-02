@@ -12,12 +12,12 @@ type Candidate struct {
 	Code string
 }
 
-var globalDict map[string][]dictEntry
+var globalDict *dictIndex
 
 func Init() {
 	d, err := loadDict()
 	if err != nil {
-		d = make(map[string][]dictEntry)
+		d = &dictIndex{}
 	}
 	globalDict = d
 }
@@ -33,7 +33,8 @@ func Lookup(input string) []Candidate {
 
 	const fuzzyWeightFactor = 0.5
 	minSyllables := len(splits[0])
-	merged := make(map[string]*seen)
+	merged := make(map[string]int, 128)
+	list := make([]seen, 0, 256)
 	for _, split := range splits {
 		key := strings.Join(split, "")
 		extraSyllables := len(split) - minSyllables
@@ -41,21 +42,24 @@ func Lookup(input string) []Candidate {
 		for i := 0; i < extraSyllables; i++ {
 			splitFactor *= 0.1
 		}
-		entries, ok := globalDict[key]
+		start, count, ok := globalDict.findKey(key)
 		if ok {
 			code := strings.Join(split, " ")
-			for _, e := range entries {
-				w := e.weight
+			for i := uint32(0); i < count; i++ {
+				wordOff, ew := globalDict.readEntry(start + i)
+				word := globalDict.readWord(wordOff)
+				w := int(ew)
 				if partial != "" {
 					w = int(float64(w) * fuzzyWeightFactor)
 				}
-				if s, ok := merged[e.word]; ok {
-					if w > s.weight {
-						s.weight = w
+				if idx, ok := merged[word]; ok {
+					if w > list[idx].weight {
+						list[idx].weight = w
 					}
 					continue
 				}
-				merged[e.word] = &seen{word: e.word, weight: w, code: code}
+				list = append(list, seen{word: word, weight: w, code: code})
+				merged[word] = len(list) - 1
 			}
 		}
 		if combos := composeFromSingleChars(split); len(combos) > 0 {
@@ -65,17 +69,13 @@ func Lookup(input string) []Candidate {
 					w = int(float64(w) * fuzzyWeightFactor)
 				}
 				if _, exists := merged[combo.word]; !exists {
-					combo.weight = w
-					merged[combo.word] = combo
+					list = append(list, seen{word: combo.word, weight: w, code: combo.code})
+					merged[combo.word] = len(list) - 1
 				}
 			}
 		}
 	}
 
-	list := make([]*seen, 0, len(merged))
-	for _, s := range merged {
-		list = append(list, s)
-	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].weight != list[j].weight {
 			return list[i].weight > list[j].weight
@@ -139,23 +139,28 @@ func composeFromSingleChars(split []string) []*seen {
 	}
 	perSyllable := make([][]charCand, n)
 	for i, syl := range split {
-		entries, ok := globalDict[syl]
-		if !ok || len(entries) == 0 {
+		start, count, ok := globalDict.findKey(syl)
+		if !ok || count == 0 {
 			return nil
 		}
-		top := entries[0]
-		for _, e := range entries[1:] {
-			if e.weight > top.weight {
-				top = e
+		topOff, topWeight := globalDict.readEntry(start)
+		topWord := globalDict.readWord(topOff)
+		for j := uint32(1); j < count; j++ {
+			wordOff, w := globalDict.readEntry(start + j)
+			if w > topWeight {
+				topWeight = w
+				topWord = globalDict.readWord(wordOff)
 			}
 		}
 		var cands []charCand
-		cands = append(cands, charCand{word: top.word, weight: top.weight})
-		for _, e := range entries {
-			if len([]rune(e.word)) != 1 || e.word == top.word {
+		cands = append(cands, charCand{word: topWord, weight: int(topWeight)})
+		for j := uint32(0); j < count; j++ {
+			wordOff, w := globalDict.readEntry(start + j)
+			word := globalDict.readWord(wordOff)
+			if len([]rune(word)) != 1 || word == topWord {
 				continue
 			}
-			cands = append(cands, charCand{word: e.word, weight: e.weight})
+			cands = append(cands, charCand{word: word, weight: int(w)})
 			if len(cands) >= k {
 				break
 			}

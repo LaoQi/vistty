@@ -160,10 +160,10 @@ github.com/LaoQi/vistty/
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime yaml → dict.bin，支持 -order-weight）
 ├── scripts/gen-dict-ice.sh     # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 ├── pinyin/                     # 拼音输入法（顶层包，非 internal）
-│   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型 + 模糊权重降级
+│   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型 + 模糊权重降级 + Lookup 值类型数组（map[string]int+[]seen，零指针分配）
 │   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split（长音节优先）+ SplitFuzzy（前缀推断+尾部补全）
-│   ├── dict.go                 # go:embed 加载 dict.bin.gz（gzip 运行时解压）
-│   └── data/dict.bin.gz        # 预处理词库（rime-ice 精简 55万条，gzip 压缩 7.6MB）
+│   ├── dict.go                 # go:embed dict.bin.gz + 紧凑索引 dictIndex（buf 常驻+keyOffsets/keyRanges 二分查找+unsafe.String 零复制，HeapAlloc 94MB→24MB）
+│   └── data/dict.bin.gz        # 预处理词库（rime-ice 精简 45万 key/89万 entry，gzip 压缩 7.6MB，解压 18.3MB）
 ├── session/                     # 协调层
 │   ├── master.go                # Master + 标签生命周期 + PluginContext 实现
 │   ├── slave.go                 # Slave 输出绑定 + OSD 联动
@@ -317,6 +317,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
 - 组合词权重降级：composeFromSingleChars 组合词 weight /=100（单字百万级 weight 降至十万级以下，低于字典真实词组）；多分割方案按音节数差异指数降级 splitFactor=1/10^extraSyllables（最优分割长音节优先不降级，短音节分割组合词大幅压低，防止"大起啊哦"类噪声压过"大桥"类真实词组）
+- 拼音字典内存优化：dict.bin 紧凑索引替代 map[string][]dictEntry 展开（dictIndex: 解压 buf 常驻 + keyOffsets/keyRanges 二分查找 + unsafe.String 零复制 word），HeapAlloc 94.2MB→23.7MB，加载峰值 170MB→30MB；Lookup 值类型数组（map[string]int+[]seen）消除 *seen 指针逃逸
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复
