@@ -51,6 +51,7 @@ type OSD struct {
 	metrics  font.Metrics
 	tabs     []Tab
 	active   int
+	scroll   int // 标签栏水平滚动偏移（像素，对齐 tab 边界）
 	gp       render.GlyphProvider
 	uploader render.GPUGlyphUploader
 
@@ -74,23 +75,113 @@ type PanelPrimitive struct {
 
 type osdCell struct {
 	x             int
+	w             int // 占用列数（1 或 2，双宽 CJK 为 2）
 	r             rune
 	bgR, bgG, bgB uint8
 	fgR, fgG, fgB uint8
 }
 
-func layoutTabs(tabs []Tab, active, cellW, width, csdWidth int) []osdCell {
+// maxTabTitleCols 限制单个标签标题的显示列宽（含省略号）。
+// 超出时截断并以 …（单宽）结尾，实际字符最多 maxTabTitleCols-1 列。
+const maxTabTitleCols = 16
+
+// truncateTabTitle 将标题截断到 maxTabTitleCols 列宽，超出加省略号。
+func truncateTabTitle(title string) string {
+	totalW := runeutil.StringWidth(title)
+	if totalW <= maxTabTitleCols {
+		return title
+	}
+	limit := maxTabTitleCols - 1
+	if limit <= 0 {
+		return "…"
+	}
+	out := make([]rune, 0, limit+1)
+	w := 0
+	for _, ch := range title {
+		rw := runeutil.RuneWidth(ch)
+		if w+rw > limit {
+			break
+		}
+		out = append(out, ch)
+		w += rw
+	}
+	out = append(out, '…')
+	return string(out)
+}
+
+// layoutTabs 布局顶部标签栏。scroll 为当前水平滚动偏移（像素，对齐 tab 边界），
+// 返回可见 cells 与调整后的滚动偏移。
+// 滚动策略：active tab 完全可见时保持偏移；否则滚动使 active 可见
+// （左边超出→左对齐；右边超出→靠右对齐到最近的 tab 边界）。
+func layoutTabs(tabs []Tab, active, cellW, width, csdWidth, scroll int) ([]osdCell, int) {
 	if cellW <= 0 || width <= 0 {
-		return nil
+		return nil, scroll
 	}
 	tabWidth := width - csdWidth
 	if tabWidth <= 0 {
-		tabWidth = 0
+		return nil, scroll
 	}
-	var cells []osdCell
-	x := 0
-loop:
+
+	// 1. 截断标题 + 计算每个 tab 占用列宽（pad + title + pad）
+	type tinfo struct {
+		title string
+		cols  int
+	}
+	infos := make([]tinfo, len(tabs))
 	for i := range tabs {
+		t := truncateTabTitle(tabs[i].Title)
+		infos[i].title = t
+		infos[i].cols = 1 + runeutil.StringWidth(t) + 1
+	}
+
+	// 2. 全局起始 x
+	tabStarts := make([]int, len(tabs))
+	totalW := 0
+	for i := range infos {
+		tabStarts[i] = totalW
+		totalW += infos[i].cols * cellW
+	}
+
+	// 3. 调整 scroll 使 active 可见
+	if totalW <= tabWidth {
+		scroll = 0
+	} else if active >= 0 && active < len(tabs) {
+		aStart := tabStarts[active]
+		aEnd := aStart + infos[active].cols*cellW
+		switch {
+		case aStart >= scroll && aEnd <= scroll+tabWidth:
+			// active 可见，保持
+		case aStart < scroll:
+			scroll = aStart
+		default: // aEnd > scroll+tabWidth，靠右对齐到最近 tab 边界
+			target := aEnd - tabWidth
+			best := -1
+			for _, ts := range tabStarts {
+				if ts <= target && ts > best {
+					best = ts
+				}
+			}
+			if best >= 0 {
+				scroll = best
+			} else {
+				scroll = 0
+			}
+		}
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+
+	// 4. 生成窗口 [scroll, scroll+tabWidth] 内的 cells
+	viewEnd := scroll + tabWidth
+	var cells []osdCell
+	endX := 0
+	for i := range tabs {
+		tStart := tabStarts[i]
+		tEnd := tStart + infos[i].cols*cellW
+		if tEnd <= scroll || tStart >= viewEnd {
+			continue
+		}
 		var tabBg, tabFg [3]uint8
 		if i == active {
 			tabBg = activeBg
@@ -99,29 +190,36 @@ loop:
 			tabBg = inactiveBg
 			tabFg = inactiveFg
 		}
-		if x+cellW > tabWidth {
-			break loop
+		rx := tStart - scroll
+		if rx >= tabWidth {
+			break
 		}
-		cells = append(cells, osdCell{x: x, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
-		x += cellW
-		for _, ch := range tabs[i].Title {
-			if x+cellW > tabWidth {
-				break loop
+		// pad before
+		cells = append(cells, osdCell{x: rx, w: 1, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
+		rx += cellW
+		for _, ch := range infos[i].title {
+			if rx >= tabWidth {
+				break
 			}
-			cells = append(cells, osdCell{x: x, r: ch, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
-			x += cellW
+			rw := 1
+			if runeutil.IsWide(ch) {
+				rw = 2
+			}
+			cells = append(cells, osdCell{x: rx, w: rw, r: ch, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
+			rx += rw * cellW
 		}
-		if x+cellW > tabWidth {
-			break loop
+		if rx < tabWidth {
+			cells = append(cells, osdCell{x: rx, w: 1, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
+			rx += cellW
 		}
-		cells = append(cells, osdCell{x: x, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
-		x += cellW
+		endX = rx
 	}
-	for x+cellW <= tabWidth {
-		cells = append(cells, osdCell{x: x, r: 0, bgR: barBg[0], bgG: barBg[1], bgB: barBg[2], fgR: inactiveFg[0], fgG: inactiveFg[1], fgB: inactiveFg[2]})
-		x += cellW
+	// 5. 尾部 bar 填充
+	for endX+cellW <= tabWidth {
+		cells = append(cells, osdCell{x: endX, w: 1, r: 0, bgR: barBg[0], bgG: barBg[1], bgB: barBg[2], fgR: inactiveFg[0], fgG: inactiveFg[1], fgB: inactiveFg[2]})
+		endX += cellW
 	}
-	return cells
+	return cells, scroll
 }
 
 func NewOSD(face font.Face) *OSD {
@@ -157,7 +255,7 @@ func layoutCsdButtons(cellW, width int) []osdCell {
 	for i := 0; i < csdBtnCount; i++ {
 		x := width - (csdBtnCount-i)*cellW
 		cells = append(cells, osdCell{
-			x: x, r: syms[i],
+			x: x, w: 1, r: syms[i],
 			bgR: bgs[i][0], bgG: bgs[i][1], bgB: bgs[i][2],
 			fgR: fgs[i][0], fgG: fgs[i][1], fgB: fgs[i][2],
 		})
@@ -282,9 +380,10 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 		return
 	}
 	csdW := o.csdButtonsWidth()
-	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW)
+	cells, sc := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
+	o.scroll = sc
 	for _, c := range cells {
-		render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
+		render.FillRect(buf, stride, c.x, 0, c.w*o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
 		if c.r != 0 && o.gp != nil {
 			g := o.gp.OverlayGlyph(c.r)
 			if g == nil {
@@ -298,7 +397,7 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 	if csdW > 0 {
 		csdCells := layoutCsdButtons(o.metrics.Width, width)
 		for _, c := range csdCells {
-			render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
+			render.FillRect(buf, stride, c.x, 0, c.w*o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
 			if c.r != 0 && o.gp != nil {
 				g := o.gp.OverlayGlyph(c.r)
 				if g == nil {
@@ -409,14 +508,15 @@ func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 		return
 	}
 	csdW := o.csdButtonsWidth()
-	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW)
+	cells, sc := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
+	o.scroll = sc
 	cellW := float32(o.metrics.Width)
 	cellH := float32(o.metrics.Height)
 	for _, c := range cells {
 		inst := platform.CellInstance{
 			X:         float32(c.x),
 			Y:         0,
-			CellW:     cellW,
+			CellW:     float32(c.w) * cellW,
 			CellH:     cellH,
 			FgR:       float32(c.fgR) / 255,
 			FgG:       float32(c.fgG) / 255,
@@ -448,7 +548,7 @@ func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 			inst := platform.CellInstance{
 				X:         float32(c.x),
 				Y:         0,
-				CellW:     cellW,
+				CellW:     float32(c.w) * cellW,
 				CellH:     cellH,
 				FgR:       float32(c.fgR) / 255,
 				FgG:       float32(c.fgG) / 255,

@@ -307,7 +307,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
-- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口
+- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口 + 顶部栏 CJK 双宽渲染（osdCell.w 列数倍率，对齐底部栏修复方案）+ 单标题 16 列宽截断省略号 + 水平滚动（active tab 始终可见，scroll 偏移对齐 tab 边界）
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
