@@ -1,5 +1,10 @@
 package gpu
 
+type glyphKey struct {
+	Rune   rune
+	Italic bool
+}
+
 type atlasEntry struct {
 	u0, v0, u1, v1 float32
 }

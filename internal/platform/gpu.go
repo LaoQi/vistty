@@ -15,15 +15,16 @@ type CellInstance struct {
 	BgR, BgG      float32 // 背景色
 	BgB           float32
 	HasBg         float32 // 1.0=非默认背景, 0.0=默认
-	AttrFlags     float32 // bit0=underline, bit1=crossedOut, bit2=italic
+	AttrFlags     float32 // bit0=underline, bit1=crossedOut
 }
 
 // GPURenderer 是 Surface 可选实现的 GPU 渲染接口。
 // Compositor 检测 Surface 是否实现此接口，是则走 GPU instanced draw 路径。
 type GPURenderer interface {
 	// UploadGlyph 将字形 alpha 位图上传到 GPU atlas 纹理，返回 UV 坐标。
-	// 若 rune 已在 atlas 中，直接返回缓存 UV。
-	UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
+	// italic=true 时字形按斜体独立缓存（UV 与 normal 不混用）。
+	// 若 (rune,italic) 已在 atlas 中，直接返回缓存 UV。
+	UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
 	// DrawInstances 用 instanced draw 渲染所有 cell。
 	DrawInstances(instances []CellInstance, screenW, screenH int, bgColor [3]float32) error
 	// BeginFrame 确保本帧 GL context 已 current。每帧调用一次，

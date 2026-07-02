@@ -185,7 +185,7 @@ github.com/LaoQi/vistty/
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
-│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go + assets/
+│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ assets/
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
 │   ├── perf/replay/             # 三级归因 benchmark
@@ -302,7 +302,9 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw 渲染
 - Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪 + 自绘 CSD 装饰）
 - 自动后端探测（drm-gbm → drm → wayland）
-- xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）
+- xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）+ 文本属性（Bold/Italic/Underline/CrossedOut/Dim/Blink/Reverse）
+- 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中左移均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径；移除 render 层 blendGlyphItalic 位移与 shader italic 分支；italicAtlas 独立缓存，UploadGlyph 以 (rune,italic) 为 key
+- 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置

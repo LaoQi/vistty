@@ -115,7 +115,7 @@ func newFakeGPUSurface(w, h int) *fakeGPUSurface {
 	}
 }
 
-func (f *fakeGPUSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+func (f *fakeGPUSurface) UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	f.uploadedRunes = append(f.uploadedRunes, r)
 	if !f.uploadOK {
 		return 0, 0, 0, 0, false
@@ -269,13 +269,14 @@ func TestRenderGPUAttrsAndBold(t *testing.T) {
 	if !ok {
 		t.Fatal("no instance")
 	}
-	// AttrFlags: underline(1)+crossedOut(2)+italic(4)=7；Bold 不计入 AttrFlags
-	if inst.AttrFlags != 7 {
-		t.Errorf("AttrFlags=%v want 7 (underline|crossed|italic)", inst.AttrFlags)
+	// AttrFlags: underline(1)+crossedOut(2)=3；italic 不计入 AttrFlags（由 font 层 shear 预生成字形），Bold 不计入
+	if inst.AttrFlags != 3 {
+		t.Errorf("AttrFlags=%v want 3 (underline|crossed)", inst.AttrFlags)
 	}
-	// Bold → GlyphOffX += 1 (glyph.XOffset=0 + 1)
-	if inst.GlyphOffX != 1 {
-		t.Errorf("Bold GlyphOffX=%v want 1", inst.GlyphOffX)
+	// Bold → GlyphOffX += 1。但 italic 字形经 ShearGlyph(0.1,0.5) 后 XOffset=-1
+	// (round(0.5*0.1*15)=1 左移)，Bold 再 +1 → GlyphOffX=0
+	if inst.GlyphOffX != 0 {
+		t.Errorf("Bold+Italic GlyphOffX=%v want 0 (italic XOffset=-1 + bold +1)", inst.GlyphOffX)
 	}
 	// Reverse: fg/bg 交换。原 fg=灰(204), bg=黑(0) → 交换后 fg=黑, bg=灰, HasBg=1
 	if inst.FgR != 0 {

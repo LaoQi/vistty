@@ -31,11 +31,6 @@ void main() {
     gl_Position = vec4(ndc, 0.0, 1.0);
     // 字形在 cell 内的子区域坐标 (0..1 if in glyph, else out of range)
     vec2 glyphCoord = (a_quadPos * i_cellSize - i_glyphOff) / i_glyphSize;
-    // italic (bit 2): 只对字形采样做 shear，背景保持矩形（对齐 CPU 路径）
-    float hasItalic = mod(floor(i_attrFlags / 4.0), 2.0);
-    if (hasItalic > 0.5) {
-        glyphCoord.x += a_quadPos.y * 0.4;
-    }
     v_tex = mix(i_glyphUV.xy, i_glyphUV.zw, glyphCoord);
     v_cellUV = a_quadPos;
     v_glyphCoord = glyphCoord;

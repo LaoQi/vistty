@@ -84,7 +84,7 @@ func BenchmarkGBMDrawStandalone(b *testing.B) {
 	if err != nil || g == nil || g.Width == 0 {
 		b.Skip("no glyph A")
 	}
-	u0, v0, u1, v1, ok := s.UploadGlyph('A', g.Bitmap, g.Width, g.Height)
+	u0, v0, u1, v1, ok := s.UploadGlyph('A', false, g.Bitmap, g.Width, g.Height)
 	if !ok {
 		b.Fatal("UploadGlyph A failed")
 	}

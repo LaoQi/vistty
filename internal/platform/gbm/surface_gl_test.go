@@ -179,7 +179,7 @@ func TestGBMGL(t *testing.T) {
 		for i := range bmp {
 			bmp[i] = 255
 		}
-		u0, v0, u1, v1, ok := s.UploadGlyph('A', bmp, 8, 16)
+		u0, v0, u1, v1, ok := s.UploadGlyph('A', false, bmp, 8, 16)
 		if !ok {
 			t.Fatal("UploadGlyph 返回 ok=false（TexSubImage2D glErr≠0 或上传失败）")
 		}
@@ -196,7 +196,7 @@ func TestGBMGL(t *testing.T) {
 		for i := range bmp {
 			bmp[i] = 255
 		}
-		u0, v0, u1, v1, ok := s.UploadGlyph('A', bmp, 8, 16)
+		u0, v0, u1, v1, ok := s.UploadGlyph('A', false, bmp, 8, 16)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}
@@ -227,7 +227,7 @@ func TestGBMGL(t *testing.T) {
 
 	t.Run("DrawInstancesZeroAlpha", func(t *testing.T) {
 		bmp := make([]byte, 8*16)
-		u0, v0, u1, v1, ok := s.UploadGlyph('B', bmp, 8, 16)
+		u0, v0, u1, v1, ok := s.UploadGlyph('B', false, bmp, 8, 16)
 		if !ok {
 			t.Fatal("UploadGlyph failed for zero-alpha bitmap")
 		}
@@ -284,7 +284,7 @@ func TestGBMGL(t *testing.T) {
 		t.Logf("metrics W=%d H=%d Ascent=%d; glyph %dx%d Off=(%d,%d)",
 			m.Width, m.Height, m.Ascent, glyph.Width, glyph.Height, glyph.XOffset, glyph.YOffset)
 
-		u0, v0, u1, v1, ok := s.UploadGlyph('R', glyph.Bitmap, glyph.Width, glyph.Height)
+		u0, v0, u1, v1, ok := s.UploadGlyph('R', false, glyph.Bitmap, glyph.Width, glyph.Height)
 		if !ok {
 			t.Fatal("UploadGlyph real glyph failed")
 		}
@@ -331,7 +331,7 @@ func TestGBMGL(t *testing.T) {
 	})
 
 	t.Run("FullAlpha8x16OffY3", func(t *testing.T) {
-		u0, v0, u1, v1, ok := s.UploadGlyph('F', fullAlphaBitmap(8, 16), 8, 16)
+		u0, v0, u1, v1, ok := s.UploadGlyph('F', false, fullAlphaBitmap(8, 16), 8, 16)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}
@@ -353,7 +353,7 @@ func TestGBMGL(t *testing.T) {
 	})
 
 	t.Run("FullAlpha7x11OffY0", func(t *testing.T) {
-		u0, v0, u1, v1, ok := s.UploadGlyph('G', fullAlphaBitmap(7, 11), 7, 11)
+		u0, v0, u1, v1, ok := s.UploadGlyph('G', false, fullAlphaBitmap(7, 11), 7, 11)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}
@@ -375,7 +375,7 @@ func TestGBMGL(t *testing.T) {
 	})
 
 	t.Run("FullAlpha7x11OffY3Rows", func(t *testing.T) {
-		u0, v0, u1, v1, ok := s.UploadGlyph('I', fullAlphaBitmap(7, 11), 7, 11)
+		u0, v0, u1, v1, ok := s.UploadGlyph('I', false, fullAlphaBitmap(7, 11), 7, 11)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}
@@ -410,7 +410,7 @@ func TestGBMGL(t *testing.T) {
 	})
 
 	t.Run("FullAlpha7x11OffY3CellH16", func(t *testing.T) {
-		u0, v0, u1, v1, ok := s.UploadGlyph('J', fullAlphaBitmap(7, 11), 7, 11)
+		u0, v0, u1, v1, ok := s.UploadGlyph('J', false, fullAlphaBitmap(7, 11), 7, 11)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}
@@ -433,7 +433,7 @@ func TestGBMGL(t *testing.T) {
 	})
 
 	t.Run("FullAlpha8x11OffY3", func(t *testing.T) {
-		u0, v0, u1, v1, ok := s.UploadGlyph('K', fullAlphaBitmap(8, 11), 8, 11)
+		u0, v0, u1, v1, ok := s.UploadGlyph('K', false, fullAlphaBitmap(8, 11), 8, 11)
 		if !ok {
 			t.Fatal("UploadGlyph failed")
 		}

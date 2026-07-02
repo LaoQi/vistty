@@ -149,7 +149,7 @@ func (be *benchEnv) makeGlyphInstances(b *testing.B, s *GBMSurface, runeSet []ru
 			if err != nil || g == nil || g.Width == 0 || g.Height == 0 {
 				continue
 			}
-			u0, v0, u1, v1, ok := s.UploadGlyph(ru, g.Bitmap, g.Width, g.Height)
+			u0, v0, u1, v1, ok := s.UploadGlyph(ru, false, g.Bitmap, g.Width, g.Height)
 			if !ok {
 				continue
 			}
@@ -229,7 +229,7 @@ func BenchmarkGBM(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			gm := cjkPool[i%len(cjkPool)]
-			s.UploadGlyph(gm.r, gm.g.Bitmap, gm.g.Width, gm.g.Height)
+			s.UploadGlyph(gm.r, false, gm.g.Bitmap, gm.g.Width, gm.g.Height)
 			if i%100 == 0 {
 				glFinish()
 				glEnvInst.gles.GetError()
@@ -241,11 +241,11 @@ func BenchmarkGBM(b *testing.B) {
 		if glyphA == nil {
 			b.Skip("no glyph A")
 		}
-		s.UploadGlyph('A', glyphA.Bitmap, glyphA.Width, glyphA.Height)
+		s.UploadGlyph('A', false, glyphA.Bitmap, glyphA.Width, glyphA.Height)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			s.UploadGlyph('A', glyphA.Bitmap, glyphA.Width, glyphA.Height)
+			s.UploadGlyph('A', false, glyphA.Bitmap, glyphA.Width, glyphA.Height)
 		}
 		glFinish()
 	})
@@ -284,7 +284,7 @@ func BenchmarkGBM(b *testing.B) {
 				b.Fatalf("BeginFrame: %v", err)
 			}
 			if coldG != nil && i%10 == 0 {
-				s.UploadGlyph(rune(0x6000+i%50), coldG.Bitmap, coldG.Width, coldG.Height)
+				s.UploadGlyph(rune(0x6000+i%50), false, coldG.Bitmap, coldG.Width, coldG.Height)
 				glFinish()
 				glEnvInst.gles.GetError()
 			}

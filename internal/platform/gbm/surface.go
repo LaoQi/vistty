@@ -223,11 +223,11 @@ func (s *GBMSurface) initGL() error {
 	return nil
 }
 
-func (s *GBMSurface) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+func (s *GBMSurface) UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	if s.gpu == nil {
 		return 0, 0, 0, 0, false
 	}
-	return s.gpu.UploadGlyph(r, bitmap, w, h)
+	return s.gpu.UploadGlyph(r, italic, bitmap, w, h)
 }
 
 func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {

@@ -34,7 +34,7 @@ type Renderer struct {
 	resUni      int32
 	defBgUni    int32
 	atlasUni    int32
-	atlasCache  map[rune]atlasEntry
+	atlasCache  map[glyphKey]atlasEntry
 	shelfX      int
 	shelfY      int
 	shelfH      int
@@ -129,7 +129,7 @@ func (c *Renderer) Init() error {
 		return fmt.Errorf("TexImage2D failed: glErr=0x%x", texImgErr)
 	}
 
-	c.atlasCache = make(map[rune]atlasEntry)
+	c.atlasCache = make(map[glyphKey]atlasEntry)
 
 	var vbos [2]uint32
 	gl.GenBuffers(2, vbos[:])
@@ -236,14 +236,15 @@ func (c *Renderer) ResetAtlas() {
 }
 
 // UploadGlyph implements platform.GPURenderer
-func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+func (c *Renderer) UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
 	if !c.gpuReady {
 		return 0, 0, 0, 0, false
 	}
 	if w <= 0 || h <= 0 || len(bitmap) < w*h {
 		return 0, 0, 0, 0, false
 	}
-	if e, exists := c.atlasCache[r]; exists {
+	key := glyphKey{Rune: r, Italic: italic}
+	if e, exists := c.atlasCache[key]; exists {
 		return e.u0, e.v0, e.u1, e.v1, true
 	}
 
@@ -298,7 +299,7 @@ func (c *Renderer) UploadGlyph(r rune, bitmap []byte, w, h int) (u0, v0, u1, v1 
 		return 0, 0, 0, 0, false
 	}
 
-	c.atlasCache[r] = atlasEntry{gu0, gv0, gu1, gv1}
+	c.atlasCache[key] = atlasEntry{gu0, gv0, gu1, gv1}
 	c.shelfX = nextShelfX
 	c.shelfY = nextShelfY
 	c.shelfH = nextShelfH
