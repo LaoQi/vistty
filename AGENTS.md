@@ -316,6 +316,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出 + 运行环境查询 vistty.backend_name()/backend.is_wayland()/is_drm() + on_activate 钩子解决 auto 模式后端未定时序矛盾 + mod 键按后端自适应 wayland=ALT/drm=SUPER + 生命周期钩子 on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom；on_title_change 经主线程 ticker 缓冲避免 terminal 写锁内 PCall 死锁）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
+- 组合词权重降级：composeFromSingleChars 组合词 weight /=100（单字百万级 weight 降至十万级以下，低于字典真实词组）；多分割方案按音节数差异指数降级 splitFactor=1/10^extraSyllables（最优分割长音节优先不降级，短音节分割组合词大幅压低，防止"大起啊哦"类噪声压过"大桥"类真实词组）
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
 - 错误日志文件（~/.local/share/vistty/error.log）
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复

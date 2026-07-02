@@ -202,6 +202,31 @@ func TestLookupRealPhraseBeatsCombo(t *testing.T) {
 	}
 }
 
+func TestLookupLongSyllableBeatsShortCombo(t *testing.T) {
+	cases := []struct {
+		input string
+		word  string
+	}{
+		{"daqiao", "大桥"},
+		{"shanghai", "上海"},
+		{"tianxian", "天线"},
+		{"shangqiao", "上翘"},
+		{"wangqiao", "网桥"},
+		{"changqiao", "长桥"},
+		{"jianqiao", "剑桥"},
+	}
+	for _, c := range cases {
+		cands := Lookup(c.input)
+		if len(cands) == 0 {
+			t.Errorf("Lookup(%q) returned no candidates", c.input)
+			continue
+		}
+		if cands[0].Word != c.word {
+			t.Errorf("Lookup(%q)[0] = %q, want %q", c.input, cands[0].Word, c.word)
+		}
+	}
+}
+
 func TestFormatPreedit(t *testing.T) {
 	pre := FormatPreedit("nihao")
 	if !strings.Contains(pre, "ni") || !strings.Contains(pre, "hao") {

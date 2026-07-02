@@ -32,9 +32,15 @@ func Lookup(input string) []Candidate {
 	}
 
 	const fuzzyWeightFactor = 0.5
+	minSyllables := len(splits[0])
 	merged := make(map[string]*seen)
 	for _, split := range splits {
 		key := strings.Join(split, "")
+		extraSyllables := len(split) - minSyllables
+		splitFactor := 1.0
+		for i := 0; i < extraSyllables; i++ {
+			splitFactor *= 0.1
+		}
 		entries, ok := globalDict[key]
 		if ok {
 			code := strings.Join(split, " ")
@@ -54,7 +60,7 @@ func Lookup(input string) []Candidate {
 		}
 		if combos := composeFromSingleChars(split); len(combos) > 0 {
 			for _, combo := range combos {
-				w := combo.weight
+				w := int(float64(combo.weight) * splitFactor)
 				if partial != "" {
 					w = int(float64(w) * fuzzyWeightFactor)
 				}
@@ -171,7 +177,7 @@ func composeFromSingleChars(split []string) []*seen {
 			}
 			results = append(results, &seen{
 				word:   w,
-				weight: minW / 10,
+				weight: minW / 100,
 				code:   strings.Join(split, " "),
 			})
 			return
