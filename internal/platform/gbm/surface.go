@@ -102,6 +102,10 @@ func (s *GBMSurface) DirectRender() bool {
 	return true
 }
 
+func (s *GBMSurface) DecoMode() uint32 {
+	return 2
+}
+
 func (s *GBMSurface) Stride() int {
 	return s.cpuStride
 }

@@ -27,6 +27,7 @@ type MouseEvent struct {
 	X, Y   int
 	Button uint8
 	State  KeyState
+	Serial uint32
 }
 
 type InputSource interface {

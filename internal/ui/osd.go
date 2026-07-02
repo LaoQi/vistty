@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"image"
+
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
@@ -26,6 +28,22 @@ var (
 	inactiveFg = [3]uint8{150, 150, 150}
 )
 
+var (
+	csdBtnBg   = [3]uint8{40, 40, 40}
+	csdCloseBg = [3]uint8{200, 50, 50}
+	csdBtnFg   = [3]uint8{200, 200, 200}
+)
+
+const csdBtnCount = 3
+
+type CsdButton int
+
+const (
+	CsdBtnMinimize CsdButton = iota
+	CsdBtnMaximize
+	CsdBtnClose
+)
+
 // OSD 顶部标签栏默认开启；底/左/右边面板由插件系统
 // vistty.ui.enable / on_render 驱动，无需配置项。
 type OSD struct {
@@ -38,6 +56,7 @@ type OSD struct {
 
 	pluginPanels map[string][]PanelPrimitive
 	panelLines   map[string]int
+	csdMode      bool
 }
 
 // PanelPrimitive 是插件面板图元的 UI 包本地定义，
@@ -60,9 +79,13 @@ type osdCell struct {
 	fgR, fgG, fgB uint8
 }
 
-func layoutTabs(tabs []Tab, active, cellW, width int) []osdCell {
+func layoutTabs(tabs []Tab, active, cellW, width, csdWidth int) []osdCell {
 	if cellW <= 0 || width <= 0 {
 		return nil
+	}
+	tabWidth := width - csdWidth
+	if tabWidth <= 0 {
+		tabWidth = 0
 	}
 	var cells []osdCell
 	x := 0
@@ -76,25 +99,25 @@ loop:
 			tabBg = inactiveBg
 			tabFg = inactiveFg
 		}
-		if x+cellW > width {
+		if x+cellW > tabWidth {
 			break loop
 		}
 		cells = append(cells, osdCell{x: x, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
 		x += cellW
 		for _, ch := range tabs[i].Title {
-			if x+cellW > width {
+			if x+cellW > tabWidth {
 				break loop
 			}
 			cells = append(cells, osdCell{x: x, r: ch, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
 			x += cellW
 		}
-		if x+cellW > width {
+		if x+cellW > tabWidth {
 			break loop
 		}
 		cells = append(cells, osdCell{x: x, r: 0, bgR: tabBg[0], bgG: tabBg[1], bgB: tabBg[2], fgR: tabFg[0], fgG: tabFg[1], fgB: tabFg[2]})
 		x += cellW
 	}
-	for x+cellW <= width {
+	for x+cellW <= tabWidth {
 		cells = append(cells, osdCell{x: x, r: 0, bgR: barBg[0], bgG: barBg[1], bgB: barBg[2], fgR: inactiveFg[0], fgG: inactiveFg[1], fgB: inactiveFg[2]})
 		x += cellW
 	}
@@ -106,6 +129,84 @@ func NewOSD(face font.Face) *OSD {
 		face:    face,
 		metrics: face.Metrics(),
 	}
+}
+
+func (o *OSD) SetCSDMode(csd bool) {
+	o.csdMode = csd
+}
+
+func (o *OSD) CsdEnabled() bool {
+	return o.csdMode
+}
+
+func (o *OSD) csdButtonsWidth() int {
+	if !o.csdMode || o.metrics.Width <= 0 {
+		return 0
+	}
+	return csdBtnCount * o.metrics.Width
+}
+
+func layoutCsdButtons(cellW, width int) []osdCell {
+	if cellW <= 0 || width <= 0 {
+		return nil
+	}
+	syms := []rune{'─', '□', '✕'}
+	bgs := [3][3]uint8{csdBtnBg, csdBtnBg, csdCloseBg}
+	fgs := [3][3]uint8{csdBtnFg, csdBtnFg, csdBtnFg}
+	var cells []osdCell
+	for i := 0; i < csdBtnCount; i++ {
+		x := width - (csdBtnCount-i)*cellW
+		cells = append(cells, osdCell{
+			x: x, r: syms[i],
+			bgR: bgs[i][0], bgG: bgs[i][1], bgB: bgs[i][2],
+			fgR: fgs[i][0], fgG: fgs[i][1], fgB: fgs[i][2],
+		})
+	}
+	return cells
+}
+
+func (o *OSD) CsdButtonRects(width int) [csdBtnCount]image.Rectangle {
+	var rects [csdBtnCount]image.Rectangle
+	if !o.csdMode || o.metrics.Width <= 0 || o.metrics.Height <= 0 {
+		return rects
+	}
+	for i := 0; i < csdBtnCount; i++ {
+		x := width - (csdBtnCount-i)*o.metrics.Width
+		rects[i] = image.Rect(x, 0, x+o.metrics.Width, o.metrics.Height)
+	}
+	return rects
+}
+
+type TabBarHit int
+
+const (
+	TabBarMiss TabBarHit = iota
+	TabBarArea
+	TabBarCsdMin
+	TabBarCsdMax
+	TabBarCsdClose
+)
+
+func (o *OSD) HitTestTabBar(x, y, width int) TabBarHit {
+	if o.metrics.Height <= 0 || y >= o.metrics.Height {
+		return TabBarMiss
+	}
+	if o.csdMode {
+		rects := o.CsdButtonRects(width)
+		for i, r := range rects {
+			if r.Min.X <= x && x < r.Max.X && r.Min.Y <= y && y < r.Max.Y {
+				switch i {
+				case 0:
+					return TabBarCsdMin
+				case 1:
+					return TabBarCsdMax
+				case 2:
+					return TabBarCsdClose
+				}
+			}
+		}
+	}
+	return TabBarArea
 }
 
 func (o *OSD) Insets() (top, bottom, left, right int) {
@@ -180,7 +281,8 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 	if o.metrics.Height <= 0 || len(buf) == 0 {
 		return
 	}
-	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
+	csdW := o.csdButtonsWidth()
+	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW)
 	for _, c := range cells {
 		render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
 		if c.r != 0 && o.gp != nil {
@@ -191,6 +293,21 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 			gx := c.x + g.XOffset
 			gy := 0 + o.metrics.Ascent + g.YOffset
 			render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, c.fgR, c.fgG, c.fgB)
+		}
+	}
+	if csdW > 0 {
+		csdCells := layoutCsdButtons(o.metrics.Width, width)
+		for _, c := range csdCells {
+			render.FillRect(buf, stride, c.x, 0, o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
+			if c.r != 0 && o.gp != nil {
+				g := o.gp.OverlayGlyph(c.r)
+				if g == nil {
+					continue
+				}
+				gx := c.x + g.XOffset
+				gy := 0 + o.metrics.Ascent + g.YOffset
+				render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, c.fgR, c.fgG, c.fgB)
+			}
 		}
 	}
 	o.renderPluginPanelsCPU(buf, stride, width, height)
@@ -288,11 +405,46 @@ func (o *OSD) drawPrimitiveCPU(buf []byte, stride, frameW, frameH int, p PanelPr
 }
 
 func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
-	if o.metrics.Height > 0 {
-		cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width)
-		cellW := float32(o.metrics.Width)
-		cellH := float32(o.metrics.Height)
-		for _, c := range cells {
+	if o.metrics.Height <= 0 {
+		return
+	}
+	csdW := o.csdButtonsWidth()
+	cells := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW)
+	cellW := float32(o.metrics.Width)
+	cellH := float32(o.metrics.Height)
+	for _, c := range cells {
+		inst := platform.CellInstance{
+			X:         float32(c.x),
+			Y:         0,
+			CellW:     cellW,
+			CellH:     cellH,
+			FgR:       float32(c.fgR) / 255,
+			FgG:       float32(c.fgG) / 255,
+			FgB:       float32(c.fgB) / 255,
+			BgR:       float32(c.bgR) / 255,
+			BgG:       float32(c.bgG) / 255,
+			BgB:       float32(c.bgB) / 255,
+			HasBg:     1,
+			GlyphOffY: 0,
+		}
+		if c.r != 0 && o.uploader != nil {
+			u0, v0, u1, v1, gw, gh, xoff, yoff, ok := o.uploader.OverlayUploadGlyph(c.r)
+			if ok {
+				inst.GlyphU0 = u0
+				inst.V0 = v0
+				inst.GlyphU1 = u1
+				inst.V1 = v1
+				inst.GlyphOffX = float32(xoff)
+				inst.GlyphOffY = float32(o.metrics.Ascent + yoff)
+				inst.GlyphW = float32(gw)
+				inst.GlyphH = float32(gh)
+			}
+		}
+		*instances = append(*instances, inst)
+	}
+	if csdW > 0 {
+		csdCells := layoutCsdButtons(o.metrics.Width, width)
+		for _, c := range csdCells {
 			inst := platform.CellInstance{
 				X:         float32(c.x),
 				Y:         0,
@@ -322,8 +474,8 @@ func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 			}
 			*instances = append(*instances, inst)
 		}
-		o.renderPluginPanelsGPU(instances, width, height)
 	}
+	o.renderPluginPanelsGPU(instances, width, height)
 }
 
 // renderPluginPanelsGPU 将插件面板图元转为 CellInstance 追加到 instances。

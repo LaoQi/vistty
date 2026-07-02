@@ -29,7 +29,7 @@ func TestLayoutTabs(t *testing.T) {
 		{Title: "a", Active: true},
 		{Title: "bb", Active: false},
 	}
-	cells := layoutTabs(tabs, 0, 10, 100)
+	cells := layoutTabs(tabs, 0, 10, 100, 0)
 	if len(cells) != 10 {
 		t.Fatalf("expected 10 cells, got %d", len(cells))
 	}
@@ -67,7 +67,7 @@ func TestLayoutTabs(t *testing.T) {
 
 func TestLayoutTabsTruncate(t *testing.T) {
 	tabs := []Tab{{Title: "abc"}}
-	cells := layoutTabs(tabs, 0, 10, 25)
+	cells := layoutTabs(tabs, 0, 10, 25, 0)
 	if len(cells) != 2 {
 		t.Fatalf("expected 2 cells, got %d", len(cells))
 	}

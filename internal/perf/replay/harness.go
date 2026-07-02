@@ -35,6 +35,7 @@ func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 }
 func (s *fakeSurface) OutputID() uint32 { return 0 }
 func (s *fakeSurface) DirectRender() bool { return true }
+func (s *fakeSurface) DecoMode() uint32 { return 0 }
 
 var _ platform.Surface = (*fakeSurface)(nil)
 

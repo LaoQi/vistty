@@ -19,10 +19,11 @@ type Slave struct {
 	face       font.Face
 	osd        *ui.OSD
 
-	prevTop    int
-	prevBottom int
-	prevLeft   int
-	prevRight  int
+	prevTop     int
+	prevBottom  int
+	prevLeft    int
+	prevRight   int
+	prevCsdMode bool
 }
 
 func NewSlave(output platform.Output, surface platform.Surface) *Slave {
@@ -79,6 +80,10 @@ func (s *Slave) InitIndependent(fontData []byte, fontSize float64) error {
 	s.compositor.SetOverlay(s.osd)
 	s.osd.SetGlyphProvider(s.compositor)
 	s.osd.SetGPUGlyphUploader(s.compositor)
+	if s.surface.DecoMode() != 2 {
+		s.osd.SetCSDMode(true)
+		s.prevCsdMode = true
+	}
 	return nil
 }
 
@@ -110,11 +115,16 @@ func (s *Slave) Insets() (top, bottom, left, right int) {
 
 func (s *Slave) CheckInsetsChanged() bool {
 	top, bottom, left, right := s.Insets()
-	changed := top != s.prevTop || bottom != s.prevBottom || left != s.prevLeft || right != s.prevRight
+	csdMode := s.surface.DecoMode() != 2
+	changed := top != s.prevTop || bottom != s.prevBottom || left != s.prevLeft || right != s.prevRight || csdMode != s.prevCsdMode
 	s.prevTop = top
 	s.prevBottom = bottom
 	s.prevLeft = left
 	s.prevRight = right
+	if csdMode != s.prevCsdMode {
+		s.osd.SetCSDMode(csdMode)
+	}
+	s.prevCsdMode = csdMode
 	return changed
 }
 
@@ -142,6 +152,10 @@ func (s *Slave) UpdateTabs() {
 
 func (s *Slave) OSD() *ui.OSD {
 	return s.osd
+}
+
+func (s *Slave) CsdMode() bool {
+	return s.surface.DecoMode() != 2
 }
 
 func (s *Slave) Close() error {

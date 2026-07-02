@@ -227,6 +227,22 @@ func (s *WaylandSurface) OutputID() uint32 {
 	return s.outputID
 }
 
+func (s *WaylandSurface) StartMove(serial uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toplevel != nil && s.backend.seat != nil {
+		s.toplevel.move(s.backend.seat.id, serial)
+	}
+}
+
+func (s *WaylandSurface) StartResize(serial uint32, edge uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toplevel != nil && s.backend.seat != nil {
+		s.toplevel.resize(s.backend.seat.id, serial, edge)
+	}
+}
+
 func (s *WaylandSurface) resize(newWidth, newHeight int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -302,3 +318,4 @@ func createShmBuf(shm *wlShm, size, width, height, stride int, format uint32) (s
 }
 
 var _ platform.Surface = (*WaylandSurface)(nil)
+var _ platform.WindowMover = (*WaylandSurface)(nil)

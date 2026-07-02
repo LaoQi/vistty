@@ -23,6 +23,7 @@ func (s *testSurface) Close() error                              { return nil }
 func (s *testSurface) ResizeEvents() <-chan platform.ResizeEvent { return nil }
 func (s *testSurface) OutputID() uint32                          { return 0 }
 func (s *testSurface) DirectRender() bool                        { return true }
+func (s *testSurface) DecoMode() uint32                          { return 2 }
 
 type testFace struct{}
 

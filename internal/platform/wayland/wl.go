@@ -732,6 +732,35 @@ func (t *wlXdgToplevel) destroy() {
 	t.c.removeObject(t.id)
 }
 
+func (t *wlXdgToplevel) move(seatID, serial uint32) {
+	payload := make([]byte, 8)
+	putU32(payload[0:4], seatID)
+	putU32(payload[4:8], serial)
+	_ = t.c.writeMsg(t.id, 5, payload, nil)
+}
+
+func (t *wlXdgToplevel) resize(seatID, serial, edge uint32) {
+	payload := make([]byte, 12)
+	putU32(payload[0:4], seatID)
+	putU32(payload[4:8], serial)
+	putU32(payload[8:12], edge)
+	_ = t.c.writeMsg(t.id, 6, payload, nil)
+}
+
+func (t *wlXdgToplevel) setMinSize(w, h int32) {
+	payload := make([]byte, 8)
+	putU32(payload[0:4], uint32(w))
+	putU32(payload[4:8], uint32(h))
+	_ = t.c.writeMsg(t.id, 8, payload, nil)
+}
+
+func (t *wlXdgToplevel) setMaxSize(w, h int32) {
+	payload := make([]byte, 8)
+	putU32(payload[0:4], uint32(w))
+	putU32(payload[4:8], uint32(h))
+	_ = t.c.writeMsg(t.id, 7, payload, nil)
+}
+
 // ---------- XDG Decoration (zxdg_decoration_manager_v1) ----------
 
 const (

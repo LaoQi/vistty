@@ -15,4 +15,10 @@ type Surface interface {
 	ResizeEvents() <-chan ResizeEvent
 	OutputID() uint32
 	DirectRender() bool
+	DecoMode() uint32
+}
+
+type WindowMover interface {
+	StartMove(serial uint32)
+	StartResize(serial uint32, edge uint32)
 }

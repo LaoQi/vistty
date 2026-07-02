@@ -99,6 +99,10 @@ func (s *DRMSurface) DirectRender() bool {
 	return false
 }
 
+func (s *DRMSurface) DecoMode() uint32 {
+	return 2
+}
+
 func (s *DRMSurface) Stride() int {
 	backIdx := s.current ^ 1
 	return s.bufs[backIdx].stride

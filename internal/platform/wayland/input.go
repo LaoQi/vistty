@@ -18,8 +18,9 @@ type WaylandInput struct {
 
 	mu   sync.Mutex
 	mods platform.Modifiers
-	posX int
-	posY int
+	posX       int
+	posY       int
+	lastSerial uint32
 
 	keymap keymap
 
@@ -136,6 +137,7 @@ func (i *WaylandInput) registerPointerCallbacks() {
 
 	i.pointer.onButton = func(serial, time, button, state uint32) {
 		i.mu.Lock()
+		i.lastSerial = serial
 		px := i.posX
 		py := i.posY
 		i.mu.Unlock()
@@ -158,6 +160,7 @@ func (i *WaylandInput) registerPointerCallbacks() {
 			Y:      py,
 			Button: btn,
 			State:  platform.KeyState(state == 1),
+			Serial: serial,
 		}:
 		case <-i.done:
 		default:
@@ -197,6 +200,16 @@ func (i *WaylandInput) KeyEvents() <-chan platform.KeyEvent {
 
 func (i *WaylandInput) MouseEvents() <-chan platform.MouseEvent {
 	return i.mouseCh
+}
+
+func (i *WaylandInput) LastSerial() uint32 {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.lastSerial
+}
+
+func (i *WaylandInput) Seat() *wlSeat {
+	return i.seat
 }
 
 func (i *WaylandInput) Close() error {

@@ -51,15 +51,21 @@ cmd/vistty (入口，-backend 选择后端 + -config 指定 init.lua + PluginMan
 ```go
 // platform/surface.go
 type Surface interface {
-    Size() (width, height int)
-    Data() []byte           // 帧缓冲像素数据（BGRA32）
-    Stride() int
-    Swap() error
-    Close() error
-    ResizeEvents() <-chan ResizeEvent
-    OutputID() uint32
-    DirectRender() bool     // 堆/memfd 内存 true；dumb mmap 设备内存 false
-}
+     Size() (width, height int)
+     Data() []byte           // 帧缓冲像素数据（BGRA32）
+     Stride() int
+     Swap() error
+     Close() error
+     ResizeEvents() <-chan ResizeEvent
+     OutputID() uint32
+     DirectRender() bool     // 堆/memfd 内存 true；dumb mmap 设备内存 false
+     DecoMode() uint32       // 0=未知/无协议, 1=CSD, 2=SSD
+ }
+
+ type WindowMover interface {
+     StartMove(serial uint32)    // Wayland: xdg_toplevel.move；DRM: 不实现
+     StartResize(serial uint32, edge uint32)  // Wayland: xdg_toplevel.resize
+ }
 
 // platform/output.go
 type Output interface {
@@ -97,7 +103,7 @@ type Backend interface {
 | Surface | Dumb buffer mmap / GBM BO + Page Flip | wl_shm 共享内存 + wl_surface.commit |
 | InputSource | go-evdev 读 /dev/input/eventN + inotify 热插拔 | wl_keyboard + wl_pointer 事件 + capabilities 动态创建/释放 |
 | 键盘映射 | 自研 scancode→Unicode | 简化 XKB keymap 解析 |
-| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + zxdg_decoration SSD/CSD |
+| 窗口管理 | CRTC/Connector 全屏 | XDG Shell 窗口 + zxdg_decoration SSD/CSD + 自绘 CSD 按钮 |
 | VT 切换 | SIGUSR1/2 + KD_GRAPHICS | 不适用 |
 | GPU 渲染 | GBM+EGL+GLES instanced draw（每 Surface 独立 EGLContext） | 不支持（wl_shm CPU 路径） |
 
@@ -123,7 +129,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 | goroutine | 职责 |
 |-----------|------|
-| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/exit）；两阶段渲染：Render 所有 slave → Present 所有 slave |
+| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/mouseEv/exit）；两阶段渲染：Render 所有 slave → Present 所有 slave |
 | backend-loop | backend.Run()（DRM: 空操作; Wayland: dispatch 事件循环） |
 | pty-read | PTY stdout → Read → FeedInto → seqCh |
 | seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 |
@@ -181,7 +187,7 @@ github.com/LaoQi/vistty/
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
 │   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go + assets/
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
-│   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render)
+│   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
 │   ├── perf/replay/             # 三级归因 benchmark
 │   └── platform/
 │       ├── surface.go / output.go / input.go / backend.go / keymap.go
@@ -294,14 +300,14 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 ## 已实现功能概要
 
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw 渲染
-- Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪）
+- Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪 + 自绘 CSD 装饰）
 - 自动后端探测（drm-gbm → drm → wayland）
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
-- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪
+- OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口
 - 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级

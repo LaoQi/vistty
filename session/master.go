@@ -61,8 +61,9 @@ type Master struct {
 	seqRelay chan seqMsg
 	exitCh   chan *terminal.Terminal
 
-	keyEvCh chan platform.KeyEvent
-	plugins *plugins.PluginManager
+	keyEvCh   chan platform.KeyEvent
+	mouseEvCh chan platform.MouseEvent
+	plugins   *plugins.PluginManager
 
 	done        chan struct{}
 	closeOnce   sync.Once
@@ -136,6 +137,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		frameInterval:   time.Second / 60,
 		tabReqCh:        make(chan tabReq, 1),
 		keyEvCh:         make(chan platform.KeyEvent, 64),
+		mouseEvCh:       make(chan platform.MouseEvent, 16),
 		done:            make(chan struct{}),
 	}
 

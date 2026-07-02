@@ -154,6 +154,8 @@ func (m *Master) Run() error {
 			m.dirty = false
 		case req := <-m.tabReqCh:
 			m.handleTabRequest(req)
+		case ev := <-m.mouseEvCh:
+			m.handleMouse(ev)
 		case exited := <-tec:
 			m.handleTermExit(exited)
 		case <-m.done:
@@ -450,6 +452,12 @@ func (m *Master) inputLoop() {
 			m.dispatchKey(repeatEv)
 		case <-rateCh:
 			m.dispatchKey(repeatEv)
+		case ev := <-m.input.MouseEvents():
+			select {
+			case m.mouseEvCh <- ev:
+			case <-m.done:
+				return
+			}
 		case <-m.done:
 			return
 		}
@@ -499,5 +507,31 @@ func (m *Master) signalLoop() {
 	case <-ch:
 		m.signalClose()
 	case <-m.done:
+	}
+}
+
+func (m *Master) handleMouse(ev platform.MouseEvent) {
+	if ev.State != platform.KeyPress {
+		return
+	}
+	s := m.slaves[m.focusIdx]
+	if s == nil {
+		return
+	}
+	osd := s.OSD()
+	if osd == nil {
+		return
+	}
+	surfW, _ := s.Surface().Size()
+	hit := osd.HitTestTabBar(ev.X, ev.Y, surfW)
+	switch hit {
+	case ui.TabBarCsdClose:
+		m.signalClose()
+	case ui.TabBarArea:
+		if ev.Button == 1 && s.CsdMode() {
+			if wm, ok := s.Surface().(platform.WindowMover); ok {
+				wm.StartMove(ev.Serial)
+			}
+		}
 	}
 }
