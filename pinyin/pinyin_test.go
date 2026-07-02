@@ -79,6 +79,23 @@ func TestSplitMulti(t *testing.T) {
 	}
 }
 
+func TestSplitLongSyllablePriority(t *testing.T) {
+	res := Split("xian")
+	if len(res) == 0 {
+		t.Fatal("Split(xian) empty")
+	}
+	if joined := strings.Join(res[0], "|"); joined != "xian" {
+		t.Errorf("Split(xian)[0] = %q, want xian (long syllable first)", joined)
+	}
+	res2 := Split("fangan")
+	if len(res2) == 0 {
+		t.Fatal("Split(fangan) empty")
+	}
+	if joined := strings.Join(res2[0], "|"); joined != "fang|an" {
+		t.Errorf("Split(fangan)[0] = %q, want fang|an", joined)
+	}
+}
+
 func TestSplitNihao(t *testing.T) {
 	res := Split("nihao")
 	if len(res) == 0 {
@@ -463,5 +480,20 @@ func TestFormatPreeditSinglePrefix(t *testing.T) {
 	}
 	if !strings.Contains(pre, "n") {
 		t.Errorf("FormatPreedit('n') = %q, should contain 'n'", pre)
+	}
+}
+
+func TestFormatPreeditLongSyllable(t *testing.T) {
+	cases := map[string]string{
+		"xian":     "xian",
+		"fangan":   "fang'an",
+		"fangxian": "fang'xian",
+		"xianzai":  "xian'zai",
+	}
+	for in, want := range cases {
+		got := FormatPreedit(in)
+		if got != want {
+			t.Errorf("FormatPreedit(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

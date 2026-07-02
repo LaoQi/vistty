@@ -157,13 +157,13 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 ```
 github.com/LaoQi/vistty/
 ├── cmd/vistty/main.go          # 入口
-├── cmd/gen-dict/main.go        # 词库预处理工具（rime-ice yaml → dict.bin）
-├── scripts/gen-dict.sh         # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
+├── cmd/gen-dict/main.go        # 词库预处理工具（rime yaml → dict.bin，支持 -order-weight）
+├── scripts/gen-dict-ice.sh     # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 ├── pinyin/                     # 拼音输入法（顶层包，非 internal）
 │   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型 + 模糊权重降级
-│   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split + SplitFuzzy（前缀推断+尾部补全）
+│   ├── syllable.go             # 全拼音节表（414 个）+ DP 切分 Split（长音节优先）+ SplitFuzzy（前缀推断+尾部补全）
 │   ├── dict.go                 # go:embed 加载 dict.bin.gz（gzip 运行时解压）
-│   └── data/dict.bin.gz        # 预处理词库（rime-ice 全量 89万条，gzip 压缩 12MB）
+│   └── data/dict.bin.gz        # 预处理词库（rime-ice 精简 55万条，gzip 压缩 7.6MB）
 ├── session/                     # 协调层
 │   ├── master.go                # Master + 标签生命周期 + PluginContext 实现
 │   ├── slave.go                 # Slave 输出绑定 + OSD 联动
@@ -203,7 +203,8 @@ github.com/LaoQi/vistty/
 ├── scripts/
 │   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）
 │   ├── gbm-check.sh             # GBM 运行中检测脚本（进程/帧/DRM/错误）
-│   └── gen-dict.sh              # 词库重建脚本（git clone rime-ice → gen-dict → gzip）
+│   ├── gen-dict-ice.sh          # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
+│   ├── gen-dict-luna.sh         # rime-luna-pinyin 词库重建脚本（-order-weight 倒序赋权）
 │   └── htop-init.lua            # htop 专用 init.lua（shell=/usr/bin/htop, backend=drm-gbm）
 └── work_docs/                   # 开发过程文档
 ```

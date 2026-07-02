@@ -3,9 +3,7 @@ rime-ice 词库数据来源与许可说明
 
 本目录下的 dict.bin.gz 由以下词库数据预处理并 gzip 压缩生成：
   - rime-ice/cn_dicts/8105.dict.yaml （《通用规范汉字表》8105 单字全量）
-  - rime-ice/cn_dicts/base.dict.yaml （基础词库，含两字常用词组）
-  - rime-ice/cn_dicts/ext.dict.yaml （扩展词库，三字及以上）
-  - rime-ice/cn_dicts/tencent.dict.yaml （腾讯词向量，经 8105 字表逐字注音）
+  - rime-ice/cn_dicts/base.dict.yaml （基础词库，含两字常用词组，自带词频）
 
 来源项目：https://github.com/iDvel/rime-ice
 词库数据遵循 GPLv3 许可证（全文见下）。

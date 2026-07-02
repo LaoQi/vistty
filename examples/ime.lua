@@ -3,7 +3,10 @@ local M = {}
 local ime_active = false
 local ime_buf = ""
 local ime_page = 0
-local ime_last_buf = ""
+local ime_cands = nil
+local ime_cand_buf = ""
+local ime_preedit = ""
+local ime_preedit_buf = ""
 local ime_panel_width = 0
 
 local function cand_display_width(idx, word)
@@ -69,14 +72,12 @@ function M.activate()
 	ime_active = true
 	ime_buf = ""
 	ime_page = 0
-	ime_last_buf = ""
 end
 
 function M.deactivate()
 	ime_active = false
 	ime_buf = ""
 	ime_page = 0
-	ime_last_buf = ""
 end
 
 function M.buf()
@@ -85,12 +86,20 @@ end
 
 function M.preedit()
 	if not ime_active or ime_buf == "" then return "" end
-	return vistty.pinyin.format_preedit(ime_buf)
+	if ime_buf ~= ime_preedit_buf then
+		ime_preedit = vistty.pinyin.format_preedit(ime_buf)
+		ime_preedit_buf = ime_buf
+	end
+	return ime_preedit
 end
 
 function M.candidates()
 	if not ime_active or ime_buf == "" then return {} end
-	return vistty.pinyin.lookup(ime_buf)
+	if ime_buf ~= ime_cand_buf then
+		ime_cands = vistty.pinyin.lookup(ime_buf)
+		ime_cand_buf = ime_buf
+	end
+	return ime_cands
 end
 
 function M.get_panel_width()
@@ -136,7 +145,6 @@ function M.setup_key_handler()
 		if is_lower_letter(ev) then
 			ime_buf = ime_buf .. string.char(ev.rune)
 			ime_page = 0
-			ime_last_buf = ime_buf
 			return true
 		end
 
@@ -145,14 +153,12 @@ function M.setup_key_handler()
 		if ev.code == vistty.keys.BACKSPACE then
 			ime_buf = remove_last_char(ime_buf)
 			ime_page = 0
-			ime_last_buf = ime_buf
 			return true
 		end
 
 		if ev.code == vistty.keys.ESCAPE then
 			ime_buf = ""
 			ime_page = 0
-			ime_last_buf = ""
 			return true
 		end
 
@@ -160,7 +166,6 @@ function M.setup_key_handler()
 			vistty.term.send(ime_buf)
 			ime_buf = ""
 			ime_page = 0
-			ime_last_buf = ""
 			return true
 		end
 
@@ -173,7 +178,6 @@ function M.setup_key_handler()
 			end
 			ime_buf = ""
 			ime_page = 0
-			ime_last_buf = ""
 			return true
 		end
 
@@ -187,7 +191,6 @@ function M.setup_key_handler()
 				end
 				ime_buf = ""
 				ime_page = 0
-				ime_last_buf = ""
 				return true
 			end
 		end
@@ -215,7 +218,6 @@ function M.setup_key_handler()
 		end
 		ime_buf = ""
 		ime_page = 0
-		ime_last_buf = ""
 		return false
 	end)
 end

@@ -27,11 +27,12 @@ type fileSpec struct {
 func main() {
 	out := flag.String("o", "", "output path")
 	annotate := flag.String("annotate", "", "char dict yaml for annotating 2-column files")
+	orderWeight := flag.Bool("order-weight", false, "assign weight by file order (later=higher), overrides original weights")
 	flag.Parse()
 
 	args := flag.Args()
 	if *out == "" || len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: gen-dict -o <output> [-annotate char.yaml] file=topN [file=topN ...] or just files")
+		fmt.Fprintln(os.Stderr, "usage: gen-dict -o <output> [-annotate char.yaml] [-order-weight] file=topN [file=topN ...] or just files")
 		fmt.Fprintln(os.Stderr, "  file=topN  e.g. /tmp/ext.dict.yaml=20000")
 		fmt.Fprintln(os.Stderr, "  -annotate char dict for 2-column (text,weight) files")
 		os.Exit(1)
@@ -75,6 +76,12 @@ func main() {
 			os.Exit(1)
 		}
 		all = append(all, es...)
+	}
+
+	if *orderWeight {
+		for i := range all {
+			all[i].weight = i
+		}
 	}
 
 	merged := mergeByKey(all)
@@ -210,26 +217,27 @@ func parseLine(line string, charMap map[string]string) (entry, bool) {
 		weight = w
 	case 2:
 		word = parts[0]
-		w, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err != nil {
-			return entry{}, false
-		}
-		weight = w
-		if charMap != nil {
-			pys := make([]string, 0, len(word))
-			ok := true
-			for _, c := range word {
-				py, found := charMap[string(c)]
-				if !found {
-					ok = false
-					break
+		second := strings.TrimSpace(parts[1])
+		if w, err := strconv.Atoi(second); err == nil {
+			weight = w
+			if charMap != nil {
+				pys := make([]string, 0, len(word))
+				ok := true
+				for _, c := range word {
+					py, found := charMap[string(c)]
+					if !found {
+						ok = false
+						break
+					}
+					pys = append(pys, py)
 				}
-				pys = append(pys, py)
+				if !ok {
+					return entry{}, false
+				}
+				pinyin = strings.Join(pys, " ")
 			}
-			if !ok {
-				return entry{}, false
-			}
-			pinyin = strings.Join(pys, " ")
+		} else {
+			pinyin = second
 		}
 	default:
 		return entry{}, false

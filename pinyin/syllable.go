@@ -180,7 +180,7 @@ func Split(input string) [][]string {
 			return v
 		}
 		var results [][]string
-		for j := i + 1; j <= n; j++ {
+		for j := n; j > i; j-- {
 			prefix := input[i:j]
 			if !isSyllable(prefix) {
 				continue
