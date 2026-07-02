@@ -181,6 +181,8 @@ github.com/LaoQi/vistty/
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + pinyin.Init 注入
 │   │   ├── context.go           # PluginContext 接口 + TabInfo
 │   │   ├── config.go            # RunConfig + readConfig
+│   │   ├── api_env.go           # vistty.backend_name/backend.is_wayland/is_drm/on_activate 运行环境查询
+│   │   ├── api_lifecycle.go     # vistty.on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom 生命周期钩子
 │   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/pinyin/keybind API
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
@@ -310,7 +312,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口 + 顶部栏 CJK 双宽渲染（osdCell.w 列数倍率，对齐底部栏修复方案）+ 单标题 16 列宽截断省略号 + 水平滚动（active tab 始终可见，scroll 偏移对齐 tab 边界）
-- 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出）
+- 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出 + 运行环境查询 vistty.backend_name()/backend.is_wayland()/is_drm() + on_activate 钩子解决 auto 模式后端未定时序矛盾 + mod 键按后端自适应 wayland=ALT/drm=SUPER + 生命周期钩子 on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom；on_title_change 经主线程 ticker 缓冲避免 terminal 写锁内 PCall 死锁）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁

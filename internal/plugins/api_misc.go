@@ -133,6 +133,8 @@ func registerAPIs(L *lua.LState, pm *PluginManager) {
 	registerZoom(L, pm)
 	registerUI(L, pm)
 	registerPinyin(L, pm)
+	registerEnv(L, pm)
+	registerLifecycle(L, pm)
 }
 
 // ensureVisttyTable 确保全局 vistty 表存在并返回它。

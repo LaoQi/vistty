@@ -58,6 +58,8 @@ type Master struct {
 	tabReqCh chan tabReq
 	osdDirty bool
 
+	titlePending []string
+
 	seqRelay chan seqMsg
 	exitCh   chan *terminal.Terminal
 
@@ -196,7 +198,8 @@ func (m *Master) bindTerminalCallbacks(s *Slave, term *terminal.Terminal) {
 	term.SetOnDefaultColor(func(fg, bg screen.Color) {
 		slaveComp.SetDefaultColors(fg, bg)
 	})
-	term.SetOnTitle(func(string) {
+	term.SetOnTitle(func(title string) {
+		m.titlePending = append(m.titlePending, title)
 		m.osdDirty = true
 	})
 }
@@ -320,22 +323,34 @@ func (m *Master) handleTabRequest(req tabReq) {
 		m.closeTab(s)
 	case tabPrev:
 		if len(s.terms) > 0 {
+			old := s.activeIdx
 			s.activeIdx = (s.activeIdx - 1 + len(s.terms)) % len(s.terms)
 			m.refreshOSD()
 			m.dirty = true
+			if m.plugins != nil && old != s.activeIdx {
+				m.plugins.FireTabSwitch(s.activeIdx+1, old+1)
+			}
 		}
 	case tabNext:
 		if len(s.terms) > 0 {
+			old := s.activeIdx
 			s.activeIdx = (s.activeIdx + 1) % len(s.terms)
 			m.refreshOSD()
 			m.dirty = true
+			if m.plugins != nil && old != s.activeIdx {
+				m.plugins.FireTabSwitch(s.activeIdx+1, old+1)
+			}
 		}
 	case tabSwitch:
 		idx := req.idx - 1
 		if idx >= 0 && idx < len(s.terms) {
+			old := s.activeIdx
 			s.activeIdx = idx
 			m.refreshOSD()
 			m.dirty = true
+			if m.plugins != nil && old != idx {
+				m.plugins.FireTabSwitch(idx+1, old+1)
+			}
 		}
 	}
 }
@@ -367,6 +382,9 @@ func (m *Master) newTab(s *Slave) {
 	m.startTerminalGoroutines(term)
 	m.refreshOSD()
 	m.dirty = true
+	if m.plugins != nil {
+		m.plugins.FireTabNew(s.activeIdx+1, term.Title())
+	}
 }
 
 func (m *Master) closeTab(s *Slave) {
@@ -378,9 +396,12 @@ func (m *Master) closeTab(s *Slave) {
 }
 
 func (m *Master) handleTermExit(t *terminal.Terminal) {
+	closeIdx := -1
+	closeTitle := t.Title()
 	for _, s := range m.slaves {
 		for i, term := range s.terms {
 			if term == t {
+				closeIdx = i
 				s.terms = append(s.terms[:i], s.terms[i+1:]...)
 				if s.activeIdx >= len(s.terms) && len(s.terms) > 0 {
 					s.activeIdx = len(s.terms) - 1
@@ -396,6 +417,9 @@ func (m *Master) handleTermExit(t *terminal.Terminal) {
 		}
 	}
 	t.Close()
+	if m.plugins != nil && closeIdx >= 0 {
+		m.plugins.FireTabClose(closeIdx+1, closeTitle)
+	}
 	if len(m.terms) == 0 {
 		m.signalClose()
 		return

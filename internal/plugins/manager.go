@@ -19,26 +19,45 @@ type keyBinding struct {
 }
 
 type PluginManager struct {
-	L        *lua.LState
-	ctx      PluginContext
-	initPath string
-	keyHooks    *lua.LTable
-	renderHooks *lua.LTable
-	panels      map[string]int
-	bindings    []keyBinding
-	pressedKeys map[uint16]bool
-	active      bool
+	L             *lua.LState
+	ctx           PluginContext
+	initPath      string
+	backendName   string
+	keyHooks      *lua.LTable
+	renderHooks   *lua.LTable
+	activateHooks *lua.LTable
+	exitHooks     *lua.LTable
+	tabNewHooks   *lua.LTable
+	tabCloseHooks *lua.LTable
+	tabSwitchHooks *lua.LTable
+	screenSwitchHooks *lua.LTable
+	titleChangeHooks *lua.LTable
+	resizeHooks   *lua.LTable
+	zoomHooks     *lua.LTable
+	panels        map[string]int
+	bindings      []keyBinding
+	pressedKeys   map[uint16]bool
+	active        bool
 }
 
 func NewPluginManager(initPath string) *PluginManager {
 	L := lua.NewState()
 	pm := &PluginManager{
-		L:           L,
-		initPath:    initPath,
-		keyHooks:    L.NewTable(),
-		renderHooks: L.NewTable(),
-		panels:      make(map[string]int),
-		active:      false,
+		L:                 L,
+		initPath:          initPath,
+		keyHooks:          L.NewTable(),
+		renderHooks:       L.NewTable(),
+		activateHooks:     L.NewTable(),
+		exitHooks:         L.NewTable(),
+		tabNewHooks:       L.NewTable(),
+		tabCloseHooks:     L.NewTable(),
+		tabSwitchHooks:    L.NewTable(),
+		screenSwitchHooks: L.NewTable(),
+		titleChangeHooks:  L.NewTable(),
+		resizeHooks:       L.NewTable(),
+		zoomHooks:         L.NewTable(),
+		panels:            make(map[string]int),
+		active:            false,
 	}
 	pinyin.Init()
 	registerAPIs(L, pm)
@@ -80,11 +99,100 @@ func (pm *PluginManager) Load() (*RunConfig, error) {
 func (pm *PluginManager) Activate(ctx PluginContext) {
 	pm.ctx = ctx
 	pm.active = true
+	pm.fireActivateHooks()
+}
+
+// SetBackendName 注入实际运行后端名称（"wayland"/"drm"/"drm-gbm"），
+// 须在 Activate 之前调用，以便 on_activate 钩子能查询到。
+func (pm *PluginManager) SetBackendName(name string) {
+	pm.backendName = name
+}
+
+// fireHooks 遍历指定钩子表并 PCall 每个函数，传入 args。
+// 单个钩子出错不影响后续。未激活时（skipInactive=true）跳过。
+func (pm *PluginManager) fireHooks(hooks *lua.LTable, hookName string, skipInactive bool, args ...lua.LValue) {
+	if skipInactive && !pm.active {
+		return
+	}
+	if hooks == nil || hooks.Len() == 0 {
+		return
+	}
+	hooks.ForEach(func(_, fn lua.LValue) {
+		lfn, ok := fn.(*lua.LFunction)
+		if !ok {
+			return
+		}
+		pm.L.Push(lfn)
+		for _, a := range args {
+			pm.L.Push(a)
+		}
+		if err := pm.L.PCall(len(args), 0, nil); err != nil {
+			debug.Errorf("plugin %s error: %v", hookName, err)
+		}
+	})
+}
+
+// fireActivateHooks 在 Activate 后遍历 vistty.on_activate 注册的钩子，
+// 将 backendName 作为唯一参数传入。
+func (pm *PluginManager) fireActivateHooks() {
+	pm.fireHooks(pm.activateHooks, "on_activate", false, lua.LString(pm.backendName))
+}
+
+// FireExitHooks 在主循环退出后触发 vistty.on_exit 钩子（无参数）。
+// 不检查 active，因为退出时仍希望通知插件。
+func (pm *PluginManager) FireExitHooks() {
+	pm.fireHooks(pm.exitHooks, "on_exit", false)
+}
+
+// FireTabNew 在新标签创建后触发，传入 1-based 索引和标题。
+func (pm *PluginManager) FireTabNew(idx int, title string) {
+	pm.fireHooks(pm.tabNewHooks, "on_tab_new", true, lua.LNumber(idx), lua.LString(title))
+}
+
+// FireTabClose 在标签关闭后触发，传入原 1-based 索引和标题。
+func (pm *PluginManager) FireTabClose(idx int, title string) {
+	pm.fireHooks(pm.tabCloseHooks, "on_tab_close", true, lua.LNumber(idx), lua.LString(title))
+}
+
+// FireTabSwitch 在标签切换后触发，传入新、旧 1-based 索引。
+func (pm *PluginManager) FireTabSwitch(newIdx, oldIdx int) {
+	pm.fireHooks(pm.tabSwitchHooks, "on_tab_switch", true, lua.LNumber(newIdx), lua.LNumber(oldIdx))
+}
+
+// FireScreenSwitch 在屏幕焦点切换后触发，传入新 1-based 索引。
+func (pm *PluginManager) FireScreenSwitch(idx int) {
+	pm.fireHooks(pm.screenSwitchHooks, "on_screen_switch", true, lua.LNumber(idx))
+}
+
+// FireTitleChange 在终端标题变化后触发（经主线程 ticker 缓冲），传入新标题。
+func (pm *PluginManager) FireTitleChange(title string) {
+	pm.fireHooks(pm.titleChangeHooks, "on_title_change", true, lua.LString(title))
+}
+
+// FireResize 在窗口/尺寸变化后触发，传入 output_id、像素宽高、列行数。
+func (pm *PluginManager) FireResize(outputID uint32, width, height, cols, rows int) {
+	pm.fireHooks(pm.resizeHooks, "on_resize", true,
+		lua.LNumber(outputID), lua.LNumber(width), lua.LNumber(height),
+		lua.LNumber(cols), lua.LNumber(rows))
+}
+
+// FireZoom 在字体缩放后触发，传入新字号。
+func (pm *PluginManager) FireZoom(size float64) {
+	pm.fireHooks(pm.zoomHooks, "on_zoom", true, lua.LNumber(size))
 }
 
 func (pm *PluginManager) Reload() error {
 	pm.keyHooks = pm.L.NewTable()
 	pm.renderHooks = pm.L.NewTable()
+	pm.activateHooks = pm.L.NewTable()
+	pm.exitHooks = pm.L.NewTable()
+	pm.tabNewHooks = pm.L.NewTable()
+	pm.tabCloseHooks = pm.L.NewTable()
+	pm.tabSwitchHooks = pm.L.NewTable()
+	pm.screenSwitchHooks = pm.L.NewTable()
+	pm.titleChangeHooks = pm.L.NewTable()
+	pm.resizeHooks = pm.L.NewTable()
+	pm.zoomHooks = pm.L.NewTable()
 	pm.panels = make(map[string]int)
 	pm.bindings = nil
 	pm.pressedKeys = make(map[uint16]bool)

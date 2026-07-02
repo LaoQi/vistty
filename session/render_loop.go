@@ -104,6 +104,12 @@ func (m *Master) Run() error {
 				m.osdDirty = false
 				m.dirty = true
 			}
+			if len(m.titlePending) > 0 && m.plugins != nil {
+				for _, title := range m.titlePending {
+					m.plugins.FireTitleChange(title)
+				}
+				m.titlePending = m.titlePending[:0]
+			}
 			// 无变化时跳过渲染以省 CPU；每 15 tick（~250ms）兜底渲染一次，
 			// 保证光标闪烁（光标 500ms 翻转，250ms 兜底足以捕捉）。
 			if !m.dirty && m.tickCount%15 != 0 {
@@ -167,6 +173,9 @@ func (m *Master) Run() error {
 	}
 
 exit:
+	if m.plugins != nil {
+		m.plugins.FireExitHooks()
+	}
 	debug.Debugf("Run: wg.Wait() starting\n")
 	m.wg.Wait()
 	debug.Debugf("Run: wg.Wait() done, calling backend.Stop()\n")
@@ -345,6 +354,9 @@ func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
 		rows = 24
 	}
 	s.ResizeTerms(cols, rows)
+	if m.plugins != nil {
+		m.plugins.FireResize(ev.OutputID, ev.Width, ev.Height, cols, rows)
+	}
 }
 
 func (m *Master) requestScale(delta int) {
@@ -405,6 +417,9 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 		debug.Errorf("handleScale: render error: %v\n", err)
 	}
 	m.dirty = false
+	if m.plugins != nil {
+		m.plugins.FireZoom(newSize)
+	}
 }
 
 func (m *Master) inputLoop() {
@@ -491,6 +506,9 @@ func (m *Master) setFocus(idx int) {
 		return
 	}
 	m.focusIdx = idx
+	if m.plugins != nil {
+		m.plugins.FireScreenSwitch(idx + 1)
+	}
 	select {
 	case m.renderReqCh <- struct{}{}:
 	case <-m.done:

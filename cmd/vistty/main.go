@@ -111,8 +111,10 @@ func run() error {
 				if gbmErr == nil {
 					drmBackend.SetGBMProvider(gbmDev)
 					debug.Debugf("auto: GBM initialized, using drm-gbm\n")
+					backendName = "drm-gbm"
 				} else {
 					debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)\n", gbmErr)
+					backendName = "drm"
 				}
 				backend = drmBackend
 			}
@@ -123,6 +125,7 @@ func run() error {
 				debug.Warningf("-tty is ignored by wayland backend\n")
 			}
 			backend, err = wayland.NewWaylandBackend()
+			backendName = "wayland"
 		}
 		if backend == nil {
 			pm.Close()
@@ -186,6 +189,7 @@ func run() error {
 	defer pm.Close()
 
 	m.SetPluginManager(pm)
+	pm.SetBackendName(backendName)
 	pm.Activate(m)
 
 	if prof.fps {
