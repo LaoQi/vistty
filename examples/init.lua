@@ -1,8 +1,8 @@
 vistty.config = {
 	backend   = "auto",
-	shell     = "/bin/bash",
+	shell     = "/bin/fish",
 	font      = "",
-	fontsize  = 14,
+	fontsize  = 24,
 	primary   = "",
 	error_log = "",
 }
