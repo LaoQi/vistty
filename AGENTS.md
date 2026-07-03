@@ -25,6 +25,7 @@
 | 11 | OSD 四边 UI 层 | 自研 | 顶部多终端标签栏 + 底/左/右插件面板；实现 render.Overlay 接口 |
 | 12 | 插件系统 | `gopher-lua` | Lua 5.1 VM；init.lua 驱动配置+钩子；分层命名空间 API |
 | 13 | 拼音输入法 | 自研 `pinyin` 包 | 包级查询函数（Lookup/FormatPreedit/Split/SplitFuzzy）+ rime-ice 词库；交互状态全在 Lua 层；SplitFuzzy 支持前缀推断+尾部补全 |
+| 14 | Emoji 彩色渲染 | 自研 `font/emoji.go` + `cmd/gen-emoji` | 零新依赖；构建期自研 SFNT/cmap/CBLC/CBDT 解析提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引模式（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×cellH NRGBA；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径 |
 
 ## 架构
 
@@ -158,6 +159,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 github.com/LaoQi/vistty/
 ├── cmd/vistty/main.go          # 入口
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime yaml → dict.bin，支持 -order-weight）
+├── cmd/gen-emoji/main.go       # Emoji 字形提取工具（NotoColorEmoji.ttf → emoji.bin.gz，自研 SFNT/cmap/CBLC/CBDT 解析）
 ├── scripts/gen-dict-ice.sh     # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 ├── pinyin/                     # 拼音输入法（顶层包，非 internal）
 │   ├── pinyin.go               # 包级查询引擎（Lookup/FormatPreedit）+ Candidate 类型 + 模糊权重降级 + Lookup 值类型数组（map[string]int+[]seen，零指针分配）
@@ -187,7 +189,7 @@ github.com/LaoQi/vistty/
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
-│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ assets/
+│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA）+ emoji_runes.go（IsEmojiRune 范围表）+ assets/ + data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
 │   ├── perf/replay/             # 三级归因 benchmark
@@ -206,7 +208,7 @@ github.com/LaoQi/vistty/
 │   ├── gen-dict-ice.sh          # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 │   ├── gen-dict-luna.sh         # rime-luna-pinyin 词库重建脚本（-order-weight 倒序赋权）
 │   └── htop-init.lua            # htop 专用 init.lua（shell=/usr/bin/htop, backend=drm-gbm）
-└── work_docs/                   # 开发过程文档
+└── work_docs/                   # 开发过程文档（含 implementation-emoji.md emoji 实施方案）
 ```
 
 ### 依赖方向
@@ -214,6 +216,7 @@ github.com/LaoQi/vistty/
 ```
 cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
+cmd/gen-emoji → internal/font（共享 IsEmojiRune）
 pinyin → 无内部依赖（顶层包，go:embed 词库）
 terminal → screen, vte, render, platform, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
@@ -227,7 +230,7 @@ platform/gl → purego
 platform/wayland → 无外部依赖（自研 wl.go）
 screen, vte → 无内部依赖
 runeutil → 无内部依赖（golang.org/x/text/width）
-font → golang.org/x/image/font/opentype
+font → golang.org/x/image/font/opentype, golang.org/x/image/draw（emoji 缩放）
 plugins → gopher-lua
 debug → 无内部依赖
 ```
@@ -251,6 +254,7 @@ debug → 无内部依赖
 | X11 窗口后端 | `platform/x11/` | 新增 Backend 实现 |
 | 完整 XKB 支持 | `platform/wayland/keymap.go` | 可选 purego dlopen libxkbcommon.so |
 | 主题/配色 | `screen/` Color 类型 | 预定义主题+用户自定义 |
+| Emoji VS16/ZWJ 序列 | `terminal/terminal.go` + `screen/cell.go` | VS16/VS15 感知（Cell.Attr 标记 emoji presentation）+ ZWJ 序列组合（EmojiID 引用全局序列池） |
 
 ## 参考项目
 - **NeowayLabs/drm** — 纯 Go DRM ioctl 封装参考
@@ -309,6 +313,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中左移均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径；移除 render 层 blendGlyphItalic 位移与 shader italic 分支；italicAtlas 独立缓存，UploadGlyph 以 (rune,italic) 为 key
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
+- Emoji 彩色渲染：自研 `font/emoji.go`（EmojiFace）+ `cmd/gen-emoji` 构建工具；构建期自研 SFNT/cmap/CBLC/CBDT 解析从 NotoColorEmoji.ttf 提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×cellH NRGBA（非预乘匹配混合管线）；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径；emojiIndex sync.Once 单例避免多屏重复解压；P0+P1 范围（单 rune emoji，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps

@@ -153,15 +153,15 @@ func TestShaderVertexLocationSet(t *testing.T) {
 		}
 		seen[loc] = m[2]
 	}
-	// 期望 location 0..10 全部存在
-	for i := 0; i <= 10; i++ {
+	// 期望 location 0..11 全部存在
+	for i := 0; i <= 11; i++ {
 		if _, ok := seen[i]; !ok {
 			t.Errorf("missing layout(location=%d)", i)
 		}
 	}
 	// 不应有多余 location
 	for loc := range seen {
-		if loc < 0 || loc > 10 {
+		if loc < 0 || loc > 11 {
 			t.Errorf("unexpected location=%d (%s)", loc, seen[loc])
 		}
 	}
@@ -179,6 +179,7 @@ func TestShaderVertexInstanceAttrNames(t *testing.T) {
 		8:  "i_bg",
 		9:  "i_hasBg",
 		10: "i_attrFlags",
+		11: "i_isColor",
 	}
 	re := regexp.MustCompile(`layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s+in\s+\w+\s+(\w+)\s*;`)
 	for _, m := range re.FindAllStringSubmatch(gpuVertexSrc, -1) {
@@ -225,8 +226,8 @@ func TestCellInstanceLayoutContract(t *testing.T) {
 		fieldName string
 	}
 	quadStride := int32(unsafe.Sizeof(ci))
-	if quadStride != 80 {
-		t.Errorf("CellInstance size=%d, want 80 (DrawInstances stride 依赖此值)", quadStride)
+	if quadStride != 84 {
+		t.Errorf("CellInstance size=%d, want 84 (DrawInstances stride 依赖此值)", quadStride)
 	}
 
 	cfgs := []attrCfg{
@@ -239,6 +240,7 @@ func TestCellInstanceLayoutContract(t *testing.T) {
 		{8, 3, 60, unsafe.Offsetof(ci.BgR), "BgR"},
 		{9, 1, 72, unsafe.Offsetof(ci.HasBg), "HasBg"},
 		{10, 1, 76, unsafe.Offsetof(ci.AttrFlags), "AttrFlags"},
+		{11, 1, 80, unsafe.Offsetof(ci.IsColor), "IsColor"},
 	}
 	for _, c := range cfgs {
 		if c.codeOff != c.fieldOff {

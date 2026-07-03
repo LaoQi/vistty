@@ -58,6 +58,46 @@ func BlendGlyph(data []byte, stride int, x, y int, bitmap []byte, glyphW, glyphH
 	BlendGlyphAlpha(data, stride, x, y, bitmap, glyphW, glyphH, r, g, b, 255)
 }
 
+// blendColorGlyph 将 RGBA 彩色字形（如 emoji）混合到 BGRA32 帧缓冲。
+// 忽略前景色（彩色字形自带颜色），alpha 预乘混合。
+func blendColorGlyph(data []byte, stride int, x, y int, rgba []byte, glyphW, glyphH int) {
+	for gy := 0; gy < glyphH; gy++ {
+		row := y + gy
+		offset := row * stride
+		if offset < 0 || offset >= len(data) {
+			continue
+		}
+		for gx := 0; gx < glyphW; gx++ {
+			srcOff := (gy*glyphW + gx) * 4
+			sr := rgba[srcOff]
+			sg := rgba[srcOff+1]
+			sb := rgba[srcOff+2]
+			sa := rgba[srcOff+3]
+			if sa == 0 {
+				continue
+			}
+			col := x + gx
+			px := offset + col*4
+			if px < 0 || px+3 >= len(data) {
+				continue
+			}
+			if sa == 255 {
+				data[px+0] = sb
+				data[px+1] = sg
+				data[px+2] = sr
+				data[px+3] = 255
+				continue
+			}
+			a := uint16(sa)
+			ia := uint16(255 - sa)
+			data[px+0] = uint8((uint16(sb)*a + uint16(data[px+0])*ia + 128) >> 8)
+			data[px+1] = uint8((uint16(sg)*a + uint16(data[px+1])*ia + 128) >> 8)
+			data[px+2] = uint8((uint16(sr)*a + uint16(data[px+2])*ia + 128) >> 8)
+			data[px+3] = uint8((a + uint16(data[px+3])*ia + 128) >> 8)
+		}
+	}
+}
+
 // BlendGlyphAlpha 与 BlendGlyph 相同，但前景色携带 alpha 通道，
 // 最终 alpha = glyph_alpha * color_alpha / 255。
 func BlendGlyphAlpha(data []byte, stride int, x, y int, bitmap []byte, glyphW, glyphH int, r, g, b, ca uint8) {

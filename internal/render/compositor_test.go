@@ -123,6 +123,13 @@ func (f *fakeGPUSurface) UploadGlyph(r rune, italic bool, bitmap []byte, w, h in
 	return f.uv[0], f.uv[1], f.uv[2], f.uv[3], true
 }
 
+func (f *fakeGPUSurface) UploadColorGlyph(r rune, rgba []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+	if !f.uploadOK {
+		return 0, 0, 0, 0, false
+	}
+	return f.uv[0], f.uv[1], f.uv[2], f.uv[3], true
+}
+
 func (f *fakeGPUSurface) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	f.drawnInst = append(f.drawnInst[:0], instances...)
 	f.drawCount++

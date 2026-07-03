@@ -18,6 +18,7 @@ type Compositor struct {
 	face         font.Face
 	atlas        *font.Atlas
 	italicAtlas  *font.Atlas
+	emojiFace    *font.EmojiFace
 	metrics      font.Metrics
 	cols         int
 	rows         int
@@ -69,6 +70,7 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 		bg := c.defColor.bg
 		FillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	}
+	c.emojiFace, _ = font.NewEmojiFace(m.Width, m.Height)
 	return c
 }
 
@@ -81,6 +83,11 @@ func (c *Compositor) SetFace(face font.Face) {
 	c.atlas = font.NewAtlas(8192)
 	c.italicAtlas = font.NewAtlas(8192)
 	c.metrics = face.Metrics()
+	if c.emojiFace != nil {
+		c.emojiFace.Resize(c.metrics.Width, c.metrics.Height)
+	} else {
+		c.emojiFace, _ = font.NewEmojiFace(c.metrics.Width, c.metrics.Height)
+	}
 	if c.gpu == nil {
 		c.gpu, _ = c.surface.(platform.GPURenderer)
 	}
@@ -90,6 +97,17 @@ func (c *Compositor) SetFace(face font.Face) {
 }
 
 func (c *Compositor) getGlyph(r rune, italic bool) (*font.Glyph, error) {
+	if font.IsEmojiRune(r) && c.emojiFace != nil {
+		if g := c.atlas.Get(r); g != nil {
+			return g, nil
+		}
+		g, err := c.emojiFace.Glyph(r)
+		if err != nil || g == nil {
+			return nil, err
+		}
+		c.atlas.Put(r, g)
+		return g, nil
+	}
 	if !italic {
 		if g := c.atlas.Get(r); g != nil {
 			return g, nil
@@ -140,7 +158,11 @@ func (c *Compositor) OverlayUploadGlyph(r rune) (u0, v0, u1, v1 float32, gw, gh,
 	if err != nil || g == nil {
 		return
 	}
-	u0, v0, u1, v1, ok = c.gpu.UploadGlyph(r, false, g.Bitmap, g.Width, g.Height)
+	if g.IsColor {
+		u0, v0, u1, v1, ok = c.gpu.UploadColorGlyph(r, g.Bitmap, g.Width, g.Height)
+	} else {
+		u0, v0, u1, v1, ok = c.gpu.UploadGlyph(r, false, g.Bitmap, g.Width, g.Height)
+	}
 	if !ok {
 		return
 	}
@@ -257,10 +279,14 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				}
 				gx := px + glyph.XOffset
 				gy := py + c.metrics.Ascent + glyph.YOffset
-				if cell.Attr&screen.AttrBold != 0 {
-					BlendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+				if glyph.IsColor {
+					blendColorGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height)
+				} else {
+					if cell.Attr&screen.AttrBold != 0 {
+						BlendGlyph(c.backBuf, c.backStride, px+1, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
+					}
+					BlendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 				}
-				BlendGlyph(c.backBuf, c.backStride, gx, gy, glyph.Bitmap, glyph.Width, glyph.Height, fgR, fgG, fgB)
 
 				if cell.Attr&screen.AttrUnderline != 0 {
 					underlineY := py + c.metrics.Ascent + 1
@@ -435,8 +461,15 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			if cell.Rune != 0 {
 				glyph, err := c.getGlyph(cell.Rune, cell.Attr&screen.AttrItalic != 0)
 				if err == nil && glyph != nil {
-					u0, v0, u1, v1, ok := c.gpu.UploadGlyph(cell.Rune, cell.Attr&screen.AttrItalic != 0, glyph.Bitmap, glyph.Width, glyph.Height)
-					if ok {
+					var u0, v0, u1, v1 float32
+					var gok bool
+					if glyph.IsColor {
+						u0, v0, u1, v1, gok = c.gpu.UploadColorGlyph(cell.Rune, glyph.Bitmap, glyph.Width, glyph.Height)
+						inst.IsColor = 1
+					} else {
+						u0, v0, u1, v1, gok = c.gpu.UploadGlyph(cell.Rune, cell.Attr&screen.AttrItalic != 0, glyph.Bitmap, glyph.Width, glyph.Height)
+					}
+					if gok {
 						inst.GlyphU0 = u0
 						inst.V0 = v0
 						inst.GlyphU1 = u1
@@ -445,7 +478,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 						inst.GlyphOffY = ascentF + float32(glyph.YOffset)
 						inst.GlyphW = float32(glyph.Width)
 						inst.GlyphH = float32(glyph.Height)
-						if cell.Attr&screen.AttrBold != 0 {
+						if cell.Attr&screen.AttrBold != 0 && !glyph.IsColor {
 							inst.GlyphOffX += 1
 						}
 					}

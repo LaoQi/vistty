@@ -193,6 +193,9 @@ func (c *Renderer) Init() error {
 		gl.VertexAttribPointer(10, 1, glLib.GL_FLOAT, false, stride, 76)
 		gl.EnableVertexAttribArray(10)
 		gl.VertexAttribDivisor(10, 1)
+		gl.VertexAttribPointer(11, 1, glLib.GL_FLOAT, false, stride, 80)
+		gl.EnableVertexAttribArray(11)
+		gl.VertexAttribDivisor(11, 1)
 
 		gl.BindVertexArray(0)
 		c.vaoReady = true
@@ -306,6 +309,55 @@ func (c *Renderer) UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0
 	return gu0, gv0, gu1, gv1, true
 }
 
+// UploadColorGlyph implements platform.GPURenderer
+func (c *Renderer) UploadColorGlyph(r rune, rgba []byte, w, h int) (u0, v0, u1, v1 float32, ok bool) {
+	if !c.gpuReady {
+		return 0, 0, 0, 0, false
+	}
+	if w <= 0 || h <= 0 || len(rgba) < w*h*4 {
+		return 0, 0, 0, 0, false
+	}
+	key := glyphKey{Rune: r, Italic: false, IsColor: true}
+	if e, exists := c.atlasCache[key]; exists {
+		return e.u0, e.v0, e.u1, e.v1, true
+	}
+
+	placeX, placeY, nextShelfX, nextShelfY, nextShelfH, gu0, gv0, gu1, gv1, reset, pok := packGlyph(c.shelfX, c.shelfY, c.shelfH, c.atlasW, c.atlasH, w, h)
+	if !pok {
+		return 0, 0, 0, 0, false
+	}
+
+	if reset {
+		c.shelfX = 0
+		c.shelfY = 0
+		c.shelfH = 0
+		for k := range c.atlasCache {
+			delete(c.atlasCache, k)
+		}
+		gl := c.gles
+		gl.BindTexture(glLib.GL_TEXTURE_2D, c.atlasTex)
+		gl.PixelStorei(glLib.GL_UNPACK_ALIGNMENT, 1)
+		gl.TexImage2D(glLib.GL_TEXTURE_2D, 0, glLib.GL_RGBA, int32(c.atlasW), int32(c.atlasH), 0, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, nil)
+	}
+
+	gl := c.gles
+	gl.BindTexture(glLib.GL_TEXTURE_2D, c.atlasTex)
+	gl.PixelStorei(glLib.GL_UNPACK_ALIGNMENT, 1)
+	gl.GetError()
+	gl.TexSubImage2D(glLib.GL_TEXTURE_2D, 0, int32(placeX), int32(placeY), int32(w), int32(h), glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, rgba)
+	subErr := gl.GetError()
+
+	if subErr != glLib.GL_NO_ERROR {
+		return 0, 0, 0, 0, false
+	}
+
+	c.atlasCache[key] = atlasEntry{gu0, gv0, gu1, gv1}
+	c.shelfX = nextShelfX
+	c.shelfY = nextShelfY
+	c.shelfH = nextShelfH
+	return gu0, gv0, gu1, gv1, true
+}
+
 // DrawInstances implements platform.GPURenderer
 func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	if !c.gpuReady {
@@ -389,6 +441,10 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 		gl.VertexAttribPointer(10, 1, glLib.GL_FLOAT, false, stride, 76)
 		gl.EnableVertexAttribArray(10)
 		gl.VertexAttribDivisor(10, 1)
+
+		gl.VertexAttribPointer(11, 1, glLib.GL_FLOAT, false, stride, 80)
+		gl.EnableVertexAttribArray(11)
+		gl.VertexAttribDivisor(11, 1)
 	}
 
 	gl.DrawArraysInstanced(glLib.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
@@ -397,7 +453,7 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 	if c.vaoReady {
 		gl.BindVertexArray(0)
 	} else {
-		for i := uint32(2); i <= 10; i++ {
+		for i := uint32(2); i <= 11; i++ {
 			gl.VertexAttribDivisor(i, 0)
 		}
 	}

@@ -14,6 +14,7 @@ layout(location=7) in vec3 i_fg;
 layout(location=8) in vec3 i_bg;
 layout(location=9) in float i_hasBg;
 layout(location=10) in float i_attrFlags;
+layout(location=11) in float i_isColor;
 uniform vec2 u_resolution;
 out vec2 v_tex;
 out vec2 v_cellUV;
@@ -24,6 +25,7 @@ out float v_attrFlags;
 out vec2 v_glyphCoord;
 out float v_hasGlyph;
 out vec2 v_cellSize;
+out float v_isColor;
 void main() {
     vec2 cellPixelPos = a_quadPos * i_cellSize + i_cellPos;
     vec2 ndc = cellPixelPos / u_resolution * 2.0 - 1.0;
@@ -39,6 +41,7 @@ void main() {
     v_bg = i_bg;
     v_hasBg = i_hasBg;
     v_attrFlags = i_attrFlags;
+    v_isColor = i_isColor;
     // UV 退化 (u0>=u1 或 v0>=v1) 表示无字形（空字符 UV=0），避免采样 atlas (0,0) 残留
     v_hasGlyph = sign(max(i_glyphUV.z - i_glyphUV.x, 0.0)) * sign(max(i_glyphUV.w - i_glyphUV.y, 0.0));
 }
@@ -55,18 +58,27 @@ in float v_attrFlags;
 in vec2 v_glyphCoord;
 in float v_hasGlyph;
 in vec2 v_cellSize;
+in float v_isColor;
 uniform sampler2D u_atlas;
 uniform vec3 u_defBg;
 out vec4 fragColor;
 void main() {
     float alpha = 0.0;
+    vec3 glyphColor = v_fg;
     float inGlyph = step(0.0, v_glyphCoord.x) * step(v_glyphCoord.x, 1.0)
                    * step(0.0, v_glyphCoord.y) * step(v_glyphCoord.y, 1.0);
     if (inGlyph > 0.5 && v_hasGlyph > 0.5) {
-        alpha = texture(u_atlas, v_tex).r;
+        if (v_isColor > 0.5) {
+            vec4 texColor = texture(u_atlas, v_tex);
+            alpha = texColor.a;
+            glyphColor = texColor.rgb;
+        } else {
+            alpha = texture(u_atlas, v_tex).r;
+            glyphColor = v_fg;
+        }
     }
     vec3 bg = mix(u_defBg, v_bg, v_hasBg);
-    vec3 color = mix(bg, v_fg, alpha);
+    vec3 color = mix(bg, glyphColor, alpha);
     // underline (bit 0)：cell 底部精确 1px
     float hasUL = mod(floor(v_attrFlags), 2.0);
     float ulThreshold = 1.0 - 1.0 / v_cellSize.y;

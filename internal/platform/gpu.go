@@ -16,6 +16,7 @@ type CellInstance struct {
 	BgB           float32
 	HasBg         float32 // 1.0=非默认背景, 0.0=默认
 	AttrFlags     float32 // bit0=underline, bit1=crossedOut
+	IsColor       float32 // 1.0=彩色字形(emoji)，fragment 采样 RGBA 跳过前景色着色
 }
 
 // GPURenderer 是 Surface 可选实现的 GPU 渲染接口。
@@ -25,6 +26,9 @@ type GPURenderer interface {
 	// italic=true 时字形按斜体独立缓存（UV 与 normal 不混用）。
 	// 若 (rune,italic) 已在 atlas 中，直接返回缓存 UV。
 	UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
+	// UploadColorGlyph 上传 RGBA 彩色字形到 atlas，与 UploadGlyph 独立缓存
+	// （glyphKey 含 IsColor 区分）。rgba 已是 RGBA(w*h*4)，跳过 alpha→RGBA 转换直接上传。
+	UploadColorGlyph(r rune, rgba []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
 	// DrawInstances 用 instanced draw 渲染所有 cell。
 	DrawInstances(instances []CellInstance, screenW, screenH int, bgColor [3]float32) error
 	// BeginFrame 确保本帧 GL context 已 current。每帧调用一次，

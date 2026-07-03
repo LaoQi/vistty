@@ -1,8 +1,9 @@
 package gpu
 
 type glyphKey struct {
-	Rune   rune
-	Italic bool
+	Rune    rune
+	Italic  bool
+	IsColor bool
 }
 
 type atlasEntry struct {

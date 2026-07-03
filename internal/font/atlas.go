@@ -12,6 +12,7 @@ type Glyph struct {
 	XOffset int
 	YOffset int
 	Advance int
+	IsColor bool // true=Bitmap 是 RGBA(w*h*4)，false=alpha(w*h)
 }
 
 type atlasEntry struct {
