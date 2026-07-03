@@ -177,7 +177,7 @@ github.com/LaoQi/vistty/
 │   ├── options.go               # Options + OnTitle/OnDefaultColor 回调
 │   └── render_harness.go        # 性能测量桥接 API
 ├── internal/
-│   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width)
+│   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width) + emoji.go (IsEmojiRune 范围表 + isEmojiModifier，RuneWidth 对 emoji 基字符返回 2)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + pinyin.Init 注入
@@ -189,7 +189,7 @@ github.com/LaoQi/vistty/
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
-│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA）+ emoji_runes.go（IsEmojiRune 范围表）+ assets/ + data/emoji.bin.gz（1353 emoji，2.7MB gzip）
+│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/ + data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
 │   ├── perf/replay/             # 三级归因 benchmark
@@ -216,7 +216,7 @@ github.com/LaoQi/vistty/
 ```
 cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
-cmd/gen-emoji → internal/font（共享 IsEmojiRune）
+cmd/gen-emoji → internal/runeutil（共享 IsEmojiRune）
 pinyin → 无内部依赖（顶层包，go:embed 词库）
 terminal → screen, vte, render, platform, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
@@ -313,7 +313,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中左移均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径；移除 render 层 blendGlyphItalic 位移与 shader italic 分支；italicAtlas 独立缓存，UploadGlyph 以 (rune,italic) 为 key
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
-- Emoji 彩色渲染：自研 `font/emoji.go`（EmojiFace）+ `cmd/gen-emoji` 构建工具；构建期自研 SFNT/cmap/CBLC/CBDT 解析从 NotoColorEmoji.ttf 提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×cellH NRGBA（非预乘匹配混合管线）；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径；emojiIndex sync.Once 单例避免多屏重复解压；P0+P1 范围（单 rune emoji，VS16/ZWJ 未实现）
+- Emoji 彩色渲染：自研 `font/emoji.go`（EmojiFace）+ `cmd/gen-emoji` 构建工具；构建期自研 SFNT/cmap/CBLC/CBDT 解析从 NotoColorEmoji.ttf 提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×ascent NRGBA（非预乘匹配混合管线，baseline对齐 dstH=ascent/YOffset=-ascent）；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径；emojiIndex sync.Once 单例避免多屏重复解压；IsEmojiRune 移至 runeutil 包，RuneWidth 对 emoji 基字符强制返回 2（修复 Ambiguous 宽度 emoji 截半，排除 ZWJ/VS 修饰符）；P0+P1 范围（单 rune emoji，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps

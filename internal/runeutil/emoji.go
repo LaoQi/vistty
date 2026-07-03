@@ -1,4 +1,4 @@
-package font
+package runeutil
 
 func IsEmojiRune(r rune) bool {
 	switch {
@@ -75,6 +75,20 @@ func IsEmojiRune(r rune) bool {
 	case 0x200D == r:
 		return true
 	case 0x20E3 == r:
+		return true
+	case 0xE0020 <= r && r <= 0xE007F:
+		return true
+	}
+	return false
+}
+
+func isEmojiModifier(r rune) bool {
+	switch {
+	case r == 0x200D:
+		return true
+	case r == 0x20E3:
+		return true
+	case 0xFE00 <= r && r <= 0xFE0F:
 		return true
 	case 0xE0020 <= r && r <= 0xE007F:
 		return true

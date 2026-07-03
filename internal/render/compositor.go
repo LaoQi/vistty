@@ -5,6 +5,7 @@ import (
 
 	"github.com/LaoQi/vistty/internal/font"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/runeutil"
 	"github.com/LaoQi/vistty/internal/screen"
 )
 
@@ -70,7 +71,7 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 		bg := c.defColor.bg
 		FillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	}
-	c.emojiFace, _ = font.NewEmojiFace(m.Width, m.Height)
+	c.emojiFace, _ = font.NewEmojiFace(m.Width, m.Height, m.Ascent)
 	return c
 }
 
@@ -84,9 +85,9 @@ func (c *Compositor) SetFace(face font.Face) {
 	c.italicAtlas = font.NewAtlas(8192)
 	c.metrics = face.Metrics()
 	if c.emojiFace != nil {
-		c.emojiFace.Resize(c.metrics.Width, c.metrics.Height)
+		c.emojiFace.Resize(c.metrics.Width, c.metrics.Height, c.metrics.Ascent)
 	} else {
-		c.emojiFace, _ = font.NewEmojiFace(c.metrics.Width, c.metrics.Height)
+		c.emojiFace, _ = font.NewEmojiFace(c.metrics.Width, c.metrics.Height, c.metrics.Ascent)
 	}
 	if c.gpu == nil {
 		c.gpu, _ = c.surface.(platform.GPURenderer)
@@ -97,7 +98,7 @@ func (c *Compositor) SetFace(face font.Face) {
 }
 
 func (c *Compositor) getGlyph(r rune, italic bool) (*font.Glyph, error) {
-	if font.IsEmojiRune(r) && c.emojiFace != nil {
+	if runeutil.IsEmojiRune(r) && c.emojiFace != nil {
 		if g := c.atlas.Get(r); g != nil {
 			return g, nil
 		}

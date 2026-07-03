@@ -12,7 +12,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/internal/runeutil"
 )
 
 type tableRecord struct {
@@ -102,7 +102,7 @@ func main() {
 
 	var runes []rune
 	for r := range cmap {
-		if font.IsEmojiRune(r) && !isControlRune(r) {
+		if runeutil.IsEmojiRune(r) && !isControlRune(r) {
 			runes = append(runes, r)
 		}
 	}

@@ -105,10 +105,11 @@ type EmojiFace struct {
 	index *emojiIndex
 	cellW int
 	cellH int
+	ascent int
 	cache map[rune]*Glyph
 }
 
-func NewEmojiFace(cellW, cellH int) (*EmojiFace, error) {
+func NewEmojiFace(cellW, cellH, ascent int) (*EmojiFace, error) {
 	emojiIdxOnce.Do(func() {
 		emojiIdx, emojiIdxErr = loadEmojiIndex()
 	})
@@ -116,16 +117,18 @@ func NewEmojiFace(cellW, cellH int) (*EmojiFace, error) {
 		return nil, emojiIdxErr
 	}
 	return &EmojiFace{
-		index: emojiIdx,
-		cellW: cellW,
-		cellH: cellH,
-		cache: make(map[rune]*Glyph),
+		index:  emojiIdx,
+		cellW:  cellW,
+		cellH:  cellH,
+		ascent: ascent,
+		cache:  make(map[rune]*Glyph),
 	}, nil
 }
 
-func (e *EmojiFace) Resize(cellW, cellH int) {
+func (e *EmojiFace) Resize(cellW, cellH, ascent int) {
 	e.cellW = cellW
 	e.cellH = cellH
+	e.ascent = ascent
 	e.cache = make(map[rune]*Glyph)
 }
 
@@ -148,7 +151,7 @@ func (e *EmojiFace) Glyph(r rune) (*Glyph, error) {
 	}
 
 	dstW := e.cellW * 2
-	dstH := e.cellH
+	dstH := e.ascent
 	dst := image.NewNRGBA(image.Rect(0, 0, dstW, dstH))
 	draw.BiLinear.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Src, nil)
 
@@ -158,7 +161,7 @@ func (e *EmojiFace) Glyph(r rune) (*Glyph, error) {
 		Width:   dstW,
 		Height:  dstH,
 		XOffset: 0,
-		YOffset: 0,
+		YOffset: -e.ascent,
 		Advance: dstW,
 		IsColor: true,
 	}
