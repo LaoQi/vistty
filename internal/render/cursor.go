@@ -1,6 +1,6 @@
 package render
 
-import "github.com/LaoQi/vistty/internal/font"
+import "github.com/LaoQi/vistty/font"
 
 type cursorStyle int
 

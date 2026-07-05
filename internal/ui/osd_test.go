@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/font"
 )
 
 type fakeFace struct {

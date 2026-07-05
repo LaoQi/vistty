@@ -1,7 +1,7 @@
 package session
 
 import (
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/ui"

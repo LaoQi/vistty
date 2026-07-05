@@ -177,6 +177,7 @@ github.com/LaoQi/vistty/
 │   ├── charset.go               # G0/G1/GL + DEC line drawing
 │   ├── options.go               # Options + OnTitle/OnDefaultColor/OnCursorColor 回调 + Theme 字段
 │   └── render_harness.go        # 性能测量桥接 API
+├── font/                    # face.go（OpenTypeFace + FallbackFace primary→fallback→synth + synthBlockElement 块字符合成 U+2580-259F）/ atlas.go / metrics.go / embedded.go（Sarasa + NerdFontFallback go:embed）/ cache.go（FaceCache + FaceCacheProvider 接口 + FallbackFaceCache）/ shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/（SarasaFixedSC-Regular.ttf 6.7MB + NerdFontFallback.ttf 1.05MB PUA子集）+ data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 ├── internal/
 │   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width) + emoji.go (IsEmojiRune 范围表 + isEmojiModifier，RuneWidth 对 emoji 基字符返回 2)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
@@ -191,7 +192,6 @@ github.com/LaoQi/vistty/
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
-│   ├── font/                    # face.go（OpenTypeFace + FallbackFace primary→fallback→synth + synthBlockElement 块字符合成 U+2580-259F）/ atlas.go / metrics.go / embedded.go（Sarasa + NerdFontFallback go:embed）/ cache.go（FaceCache + FaceCacheProvider 接口 + FallbackFaceCache）/ shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/（SarasaFixedSC-Regular.ttf 6.7MB + NerdFontFallback.ttf 1.05MB PUA子集）+ data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar) + theme.go (OSDTheme + DefaultOSDTheme)
 │   ├── perf/replay/             # 三级归因 benchmark
@@ -221,7 +221,7 @@ cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
 cmd/gen-emoji → internal/runeutil（共享 IsEmojiRune）
 pinyin → 无内部依赖（顶层包，go:embed 词库）
-terminal → screen, vte, render, platform, debug, runeutil
+terminal → screen, vte, render, platform, font, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
 plugins → terminal, platform, ui, pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置）
 render → font, platform (Surface 接口)
@@ -233,7 +233,7 @@ platform/gl → purego
 platform/wayland → 无外部依赖（自研 wl.go）
 screen, vte → 无内部依赖
 runeutil → 无内部依赖（golang.org/x/text/width）
-font → golang.org/x/image/font/opentype, golang.org/x/image/draw（emoji 缩放）
+font → 无内部依赖（顶层包），golang.org/x/image/font/opentype, golang.org/x/image/draw（emoji 缩放）
 plugins → gopher-lua
 debug → 无内部依赖
 ```

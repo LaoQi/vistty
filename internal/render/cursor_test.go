@@ -3,7 +3,7 @@ package render
 import (
 	"testing"
 
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/font"
 )
 
 func TestDrawCursorBlock(t *testing.T) {

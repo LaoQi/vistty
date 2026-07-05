@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/platform"
 )
 

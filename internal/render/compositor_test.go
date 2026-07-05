@@ -3,7 +3,7 @@ package render
 import (
 	"testing"
 
-	"github.com/LaoQi/vistty/internal/font"
+	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/screen"
 )
