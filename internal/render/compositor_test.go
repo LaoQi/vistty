@@ -201,9 +201,9 @@ func TestRenderGPUASCIICell(t *testing.T) {
 	if inst.GlyphW != 8 || inst.GlyphH != 16 {
 		t.Errorf("Glyph size=%v×%v want 8×16", inst.GlyphW, inst.GlyphH)
 	}
-	// 默认前景灰 (204,204,204)/255
-	if inst.FgR != 204.0/255 || inst.FgG != 204.0/255 || inst.FgB != 204.0/255 {
-		t.Errorf("fg=(%v,%v,%v) want default gray", inst.FgR, inst.FgG, inst.FgB)
+	// 默认前景白 (255,255,255)/255
+	if inst.FgR != 255.0/255 || inst.FgG != 255.0/255 || inst.FgB != 255.0/255 {
+		t.Errorf("fg=(%v,%v,%v) want default white", inst.FgR, inst.FgG, inst.FgB)
 	}
 	// bg=default black → HasBg=0
 	if inst.HasBg != 0 {
@@ -285,12 +285,12 @@ func TestRenderGPUAttrsAndBold(t *testing.T) {
 	if inst.GlyphOffX != 0 {
 		t.Errorf("Bold+Italic GlyphOffX=%v want 0 (italic XOffset=-1 + bold +1)", inst.GlyphOffX)
 	}
-	// Reverse: fg/bg 交换。原 fg=灰(204), bg=黑(0) → 交换后 fg=黑, bg=灰, HasBg=1
+	// Reverse: fg/bg 交换。原 fg=白(255), bg=黑(0) → 交换后 fg=黑, bg=白, HasBg=1
 	if inst.FgR != 0 {
 		t.Errorf("Reverse fg.R=%v want 0 (swapped from bg)", inst.FgR)
 	}
-	if inst.BgR != 204.0/255 {
-		t.Errorf("Reverse bg.R=%v want 204/255 (swapped from fg)", inst.BgR)
+	if inst.BgR != 255.0/255 {
+		t.Errorf("Reverse bg.R=%v want 255/255 (swapped from fg)", inst.BgR)
 	}
 	if inst.HasBg != 1 {
 		t.Errorf("Reverse HasBg=%v want 1", inst.HasBg)
@@ -321,14 +321,15 @@ func TestRenderGPUDoubleWidth(t *testing.T) {
 	}
 }
 
-func TestRenderGPUCursorSwap(t *testing.T) {
+func TestRenderGPUCursor(t *testing.T) {
 	c, surf := newGPUCompositor()
+	c.SetCursorColor(screen.Color{R: 255, G: 0, B: 0})
 	buf := screen.NewBuffer(10, 2)
 	cur := buf.Cursor()
 	cur.Row = 0
 	cur.Col = 0
 	cur.Visible = true
-	cur.Blinking = false // 关闭闪烁，确保可见
+	cur.Blinking = false
 	buf.Cell(0, 0).Rune = 'A'
 
 	if err := c.Render(buf, 0); err != nil {
@@ -338,13 +339,14 @@ func TestRenderGPUCursorSwap(t *testing.T) {
 	if !ok {
 		t.Fatal("no instance at cursor cell")
 	}
-	// 光标反转 fg/bg 并强制 HasBg=1
 	if inst.HasBg != 1 {
 		t.Errorf("cursor cell HasBg=%v want 1", inst.HasBg)
 	}
-	// 原 fg=灰 bg=黑 → 交换 fg=黑 bg=灰
-	if inst.FgR != 0 || inst.BgR != 204.0/255 {
-		t.Errorf("cursor swap fg.R=%v bg.R=%v want (0, 204/255)", inst.FgR, inst.BgR)
+	if inst.BgR != 1.0 {
+		t.Errorf("cursor bg.R=%v want 1.0 (cursor color red)", inst.BgR)
+	}
+	if inst.FgR != 255.0/255 {
+		t.Errorf("cursor fg.R=%v want 255/255 (original fg unchanged)", inst.FgR)
 	}
 }
 

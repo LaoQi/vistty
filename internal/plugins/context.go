@@ -1,6 +1,9 @@
 package plugins
 
-import "github.com/LaoQi/vistty/terminal"
+import (
+	"github.com/LaoQi/vistty/internal/ui"
+	"github.com/LaoQi/vistty/terminal"
+)
 
 // TabInfo 描述一个终端标签的信息，供插件层查询当前标签列表。
 type TabInfo struct {
@@ -34,6 +37,7 @@ type PluginContext interface {
 	ZoomReset()
 	EnablePanel(side string, lines int)
 	DisablePanel(side string)
+	ApplyTheme(term terminal.Theme, osd ui.OSDTheme)
 	ReloadPlugins() error
 	Exit()
 }

@@ -17,7 +17,7 @@ func (f *fakeFace) Close() error                      { return nil }
 func TestInsets(t *testing.T) {
 	face := &fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}
 
-	o := NewOSD(face)
+	o := NewOSD(face, OSDTheme{})
 	top, bottom, left, right := o.Insets()
 	if top != 20 || bottom != 0 || left != 0 || right != 0 {
 		t.Fatalf("default top: expected 20,0,0,0 got %d,%d,%d,%d", top, bottom, left, right)
@@ -29,7 +29,8 @@ func TestLayoutTabs(t *testing.T) {
 		{Title: "a", Active: true},
 		{Title: "bb", Active: false},
 	}
-	cells, sc := layoutTabs(tabs, 0, 10, 100, 0, 0)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	cells, sc := o.layoutTabs(tabs, 0, 10, 100, 0, 0)
 	if sc != 0 {
 		t.Fatalf("scroll: expected 0, got %d", sc)
 	}
@@ -57,21 +58,22 @@ func TestLayoutTabs(t *testing.T) {
 	if cells[6].x != 60 || cells[6].r != 0 {
 		t.Errorf("cell 6: expected x=60 r=0, got x=%d r=%q", cells[6].x, cells[6].r)
 	}
-	if cells[0].bgR != activeBg[0] {
-		t.Errorf("active tab pad bgR: expected %d, got %d", activeBg[0], cells[0].bgR)
+	if cells[0].bgR != DefaultOSDTheme.ActiveBg[0] {
+		t.Errorf("active tab pad bgR: expected %d, got %d", DefaultOSDTheme.ActiveBg[0], cells[0].bgR)
 	}
-	if cells[1].bgR != activeBg[0] {
-		t.Errorf("active tab char bgR: expected %d, got %d", activeBg[0], cells[1].bgR)
+	if cells[1].bgR != DefaultOSDTheme.ActiveBg[0] {
+		t.Errorf("active tab char bgR: expected %d, got %d", DefaultOSDTheme.ActiveBg[0], cells[1].bgR)
 	}
-	if cells[7].r != 0 || cells[7].bgR != barBg[0] {
-		t.Errorf("bar fill cell 7: expected r=0 bgR=%d, got r=%q bgR=%d", barBg[0], cells[7].r, cells[7].bgR)
+	if cells[7].r != 0 || cells[7].bgR != DefaultOSDTheme.BarBg[0] {
+		t.Errorf("bar fill cell 7: expected r=0 bgR=%d, got r=%q bgR=%d", DefaultOSDTheme.BarBg[0], cells[7].r, cells[7].bgR)
 	}
 }
 
 func TestLayoutTabsTruncate(t *testing.T) {
 	// tabWidth=25 放不下完整 tab(50px)：窗口内部分显示 pad+a+b（b 右半被 clip）
 	tabs := []Tab{{Title: "abc"}}
-	cells, sc := layoutTabs(tabs, 0, 10, 25, 0, 0)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	cells, sc := o.layoutTabs(tabs, 0, 10, 25, 0, 0)
 	if sc != 0 {
 		t.Fatalf("scroll: expected 0, got %d", sc)
 	}
@@ -94,7 +96,8 @@ func TestLayoutTabsCJK(t *testing.T) {
 	tabs := []Tab{
 		{Title: "终端", Active: true},
 	}
-	cells, _ := layoutTabs(tabs, 0, 10, 100, 0, 0)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	cells, _ := o.layoutTabs(tabs, 0, 10, 100, 0, 0)
 	// 布局：pad(0) + 终(10,w2) + 端(30,w2) + pad(50) + barfill(60,70,80,90) = 8 cells
 	if len(cells) != 8 {
 		t.Fatalf("expected 8 cells, got %d", len(cells))
@@ -111,15 +114,16 @@ func TestLayoutTabsCJK(t *testing.T) {
 	if cells[3].x != 50 || cells[3].w != 1 {
 		t.Errorf("pad1: expected x=50 w=1, got x=%d w=%d", cells[3].x, cells[3].w)
 	}
-	if cells[4].x != 60 || cells[4].bgR != barBg[0] {
-		t.Errorf("barfill: expected x=60 bgR=%d, got x=%d bgR=%d", barBg[0], cells[4].x, cells[4].bgR)
+	if cells[4].x != 60 || cells[4].bgR != DefaultOSDTheme.BarBg[0] {
+		t.Errorf("barfill: expected x=60 bgR=%d, got x=%d bgR=%d", DefaultOSDTheme.BarBg[0], cells[4].x, cells[4].bgR)
 	}
 }
 
 func TestLayoutTabsCJKTruncate(t *testing.T) {
 	// tabWidth=25：pad(10) + 终(20，右半被 clip)，宽字符部分显示
 	tabs := []Tab{{Title: "终"}}
-	cells, sc := layoutTabs(tabs, 0, 10, 25, 0, 0)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	cells, sc := o.layoutTabs(tabs, 0, 10, 25, 0, 0)
 	if sc != 0 {
 		t.Fatalf("scroll: expected 0, got %d", sc)
 	}
@@ -164,7 +168,8 @@ func TestLayoutTabsScroll(t *testing.T) {
 		{Title: "tab3"},
 		{Title: "tab4"},
 	}
-	cells, sc := layoutTabs(tabs, 3, 10, 100, 0, 0)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	cells, sc := o.layoutTabs(tabs, 3, 10, 100, 0, 0)
 	// target=240-100=140，最大 tabStart<=140 为 120（tab3 起点）
 	if sc != 120 {
 		t.Fatalf("scroll: expected 120, got %d", sc)
@@ -186,7 +191,8 @@ func TestLayoutTabsScrollKeepWhenVisible(t *testing.T) {
 	// active 已可见时保持 scroll 不变（不抖动）
 	tabs := []Tab{{Title: "tab1"}, {Title: "tab2"}, {Title: "tab3"}, {Title: "tab4"}}
 	// 手动设 scroll=60（tab2 起点），active=2 (tab3, 120-180) 在窗口[60,160]内
-	_, sc := layoutTabs(tabs, 2, 10, 100, 0, 60)
+	o := NewOSD(&fakeFace{}, OSDTheme{})
+	_, sc := o.layoutTabs(tabs, 2, 10, 100, 0, 60)
 	if sc != 60 {
 		t.Fatalf("scroll should keep 60 when active visible, got %d", sc)
 	}
@@ -196,7 +202,7 @@ func TestInsetsMergePanelLines(t *testing.T) {
 	face := &fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}
 
 	// 仅插件面板，无 panelLines
-	o := NewOSD(face)
+	o := NewOSD(face, OSDTheme{})
 	o.SetPanelLines(map[string]int{"bottom": 2, "left": 3, "right": 1})
 	top, bottom, left, right := o.Insets()
 	if top != 20 || bottom != 40 || left != 30 || right != 10 {
@@ -204,7 +210,7 @@ func TestInsetsMergePanelLines(t *testing.T) {
 	}
 
 	// top 边：默认 1 行 + pluginLines 取 max
-	o2 := NewOSD(face)
+	o2 := NewOSD(face, OSDTheme{})
 	o2.SetPanelLines(map[string]int{"top": 3, "bottom": 1})
 	top, bottom, left, right = o2.Insets()
 	if top != 60 {
@@ -215,7 +221,7 @@ func TestInsetsMergePanelLines(t *testing.T) {
 	}
 
 	// panelLines<=0 不影响
-	o3 := NewOSD(face)
+	o3 := NewOSD(face, OSDTheme{})
 	o3.SetPanelLines(map[string]int{"bottom": 0})
 	_, bottom, _, _ = o3.Insets()
 	if bottom != 0 {
@@ -225,7 +231,7 @@ func TestInsetsMergePanelLines(t *testing.T) {
 
 func TestSetPluginPanel(t *testing.T) {
 	face := &fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}
-	o := NewOSD(face)
+	o := NewOSD(face, OSDTheme{})
 	o.SetPluginPanel("bottom", []PanelPrimitive{
 		{Kind: primRect, X: 0, Y: 0, W: 5, H: 1, Bg: [4]uint8{1, 2, 3, 255}},
 	})

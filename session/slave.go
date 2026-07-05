@@ -82,7 +82,7 @@ func (s *Slave) InitIndependent(fontData, fallbackFontData []byte, fontSize floa
 	s.faceCache = fc
 	s.face = face
 	s.compositor = render.NewCompositor(s.surface, face)
-	s.osd = ui.NewOSD(face)
+	s.osd = ui.NewOSD(face, ui.DefaultOSDTheme)
 	s.compositor.SetOverlay(s.osd)
 	s.osd.SetGlyphProvider(s.compositor)
 	s.osd.SetGPUGlyphUploader(s.compositor)

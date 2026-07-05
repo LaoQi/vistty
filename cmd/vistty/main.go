@@ -193,6 +193,10 @@ func run() error {
 	pm.SetBackendName(backendName)
 	pm.Activate(m)
 
+	if runCfg.TermTheme != nil {
+		m.ApplyTheme(*runCfg.TermTheme, *runCfg.OSDTheme)
+	}
+
 	if prof.fps {
 		m.EnableFPSLogging()
 	}

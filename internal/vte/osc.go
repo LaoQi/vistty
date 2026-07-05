@@ -12,6 +12,7 @@ const (
 	OSCHyperlink
 	OSCFgColor
 	OSCBgColor
+	OSCCursorColor
 	OSCUnknown
 )
 
@@ -63,6 +64,8 @@ func ParseOSC(seq Sequence) OSCSequence {
 		return OSCSequence{Command: OSCFgColor, Data: payload}
 	case 11:
 		return OSCSequence{Command: OSCBgColor, Data: payload}
+	case 12:
+		return OSCSequence{Command: OSCCursorColor, Data: payload}
 	case 52:
 		return OSCSequence{Command: OSCSetClipboard, Data: payload}
 	default:

@@ -55,6 +55,8 @@ type Terminal struct {
 	curAttr         screen.Attributes
 	defFg           screen.Color
 	defBg           screen.Color
+	theme           *Theme
+	cursorColor     screen.Color
 	saved           savedCursorState
 	scrollOffset    int
 	autoWrap        bool
@@ -101,15 +103,29 @@ func New(opts Options, cols, rows int) (*Terminal, error) {
 		altBuf:      altBuf,
 		curFg:       screen.Color{IsDefault: true},
 		curBg:       screen.Color{IsDefault: true},
-		defFg:       screen.Color{R: 204, G: 204, B: 204},
-		defBg:       screen.Color{R: 0, G: 0, B: 0},
 		autoWrap:    true,
 		charset:     newCharsetState(),
 		active:      true,
 		cols:        cols,
 		rows:        rows,
 	}
+	if opts.Theme != nil {
+		th := *opts.Theme
+		term.theme = &th
+	} else {
+		th := DefaultTheme
+		term.theme = &th
+	}
+	term.defFg = term.theme.DefFg
+	term.defBg = term.theme.DefBg
+	term.cursorColor = term.theme.CursorColor
 	term.initTabStops()
+	if term.opts.OnDefaultColor != nil {
+		term.opts.OnDefaultColor(term.defFg, term.defBg)
+	}
+	if term.opts.OnCursorColor != nil {
+		term.opts.OnCursorColor(term.cursorColor)
+	}
 	return term, nil
 }
 
@@ -690,6 +706,8 @@ func (t *Terminal) execOSC(seq vte.Sequence) {
 		t.handleOSCColor(osc.Data, true)
 	case vte.OSCBgColor:
 		t.handleOSCColor(osc.Data, false)
+	case vte.OSCCursorColor:
+		t.handleOSCCursorColor(osc.Data)
 	case vte.OSCUnknown:
 	}
 }
@@ -720,6 +738,25 @@ func (t *Terminal) handleOSCColor(data string, isFg bool) {
 	}
 	if t.opts.OnDefaultColor != nil {
 		t.opts.OnDefaultColor(t.defFg, t.defBg)
+	}
+}
+
+func (t *Terminal) handleOSCCursorColor(data string) {
+	if data == "?" {
+		resp := fmt.Sprintf("\x1b]12;rgb:%04x/%04x/%04x\x07",
+			uint16(t.cursorColor.R)*0x0101,
+			uint16(t.cursorColor.G)*0x0101,
+			uint16(t.cursorColor.B)*0x0101)
+		t.PtyWrite([]byte(resp))
+		return
+	}
+	c, ok := parseColorSpec(data)
+	if !ok {
+		return
+	}
+	t.cursorColor = c
+	if t.opts.OnCursorColor != nil {
+		t.opts.OnCursorColor(t.cursorColor)
 	}
 }
 
@@ -788,10 +825,14 @@ func (t *Terminal) fullReset() {
 	t.curFg = screen.Color{IsDefault: true}
 	t.curBg = screen.Color{IsDefault: true}
 	t.curAttr = 0
-	t.defFg = screen.Color{R: 204, G: 204, B: 204}
-	t.defBg = screen.Color{R: 0, G: 0, B: 0}
+	t.defFg = t.theme.DefFg
+	t.defBg = t.theme.DefBg
+	t.cursorColor = t.theme.CursorColor
 	if t.opts.OnDefaultColor != nil {
 		t.opts.OnDefaultColor(t.defFg, t.defBg)
+	}
+	if t.opts.OnCursorColor != nil {
+		t.opts.OnCursorColor(t.cursorColor)
 	}
 	t.screen.SetEraseCell(t.curFg, t.curBg, t.curAttr)
 	t.screen.ClearAll()
@@ -993,13 +1034,13 @@ func (t *Terminal) applySGR(params []int) {
 		case vte.SGRCrossedOutOff:
 			t.curAttr &^= screen.AttrCrossedOut
 		case vte.SGRForegroundColor8:
-			t.curFg = ansiColor(sgr.ColorIdx)
+			t.curFg = t.ansiColor(sgr.ColorIdx)
 		case vte.SGRBackgroundColor8:
-			t.curBg = ansiColor(sgr.ColorIdx)
+			t.curBg = t.ansiColor(sgr.ColorIdx)
 		case vte.SGRForegroundColor256:
-			t.curFg = color256(sgr.ColorIdx)
+			t.curFg = t.color256(sgr.ColorIdx)
 		case vte.SGRBackgroundColor256:
-			t.curBg = color256(sgr.ColorIdx)
+			t.curBg = t.color256(sgr.ColorIdx)
 		case vte.SGRForegroundColorRGB:
 			t.curFg = screen.Color{R: sgr.R, G: sgr.G, B: sgr.B}
 		case vte.SGRBackgroundColorRGB:
@@ -1148,34 +1189,16 @@ func csiParam(csi vte.CSISequence, idx, def int) int {
 	return def
 }
 
-func ansiColor(idx int) screen.Color {
-	palette := [16]screen.Color{
-		{R: 0, G: 0, B: 0},
-		{R: 205, G: 0, B: 0},
-		{R: 0, G: 205, B: 0},
-		{R: 205, G: 205, B: 0},
-		{R: 0, G: 0, B: 238},
-		{R: 205, G: 0, B: 205},
-		{R: 0, G: 205, B: 205},
-		{R: 229, G: 229, B: 229},
-		{R: 127, G: 127, B: 127},
-		{R: 255, G: 0, B: 0},
-		{R: 0, G: 255, B: 0},
-		{R: 255, G: 255, B: 0},
-		{R: 92, G: 92, B: 255},
-		{R: 255, G: 0, B: 255},
-		{R: 0, G: 255, B: 255},
-		{R: 255, G: 255, B: 255},
-	}
-	if idx >= 0 && idx < len(palette) {
-		return palette[idx]
+func (t *Terminal) ansiColor(idx int) screen.Color {
+	if idx >= 0 && idx < len(t.theme.Palette) {
+		return t.theme.Palette[idx]
 	}
 	return screen.Color{IsDefault: true}
 }
 
-func color256(idx int) screen.Color {
+func (t *Terminal) color256(idx int) screen.Color {
 	if idx < 16 {
-		return ansiColor(idx)
+		return t.ansiColor(idx)
 	}
 	if idx >= 16 && idx < 232 {
 		i := idx - 16
@@ -1268,6 +1291,33 @@ func parseHexChannel(s string) (uint8, bool) {
 
 func (t *Terminal) SetOnDefaultColor(f func(fg, bg screen.Color)) {
 	t.opts.OnDefaultColor = f
+}
+
+func (t *Terminal) SetOnCursorColor(f func(screen.Color)) {
+	t.opts.OnCursorColor = f
+}
+
+func (t *Terminal) SetTheme(theme *Theme) {
+	if theme == nil {
+		theme = &DefaultTheme
+	}
+	th := *theme
+	var fg, bg, cursor screen.Color
+	t.mu.Lock()
+	t.theme = &th
+	t.defFg = th.DefFg
+	t.defBg = th.DefBg
+	t.cursorColor = th.CursorColor
+	fg = t.defFg
+	bg = t.defBg
+	cursor = t.cursorColor
+	t.mu.Unlock()
+	if t.opts.OnDefaultColor != nil {
+		t.opts.OnDefaultColor(fg, bg)
+	}
+	if t.opts.OnCursorColor != nil {
+		t.opts.OnCursorColor(cursor)
+	}
 }
 
 func (t *Terminal) Title() string {

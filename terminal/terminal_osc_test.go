@@ -38,7 +38,7 @@ func TestOSCBgColorQuery(t *testing.T) {
 func TestOSCFgColorQuery(t *testing.T) {
 	term, resp := newTerminalForTest(80, 24)
 	term.FeedBytes([]byte("\x1b]10;?\x07"))
-	want := "\x1b]10;rgb:cccc/cccc/cccc\x07"
+	want := "\x1b]10;rgb:ffff/ffff/ffff\x07"
 	if resp.String() != want {
 		t.Errorf("expected %q, got %q", want, resp.String())
 	}
@@ -85,8 +85,8 @@ func TestOSCBgColorSet(t *testing.T) {
 	if cbBg.R != 0x1e || cbBg.G != 0x1e || cbBg.B != 0x2e {
 		t.Errorf("expected callback bg 1e,1e,2e got %+v", cbBg)
 	}
-	if cbFg.R != 204 || cbFg.G != 204 || cbFg.B != 204 {
-		t.Errorf("expected callback fg unchanged 204,204,204 got %+v", cbFg)
+	if cbFg.R != 255 || cbFg.G != 255 || cbFg.B != 255 {
+		t.Errorf("expected callback fg unchanged 255,255,255 got %+v", cbFg)
 	}
 }
 
@@ -114,5 +114,45 @@ func TestOSCFgColorSetShortHex(t *testing.T) {
 	term.FeedBytes([]byte("\x1b]10;#abc\x07"))
 	if term.defFg.R != 0xaa || term.defFg.G != 0xbb || term.defFg.B != 0xcc {
 		t.Errorf("expected defFg aa,bb,cc got %+v", term.defFg)
+	}
+}
+
+func TestOSCCursorColorQuery(t *testing.T) {
+	term, resp := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b]12;?\x07"))
+	want := "\x1b]12;rgb:ffff/ffff/ffff\x07"
+	if resp.String() != want {
+		t.Errorf("expected %q, got %q", want, resp.String())
+	}
+}
+
+func TestOSCCursorColorSet(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	var cbColor screen.Color
+	var cbCalled bool
+	term.opts.OnCursorColor = func(c screen.Color) {
+		cbColor = c
+		cbCalled = true
+	}
+	term.FeedBytes([]byte("\x1b]12;rgb:ff/00/00\x07"))
+	if !cbCalled {
+		t.Fatal("expected OnCursorColor callback to be called")
+	}
+	if term.cursorColor.R != 255 || term.cursorColor.G != 0 || term.cursorColor.B != 0 {
+		t.Errorf("expected cursorColor red=255,0,0 got %+v", term.cursorColor)
+	}
+	if cbColor.R != 255 || cbColor.G != 0 || cbColor.B != 0 {
+		t.Errorf("expected callback cursorColor red=255,0,0 got %+v", cbColor)
+	}
+}
+
+func TestOSCCursorColorQueryAfterSet(t *testing.T) {
+	term, resp := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b]12;#1e1e2e\x07"))
+	resp.Reset()
+	term.FeedBytes([]byte("\x1b]12;?\x07"))
+	want := "\x1b]12;rgb:1e1e/1e1e/2e2e\x07"
+	if resp.String() != want {
+		t.Errorf("expected %q, got %q", want, resp.String())
 	}
 }

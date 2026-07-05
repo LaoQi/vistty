@@ -10,6 +10,8 @@ import (
 	"github.com/LaoQi/vistty/pinyin"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/ui"
+	"github.com/LaoQi/vistty/terminal"
 )
 
 type keyBinding struct {
@@ -38,6 +40,8 @@ type PluginManager struct {
 	bindings      []keyBinding
 	pressedKeys   map[uint16]bool
 	active        bool
+	currentTheme    *terminal.Theme
+	currentOSDTheme *ui.OSDTheme
 }
 
 func NewPluginManager(initPath string) *PluginManager {
@@ -200,11 +204,15 @@ func (pm *PluginManager) Reload() error {
 
 	registerAPIs(pm.L, pm)
 
-	if _, err := pm.Load(); err != nil {
+	cfg, err := pm.Load()
+	if err != nil {
 		return err
 	}
 	if pm.ctx != nil {
 		pm.Activate(pm.ctx)
+		if cfg != nil && cfg.TermTheme != nil {
+			pm.ctx.ApplyTheme(*cfg.TermTheme, *cfg.OSDTheme)
+		}
 	}
 	return nil
 }

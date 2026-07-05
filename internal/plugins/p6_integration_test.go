@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -63,6 +64,7 @@ func (f *p6FakeCtx) DisablePanel(s string) {
 }
 func (f *p6FakeCtx) ReloadPlugins() error { return nil }
 func (f *p6FakeCtx) Exit()                {}
+func (f *p6FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 // examplesDir 返回仓库根目录下的 examples 目录绝对路径。
 // go test 的工作目录为包目录 internal/plugins，因此向上回溯两层。

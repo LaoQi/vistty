@@ -173,25 +173,27 @@ github.com/LaoQi/vistty/
 │   └── master_test.go
 ├── terminal/
 │   ├── terminal.go              # 纯逻辑会话：PTY + screen + parser + CSI/ESC/Control
+│   ├── theme.go                 # Theme 结构体（DefFg/DefBg/CursorColor/Palette[16]）+ DefaultTheme
 │   ├── charset.go               # G0/G1/GL + DEC line drawing
-│   ├── options.go               # Options + OnTitle/OnDefaultColor 回调
+│   ├── options.go               # Options + OnTitle/OnDefaultColor/OnCursorColor 回调 + Theme 字段
 │   └── render_harness.go        # 性能测量桥接 API
 ├── internal/
 │   ├── runeutil/               # runeutil.go (RuneWidth/IsWide/StringWidth，ASCII 快路径 + x/text/width) + emoji.go (IsEmojiRune 范围表 + isEmojiModifier，RuneWidth 对 emoji 基字符返回 2)
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + pinyin.Init 注入
-│   │   ├── context.go           # PluginContext 接口 + TabInfo
-│   │   ├── config.go            # RunConfig + readConfig
+│   │   ├── context.go           # PluginContext 接口 + TabInfo + ApplyTheme
+│   │   ├── config.go            # RunConfig + readConfig + parseLuaTheme（vistty.config.theme 解析）
 │   │   ├── api_env.go           # vistty.backend_name/backend.is_wayland/is_drm/on_activate 运行环境查询
 │   │   ├── api_lifecycle.go     # vistty.on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom 生命周期钩子
+│   │   ├── api_theme.go         # vistty.theme.apply/get/default 主题 API
 │   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/pinyin/keybind API
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
 │   ├── font/                    # face.go（OpenTypeFace + FallbackFace primary→fallback→synth + synthBlockElement 块字符合成 U+2580-259F）/ atlas.go / metrics.go / embedded.go（Sarasa + NerdFontFallback go:embed）/ cache.go（FaceCache + FaceCacheProvider 接口 + FallbackFaceCache）/ shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/（SarasaFixedSC-Regular.ttf 6.7MB + NerdFontFallback.ttf 1.05MB PUA子集）+ data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
-│   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
+│   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar) + theme.go (OSDTheme + DefaultOSDTheme)
 │   ├── perf/replay/             # 三级归因 benchmark
 │   └── platform/
 │       ├── surface.go / output.go / input.go / backend.go / keymap.go
@@ -200,8 +202,9 @@ github.com/LaoQi/vistty/
 │       ├── gl/                  # GLES + EGL purego dlopen
 │       ├── gpu/                 # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/             # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
-├── examples/init.lua            # 插件示例配置（含拼音输入法 + 底部状态栏）
+├── examples/init.lua            # 插件示例配置（含拼音输入法 + 底部状态栏 + 主题配置）
 ├── examples/ime.lua             # IME 模块：状态管理+自适应分页+按键处理+渲染
+├── examples/themes/             # 预设主题 Lua 文件（dracula/solarized_dark/solarized_light/gruvbox/monokai/nord/one_dark）
 ├── scripts/
 │   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）
 │   ├── gbm-check.sh             # GBM 运行中检测脚本（进程/帧/DRM/错误）
@@ -253,7 +256,6 @@ debug → 无内部依赖
 | Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理 |
 | X11 窗口后端 | `platform/x11/` | 新增 Backend 实现 |
 | 完整 XKB 支持 | `platform/wayland/keymap.go` | 可选 purego dlopen libxkbcommon.so |
-| 主题/配色 | `screen/` Color 类型 | 预定义主题+用户自定义 |
 | Emoji VS16/ZWJ 序列 | `terminal/terminal.go` + `screen/cell.go` | VS16/VS15 感知（Cell.Attr 标记 emoji presentation）+ ZWJ 序列组合（EmojiID 引用全局序列池） |
 
 ## 参考项目
@@ -315,6 +317,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - Emoji 彩色渲染：自研 `font/emoji.go`（EmojiFace）+ `cmd/gen-emoji` 构建工具；构建期自研 SFNT/cmap/CBLC/CBDT 解析从 NotoColorEmoji.ttf 提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×ascent NRGBA（非预乘匹配混合管线，baseline对齐 dstH=ascent/YOffset=-ascent）；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径；emojiIndex sync.Once 单例避免多屏重复解压；IsEmojiRune 移至 runeutil 包，RuneWidth 对 emoji 基字符强制返回 2（修复 Ambiguous 宽度 emoji 截半，排除 ZWJ/VS 修饰符）；P0+P1 范围（单 rune emoji，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）；双字体 fallback 链（FallbackFace 实现 Face 接口，primary Sarasa miss→NerdFont PUA fallback，YOffset 对齐 primary baseline，compositor/GPU 零改动；FaceCacheProvider 接口统一 FaceCache/FallbackFaceCache，GetFace 适配向后兼容）；Block Elements 合成（synthBlockElement U+2580-259F 硬边几何，主字体子集缺失时兜底，DEC line drawing ▒ 同步修复）；color256 6×6×6 色立方体公式修正（ri/gi/bi 索引，level==0→0，修复 56 色偏蓝/偏青）；PTY 环境补充 COLORTERM=truecolor（避免 TUI 降级 256 色命中 color256 bug）；init.lua fallback_font 可配置/禁用
+- 终端配色主题系统（terminal.Theme DefFg/DefBg/CursorColor/Palette[16] + ui.OSDTheme 8 色；全部走 plugin Lua 配置：vistty.config.theme 静态声明 + vistty.theme.apply/get/default 动态 API；字段级 fallback 缺失字段用 DefaultTheme/DefaultOSDTheme 兜底；7 个内置预设 Lua 主题 dracula/solarized_dark/solarized_light/gruvbox/monokai/nord/one_dark；OSC 12 光标色解析 + OnCursorColor 回调；Compositor.defColor 加 sync.Mutex 快照方案修复 OSC 回调 data race；主题切换覆盖 OSC 运行时修改）
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口 + 顶部栏 CJK 双宽渲染（osdCell.w 列数倍率，对齐底部栏修复方案）+ 单标题 16 列宽截断省略号 + 水平滚动（active tab 始终可见，scroll 偏移对齐 tab 边界）

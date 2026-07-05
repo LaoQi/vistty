@@ -7,6 +7,7 @@ import (
 )
 
 func TestColor256(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
 	tests := []struct {
 		idx  int
 		want screen.Color
@@ -26,7 +27,7 @@ func TestColor256(t *testing.T) {
 		{255, screen.Color{R: 238, G: 238, B: 238}},
 	}
 	for _, tc := range tests {
-		got := color256(tc.idx)
+		got := term.color256(tc.idx)
 		if got != tc.want {
 			t.Errorf("color256(%d) = {%d,%d,%d} IsDefault=%v, want {%d,%d,%d}",
 				tc.idx, got.R, got.G, got.B, got.IsDefault, tc.want.R, tc.want.G, tc.want.B)

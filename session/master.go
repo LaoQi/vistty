@@ -12,6 +12,7 @@ import (
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/plugins"
 	"github.com/LaoQi/vistty/internal/screen"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -209,6 +210,9 @@ func (m *Master) bindTerminalCallbacks(s *Slave, term *terminal.Terminal) {
 	slaveComp := s.Compositor()
 	term.SetOnDefaultColor(func(fg, bg screen.Color) {
 		slaveComp.SetDefaultColors(fg, bg)
+	})
+	term.SetOnCursorColor(func(c screen.Color) {
+		slaveComp.SetCursorColor(c)
 	})
 	term.SetOnTitle(func(title string) {
 		m.titlePending = append(m.titlePending, title)
@@ -609,6 +613,19 @@ func (m *Master) ReloadPlugins() error {
 // 供插件层通过 vistty.exit() 调用，复用现有的两阶段关闭路径。
 func (m *Master) Exit() {
 	m.signalClose()
+}
+
+func (m *Master) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {
+	for _, t := range m.terms {
+		t.SetTheme(&term)
+	}
+	for _, s := range m.slaves {
+		if s.osd != nil {
+			s.osd.SetTheme(osd)
+		}
+	}
+	m.osdDirty = true
+	m.dirty = true
 }
 
 // 编译期断言：Master 实现 plugins.PluginContext 接口。

@@ -1,3 +1,12 @@
+-- 主题配置：require 加载预设主题（themes/ 目录需与 init.lua 同目录）。
+-- 可用预设：dracula / solarized_dark / solarized_light / gruvbox / monokai / nord / one_dark
+-- 也可自定义：theme = { fg="#rrggbb", bg="#rrggbb", cursor="#rrggbb",
+--                      palette={"#...×16"}, osd={bar_bg="#...", ...} }
+-- 运行时动态切换：vistty.theme.apply(require("themes.gruvbox"))
+-- require 失败时 theme 为 nil，Go 层用 DefaultTheme 兜底。
+local theme = require("themes.xterm")
+-- pcall(function() theme = require("themes.dracula") end)
+
 vistty.config = {
 	backend   = "auto",
 	shell     = "/bin/bash",
@@ -5,6 +14,7 @@ vistty.config = {
 	fontsize  = 24,
 	primary   = "",
 	error_log = "",
+	theme     = theme,
 }
 
 -- 当前运行后端的默认 mod 键：wayland 用 ALT，drm/drm-gbm 用 SUPER。

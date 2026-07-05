@@ -1,6 +1,7 @@
 package render
 
 import (
+	"sync"
 	"time"
 
 	"github.com/LaoQi/vistty/internal/font"
@@ -10,8 +11,9 @@ import (
 )
 
 type defaultColor struct {
-	bg screen.Color
-	fg screen.Color
+	bg     screen.Color
+	fg     screen.Color
+	cursor screen.Color
 }
 
 type Compositor struct {
@@ -24,6 +26,7 @@ type Compositor struct {
 	cols         int
 	rows         int
 	defColor     defaultColor
+	mu           sync.Mutex
 	backBuf      []byte
 	backStride   int
 	backWidth    int
@@ -58,8 +61,9 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 		backWidth:   w,
 		backHeight:  h,
 		defColor: defaultColor{
-			bg: screen.Color{R: 0, G: 0, B: 0},
-			fg: screen.Color{R: 204, G: 204, B: 204},
+			bg:     screen.Color{R: 0, G: 0, B: 0},
+			fg:     screen.Color{R: 255, G: 255, B: 255},
+			cursor: screen.Color{R: 255, G: 255, B: 255},
 		},
 		blinkOn: true,
 	}
@@ -229,7 +233,11 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		c.originY = 0
 	}
 
-	defBg := c.defColor.bg
+	c.mu.Lock()
+	dc := c.defColor
+	c.mu.Unlock()
+
+	defBg := dc.bg
 	FillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
 
 	for row := 0; row < c.rows; row++ {
@@ -255,8 +263,8 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 			py := c.originY + row*c.metrics.Height
 			cellW := int(cell.Width) * c.metrics.Width
 
-			fg := c.resolveFg(cell.Fg)
-			bg := c.resolveBg(cell.Bg)
+			fg := resolveFg(cell.Fg, dc)
+			bg := resolveBg(cell.Bg, dc)
 			fgR, fgG, fgB := fg.R, fg.G, fg.B
 			bgR, bgG, bgB := bg.R, bg.G, bg.B
 
@@ -334,10 +342,10 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				if cursorCell.Width == 2 {
 					cursorW *= 2
 				}
-				cursorGlyph, _ = c.getGlyph(cursorRune, false)
-			}
-			fg := c.resolveFg(screen.Color{IsDefault: true})
-			drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), fg.R, fg.G, fg.B, cursorRune, cursorGlyph, c.metrics.Ascent)
+			cursorGlyph, _ = c.getGlyph(cursorRune, false)
+		}
+		cr := dc.cursor
+		drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), cr.R, cr.G, cr.B, cursorRune, cursorGlyph, c.metrics.Ascent)
 		}
 	}
 
@@ -378,7 +386,11 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 	}
 	cursor := buf.Cursor()
 
-	defBg := c.defColor.bg
+	c.mu.Lock()
+	dc := c.defColor
+	c.mu.Unlock()
+
+	defBg := dc.bg
 	defBgR := float32(defBg.R) / 255
 	defBgG := float32(defBg.G) / 255
 	defBgB := float32(defBg.B) / 255
@@ -417,8 +429,8 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			cellW := cellWF * float32(int(cell.Width))
 			cellH := cellHF
 
-			fg := c.resolveFg(cell.Fg)
-			bg := c.resolveBg(cell.Bg)
+			fg := resolveFg(cell.Fg, dc)
+			bg := resolveBg(cell.Bg, dc)
 			fgR, fgG, fgB := float32(fg.R)/255, float32(fg.G)/255, float32(fg.B)/255
 			bgR, bgG, bgB := float32(bg.R)/255, float32(bg.G)/255, float32(bg.B)/255
 			hasBg := float32(0)
@@ -498,11 +510,14 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			if cx < c.cols && cy < c.rows {
 				targetX := float32(c.originX + cx*c.metrics.Width)
 				targetY := float32(c.originY + cy*c.metrics.Height)
+				cursorR := float32(dc.cursor.R) / 255
+				cursorG := float32(dc.cursor.G) / 255
+				cursorB := float32(dc.cursor.B) / 255
 				for i := range c.instances {
 					if c.instances[i].X == targetX && c.instances[i].Y == targetY {
-						c.instances[i].FgR, c.instances[i].BgR = c.instances[i].BgR, c.instances[i].FgR
-						c.instances[i].FgG, c.instances[i].BgG = c.instances[i].BgG, c.instances[i].FgG
-						c.instances[i].FgB, c.instances[i].BgB = c.instances[i].BgB, c.instances[i].FgB
+						c.instances[i].BgR = cursorR
+						c.instances[i].BgG = cursorG
+						c.instances[i].BgB = cursorB
 						c.instances[i].HasBg = 1
 						break
 					}
@@ -532,7 +547,9 @@ func (c *Compositor) Resize(cols, rows int) {
 		stride := w * 4
 		c.backBuf = make([]byte, stride*h)
 		c.backStride = stride
+		c.mu.Lock()
 		bg := c.defColor.bg
+		c.mu.Unlock()
 		FillRect(c.backBuf, c.backStride, 0, 0, w, h, bg.R, bg.G, bg.B)
 	}
 }
@@ -569,20 +586,28 @@ func (c *Compositor) BackBuf() (data []byte, stride, width, height int) {
 }
 
 func (c *Compositor) SetDefaultColors(fg, bg screen.Color) {
+	c.mu.Lock()
 	c.defColor.fg = fg
 	c.defColor.bg = bg
+	c.mu.Unlock()
 }
 
-func (c *Compositor) resolveBg(col screen.Color) screen.Color {
+func (c *Compositor) SetCursorColor(col screen.Color) {
+	c.mu.Lock()
+	c.defColor.cursor = col
+	c.mu.Unlock()
+}
+
+func resolveBg(col screen.Color, dc defaultColor) screen.Color {
 	if col.IsDefault {
-		return c.defColor.bg
+		return dc.bg
 	}
 	return col
 }
 
-func (c *Compositor) resolveFg(col screen.Color) screen.Color {
+func resolveFg(col screen.Color, dc defaultColor) screen.Color {
 	if col.IsDefault {
-		return c.defColor.fg
+		return dc.fg
 	}
 	return col
 }

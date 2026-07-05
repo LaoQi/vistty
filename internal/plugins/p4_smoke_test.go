@@ -3,6 +3,7 @@ package plugins
 import (
 	"testing"
 
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/terminal"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -30,6 +31,7 @@ func (f *p4FakeCtx) EnablePanel(s string, n int)   {}
 func (f *p4FakeCtx) DisablePanel(s string)         {}
 func (f *p4FakeCtx) ReloadPlugins() error          { return nil }
 func (f *p4FakeCtx) Exit()                          {}
+func (f *p4FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 // TestP4CtxTextRectOpts 验证 ctx:text/ctx:rect 的 opts 参数解析（fg/bg/bold）。
 func TestP4CtxTextRectOpts(t *testing.T) {

@@ -20,20 +20,6 @@ const (
 	primRect = 1
 )
 
-var (
-	barBg      = [3]uint8{24, 24, 24}
-	activeBg   = [3]uint8{56, 56, 56}
-	inactiveBg = [3]uint8{32, 32, 32}
-	activeFg   = [3]uint8{230, 230, 230}
-	inactiveFg = [3]uint8{150, 150, 150}
-)
-
-var (
-	csdBtnBg   = [3]uint8{40, 40, 40}
-	csdCloseBg = [3]uint8{200, 50, 50}
-	csdBtnFg   = [3]uint8{200, 200, 200}
-)
-
 const csdBtnCount = 3
 
 type CsdButton int
@@ -58,6 +44,7 @@ type OSD struct {
 	pluginPanels map[string][]PanelPrimitive
 	panelLines   map[string]int
 	csdMode      bool
+	theme        OSDTheme
 }
 
 // PanelPrimitive 是插件面板图元的 UI 包本地定义，
@@ -113,7 +100,7 @@ func truncateTabTitle(title string) string {
 // 返回可见 cells 与调整后的滚动偏移。
 // 滚动策略：active tab 完全可见时保持偏移；否则滚动使 active 可见
 // （左边超出→左对齐；右边超出→靠右对齐到最近的 tab 边界）。
-func layoutTabs(tabs []Tab, active, cellW, width, csdWidth, scroll int) ([]osdCell, int) {
+func (o *OSD) layoutTabs(tabs []Tab, active, cellW, width, csdWidth, scroll int) ([]osdCell, int) {
 	if cellW <= 0 || width <= 0 {
 		return nil, scroll
 	}
@@ -184,11 +171,11 @@ func layoutTabs(tabs []Tab, active, cellW, width, csdWidth, scroll int) ([]osdCe
 		}
 		var tabBg, tabFg [3]uint8
 		if i == active {
-			tabBg = activeBg
-			tabFg = activeFg
+			tabBg = o.theme.ActiveBg
+			tabFg = o.theme.ActiveFg
 		} else {
-			tabBg = inactiveBg
-			tabFg = inactiveFg
+			tabBg = o.theme.InactiveBg
+			tabFg = o.theme.InactiveFg
 		}
 		rx := tStart - scroll
 		if rx >= tabWidth {
@@ -216,17 +203,25 @@ func layoutTabs(tabs []Tab, active, cellW, width, csdWidth, scroll int) ([]osdCe
 	}
 	// 5. 尾部 bar 填充
 	for endX+cellW <= tabWidth {
-		cells = append(cells, osdCell{x: endX, w: 1, r: 0, bgR: barBg[0], bgG: barBg[1], bgB: barBg[2], fgR: inactiveFg[0], fgG: inactiveFg[1], fgB: inactiveFg[2]})
+		cells = append(cells, osdCell{x: endX, w: 1, r: 0, bgR: o.theme.BarBg[0], bgG: o.theme.BarBg[1], bgB: o.theme.BarBg[2], fgR: o.theme.InactiveFg[0], fgG: o.theme.InactiveFg[1], fgB: o.theme.InactiveFg[2]})
 		endX += cellW
 	}
 	return cells, scroll
 }
 
-func NewOSD(face font.Face) *OSD {
+func NewOSD(face font.Face, osdTheme OSDTheme) *OSD {
+	if osdTheme == (OSDTheme{}) {
+		osdTheme = DefaultOSDTheme
+	}
 	return &OSD{
 		face:    face,
 		metrics: face.Metrics(),
+		theme:   osdTheme,
 	}
+}
+
+func (o *OSD) SetTheme(t OSDTheme) {
+	o.theme = t
 }
 
 func (o *OSD) SetCSDMode(csd bool) {
@@ -244,13 +239,13 @@ func (o *OSD) csdButtonsWidth() int {
 	return csdBtnCount * o.metrics.Width
 }
 
-func layoutCsdButtons(cellW, width int) []osdCell {
+func (o *OSD) layoutCsdButtons(cellW, width int) []osdCell {
 	if cellW <= 0 || width <= 0 {
 		return nil
 	}
 	syms := []rune{'─', '□', '✕'}
-	bgs := [3][3]uint8{csdBtnBg, csdBtnBg, csdCloseBg}
-	fgs := [3][3]uint8{csdBtnFg, csdBtnFg, csdBtnFg}
+	bgs := [3][3]uint8{o.theme.CsdBtnBg, o.theme.CsdBtnBg, o.theme.CsdCloseBg}
+	fgs := [3][3]uint8{o.theme.CsdBtnFg, o.theme.CsdBtnFg, o.theme.CsdBtnFg}
 	var cells []osdCell
 	for i := 0; i < csdBtnCount; i++ {
 		x := width - (csdBtnCount-i)*cellW
@@ -380,7 +375,7 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 		return
 	}
 	csdW := o.csdButtonsWidth()
-	cells, sc := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
+	cells, sc := o.layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
 	o.scroll = sc
 	for _, c := range cells {
 		render.FillRect(buf, stride, c.x, 0, c.w*o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
@@ -395,7 +390,7 @@ func (o *OSD) RenderCPU(buf []byte, stride, width, height int) {
 		}
 	}
 	if csdW > 0 {
-		csdCells := layoutCsdButtons(o.metrics.Width, width)
+		csdCells := o.layoutCsdButtons(o.metrics.Width, width)
 		for _, c := range csdCells {
 			render.FillRect(buf, stride, c.x, 0, c.w*o.metrics.Width, o.metrics.Height, c.bgR, c.bgG, c.bgB)
 			if c.r != 0 && o.gp != nil {
@@ -508,7 +503,7 @@ func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 		return
 	}
 	csdW := o.csdButtonsWidth()
-	cells, sc := layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
+	cells, sc := o.layoutTabs(o.tabs, o.active, o.metrics.Width, width, csdW, o.scroll)
 	o.scroll = sc
 	cellW := float32(o.metrics.Width)
 	cellH := float32(o.metrics.Height)
@@ -543,7 +538,7 @@ func (o *OSD) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 		*instances = append(*instances, inst)
 	}
 	if csdW > 0 {
-		csdCells := layoutCsdButtons(o.metrics.Width, width)
+		csdCells := o.layoutCsdButtons(o.metrics.Width, width)
 		for _, c := range csdCells {
 			inst := platform.CellInstance{
 				X:         float32(c.x),
