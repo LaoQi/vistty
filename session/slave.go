@@ -15,7 +15,7 @@ type Slave struct {
 	activeIdx  int
 
 	compositor *render.Compositor
-	faceCache  *font.FaceCache
+	faceCache  font.FaceCacheProvider
 	face       font.Face
 	osd        *ui.OSD
 
@@ -63,12 +63,18 @@ func (s *Slave) Output() platform.Output {
 	return s.output
 }
 
-func (s *Slave) InitIndependent(fontData []byte, fontSize float64) error {
-	fc, err := font.NewFaceCache(fontData, 72)
+func (s *Slave) InitIndependent(fontData, fallbackFontData []byte, fontSize float64) error {
+	var fc font.FaceCacheProvider
+	var err error
+	if len(fallbackFontData) > 0 {
+		fc, err = font.NewFallbackFaceCache(fontData, fallbackFontData, 72)
+	} else {
+		fc, err = font.NewFaceCache(fontData, 72)
+	}
 	if err != nil {
 		return err
 	}
-	face, err := fc.Get(fontSize)
+	face, err := fc.GetFace(fontSize)
 	if err != nil {
 		fc.Close()
 		return err
@@ -102,7 +108,7 @@ func (s *Slave) SetFace(f font.Face) {
 	}
 }
 
-func (s *Slave) FaceCache() *font.FaceCache {
+func (s *Slave) FaceCache() font.FaceCacheProvider {
 	return s.faceCache
 }
 

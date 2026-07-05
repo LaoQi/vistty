@@ -1133,7 +1133,7 @@ func (t *Terminal) WriteKeyEscape(code uint16, mods platform.Modifiers) {
 func startPty(shell string, rows, cols int) (*os.File, *os.Process, error) {
 	ws := &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}
 	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
 	ptmx, err := pty.StartWithSize(cmd, ws)
 	if err != nil {
 		return nil, nil, err
@@ -1179,22 +1179,18 @@ func color256(idx int) screen.Color {
 	}
 	if idx >= 16 && idx < 232 {
 		i := idx - 16
+		ri := i / 36
+		gi := (i / 6) % 6
+		bi := i % 6
 		r, g, b := 0, 0, 0
-		if i >= 36 {
-			r = 55 + 40*((i/36)%6)
+		if ri > 0 {
+			r = 55 + 40*ri
 		}
-		if i >= 6 {
-			g = 55 + 40*((i/6)%6)
+		if gi > 0 {
+			g = 55 + 40*gi
 		}
-		b = 55 + 40*(i%6)
-		if r > 255 {
-			r = 255
-		}
-		if g > 255 {
-			g = 255
-		}
-		if b > 255 {
-			b = 255
+		if bi > 0 {
+			b = 55 + 40*bi
 		}
 		return screen.Color{R: uint8(r), G: uint8(g), B: uint8(b)}
 	}

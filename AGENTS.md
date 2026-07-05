@@ -18,7 +18,7 @@
 | 4 | PTY 管理 | `creack/pty` | Go 生态标准方案，纯 Go |
 | 5 | 转义序列解析 | 自研 | 参考 go-vte 状态机 + darktile termutil |
 | 6 | 终端缓冲区 | 自研 | 参考 darktile termutil Cell/Line/Buffer |
-| 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | 内置 Sarasa Fixed SC 子集（等宽+CJK） |
+| 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | 内置 Sarasa Fixed SC 子集（等宽+CJK）+ NerdFont PUA fallback 子集（Powerline/Nerd图标）+ Block Elements 合成 |
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 go-text/typesetting/harfbuzz |
 | 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer + GPU instanced draw |
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
@@ -189,7 +189,7 @@ github.com/LaoQi/vistty/
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
-│   ├── font/                    # face.go / atlas.go / metrics.go / embedded.go / cache.go / shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/ + data/emoji.bin.gz（1353 emoji，2.7MB gzip）
+│   ├── font/                    # face.go（OpenTypeFace + FallbackFace primary→fallback→synth + synthBlockElement 块字符合成 U+2580-259F）/ atlas.go / metrics.go / embedded.go（Sarasa + NerdFontFallback go:embed）/ cache.go（FaceCache + FaceCacheProvider 接口 + FallbackFaceCache）/ shear.go（斜体字形预生成）+ emoji.go（EmojiFace：go:embed emoji.bin.gz + 紧凑索引 + PNG解码+BiLinear缩放+NRGBA，baseline对齐 dstH=ascent/YOffset=-ascent）+ assets/（SarasaFixedSC-Regular.ttf 6.7MB + NerdFontFallback.ttf 1.05MB PUA子集）+ data/emoji.bin.gz（1353 emoji，2.7MB gzip）
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar)
 │   ├── perf/replay/             # 三级归因 benchmark
@@ -314,7 +314,7 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
 - CJK 双宽字符（终端 cell + OSD 面板）+ scroll region 感知换行 + alternate screen + deferred wrap
 - Emoji 彩色渲染：自研 `font/emoji.go`（EmojiFace）+ `cmd/gen-emoji` 构建工具；构建期自研 SFNT/cmap/CBLC/CBDT 解析从 NotoColorEmoji.ttf 提取单 rune emoji PNG（CBDT format17），gzip 内嵌 2.7MB/1353 emoji；运行时复用 pinyin/dict.go 紧凑索引（buf常驻+二分查找+PNG零复制）+ image/png 解码 + draw.BiLinear 缩放到 2*cellW×ascent NRGBA（非预乘匹配混合管线，baseline对齐 dstH=ascent/YOffset=-ascent）；CPU blendColorGlyph(BGRA预乘)+GPU shader isColor分支+独立 UploadColorGlyph 双路径；emojiIndex sync.Once 单例避免多屏重复解压；IsEmojiRune 移至 runeutil 包，RuneWidth 对 emoji 基字符强制返回 2（修复 Ambiguous 宽度 emoji 截半，排除 ZWJ/VS 修饰符）；P0+P1 范围（单 rune emoji，VS16/ZWJ 未实现）
-- 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）
+- 内置 Sarasa Fixed SC 字体 + FaceCache 缩放优化（6-72pt）；双字体 fallback 链（FallbackFace 实现 Face 接口，primary Sarasa miss→NerdFont PUA fallback，YOffset 对齐 primary baseline，compositor/GPU 零改动；FaceCacheProvider 接口统一 FaceCache/FallbackFaceCache，GetFace 适配向后兼容）；Block Elements 合成（synthBlockElement U+2580-259F 硬边几何，主字体子集缺失时兜底，DEC line drawing ▒ 同步修复）；color256 6×6×6 色立方体公式修正（ri/gi/bi 索引，level==0→0，修复 56 色偏蓝/偏青）；PTY 环境补充 COLORTERM=truecolor（避免 TUI 降级 256 色命中 color256 bug）；init.lua fallback_font 可配置/禁用
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口 + 顶部栏 CJK 双宽渲染（osdCell.w 列数倍率，对齐底部栏修复方案）+ 单标题 16 列宽截断省略号 + 水平滚动（active tab 始终可见，scroll 偏移对齐 tab 边界）

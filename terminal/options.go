@@ -8,9 +8,10 @@ import (
 )
 
 type Options struct {
-	Shell          string
-	FontPath       string
-	FontSize       float64
+	Shell            string
+	FontPath         string
+	FallbackFontPath string // path to fallback font; empty uses built-in NerdFont subset
+	FontSize         float64
 	RepeatDelay    time.Duration
 	RepeatRate     time.Duration
 	OnTitle        func(string)
@@ -21,10 +22,11 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		Shell:       "/bin/bash",
-		FontPath:    "",
-		FontSize:    14,
-		RepeatDelay: 250 * time.Millisecond,
-		RepeatRate:  33 * time.Millisecond,
+		Shell:            "/bin/bash",
+		FontPath:         "",
+		FallbackFontPath: "",
+		FontSize:         14,
+		RepeatDelay:      250 * time.Millisecond,
+		RepeatRate:       33 * time.Millisecond,
 	}
 }

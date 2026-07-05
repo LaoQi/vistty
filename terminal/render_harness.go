@@ -15,7 +15,7 @@ import (
 type RenderHarness struct {
 	*Terminal
 	compositor *render.Compositor
-	faceCache  *font.FaceCache
+	faceCache  font.FaceCacheProvider
 	surface    platform.Surface
 }
 
@@ -31,12 +31,33 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, e
 		fontData = font.EmbeddedFontData()
 	}
 
-	faceCache, err := font.NewFaceCache(fontData, 72)
-	if err != nil {
-		return nil, fmt.Errorf("load font: %w", err)
+	var fallbackFontData []byte
+	if opts.FallbackFontPath != "" {
+		data, err := os.ReadFile(opts.FallbackFontPath)
+		if err != nil {
+			return nil, fmt.Errorf("read fallback font file: %w", err)
+		}
+		fallbackFontData = data
+	} else {
+		fallbackFontData = font.EmbeddedFallbackFontData()
 	}
 
-	face, err := faceCache.Get(opts.FontSize)
+	var faceCache font.FaceCacheProvider
+	if len(fallbackFontData) > 0 {
+		fc, err := font.NewFallbackFaceCache(fontData, fallbackFontData, 72)
+		if err != nil {
+			return nil, fmt.Errorf("load fallback font: %w", err)
+		}
+		faceCache = fc
+	} else {
+		fc, err := font.NewFaceCache(fontData, 72)
+		if err != nil {
+			return nil, fmt.Errorf("load font: %w", err)
+		}
+		faceCache = fc
+	}
+
+	face, err := faceCache.GetFace(opts.FontSize)
 	if err != nil {
 		faceCache.Close()
 		return nil, fmt.Errorf("get face: %w", err)

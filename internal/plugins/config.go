@@ -9,12 +9,13 @@ import (
 )
 
 type RunConfig struct {
-	Backend  string
-	Shell    string
-	FontPath string
-	FontSize float64
-	Primary  string
-	ErrorLog string
+	Backend          string
+	Shell            string
+	FontPath         string
+	FallbackFontPath string
+	FontSize         float64
+	Primary          string
+	ErrorLog         string
 }
 
 func DefaultInitPath() string {
@@ -31,12 +32,13 @@ func DefaultInitPath() string {
 
 func DefaultRunConfig() *RunConfig {
 	return &RunConfig{
-		Backend:  "auto",
-		Shell:    "/bin/bash",
-		FontPath: "",
-		FontSize: 14,
-		Primary:  "",
-		ErrorLog: "",
+		Backend:          "auto",
+		Shell:            "/bin/bash",
+		FontPath:         "",
+		FallbackFontPath: "",
+		FontSize:         14,
+		Primary:          "",
+		ErrorLog:         "",
 	}
 }
 
@@ -63,6 +65,7 @@ func (pm *PluginManager) readConfig() (*RunConfig, error) {
 	cfg.Backend = getString(pm.L, ct, "backend", cfg.Backend)
 	cfg.Shell = getString(pm.L, ct, "shell", cfg.Shell)
 	cfg.FontPath = getString(pm.L, ct, "font", cfg.FontPath)
+	cfg.FallbackFontPath = getString(pm.L, ct, "fallback_font", cfg.FallbackFontPath)
 	cfg.FontSize = getNumber(pm.L, ct, "fontsize", cfg.FontSize)
 	cfg.Primary = getString(pm.L, ct, "primary", cfg.Primary)
 	cfg.ErrorLog = getString(pm.L, ct, "error_log", cfg.ErrorLog)

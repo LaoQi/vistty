@@ -387,7 +387,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	if newSize == m.opts.FontSize {
 		return
 	}
-	newFace, err := s.FaceCache().Get(newSize)
+	newFace, err := s.FaceCache().GetFace(newSize)
 	if err != nil {
 		debug.Errorf("handleScale: face cache get failed: %v\n", err)
 		return

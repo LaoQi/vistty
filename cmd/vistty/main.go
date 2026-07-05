@@ -71,6 +71,7 @@ func run() error {
 	opts := terminal.DefaultOptions()
 	opts.Shell = runCfg.Shell
 	opts.FontPath = runCfg.FontPath
+	opts.FallbackFontPath = runCfg.FallbackFontPath
 	opts.FontSize = runCfg.FontSize
 	opts.Primary = runCfg.Primary
 

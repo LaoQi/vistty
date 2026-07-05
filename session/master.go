@@ -42,8 +42,9 @@ type Master struct {
 	slaves     []*Slave
 	input      platform.InputSource
 
-	fontData        []byte
-	initialFontSize float64
+	fontData          []byte
+	fallbackFontData  []byte
+	initialFontSize   float64
 
 	terms    []*terminal.Terminal
 	focusIdx int
@@ -113,6 +114,16 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		fontData = font.EmbeddedFontData()
 	}
 
+	var fallbackFontData []byte
+	if opts.FallbackFontPath != "" {
+		fallbackFontData, err = os.ReadFile(opts.FallbackFontPath)
+		if err != nil {
+			return nil, fmt.Errorf("read fallback font file: %w", err)
+		}
+	} else {
+		fallbackFontData = font.EmbeddedFallbackFontData()
+	}
+
 	var slaves []*Slave
 	for _, out := range outputs {
 		surf, err := backend.CreateSurfaceFor(out)
@@ -131,8 +142,9 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		outputs:         outputs,
 		primaryIdx:      primaryIdx,
 		slaves:          slaves,
-		fontData:        fontData,
-		initialFontSize: opts.FontSize,
+		fontData:          fontData,
+		fallbackFontData:  fallbackFontData,
+		initialFontSize:   opts.FontSize,
 		focusIdx:        0,
 		scaleReqCh:      make(chan scaleReq, 1),
 		renderReqCh:     make(chan struct{}, 1),
@@ -162,7 +174,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 
 func (m *Master) initIndependent() error {
 	for _, s := range m.slaves {
-		if err := s.InitIndependent(m.fontData, m.opts.FontSize); err != nil {
+		if err := s.InitIndependent(m.fontData, m.fallbackFontData, m.opts.FontSize); err != nil {
 			return fmt.Errorf("init independent slave %s: %w", s.Output().Name(), err)
 		}
 		met := s.Face().Metrics()
