@@ -106,12 +106,11 @@ func (c *Compositor) getGlyph(r rune, italic bool) (*font.Glyph, error) {
 		if g := c.atlas.Get(r); g != nil {
 			return g, nil
 		}
-		g, err := c.emojiFace.Glyph(r)
-		if err != nil || g == nil {
-			return nil, err
+		if g, err := c.emojiFace.Glyph(r); err == nil && g != nil {
+			c.atlas.Put(r, g)
+			return g, nil
 		}
-		c.atlas.Put(r, g)
-		return g, nil
+		// emojiFace miss（如非 emoji 的 Dingbats ✕ 被 IsEmojiRune 误判）→ 回退到常规 face
 	}
 	if !italic {
 		if g := c.atlas.Get(r); g != nil {

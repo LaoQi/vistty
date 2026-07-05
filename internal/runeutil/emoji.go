@@ -12,7 +12,20 @@ func IsEmojiRune(r rune) bool {
 		return true
 	case 0x2600 <= r && r <= 0x26FF:
 		return true
-	case 0x2700 <= r && r <= 0x27BF:
+	case r == 0x2712 || r == 0x2714 || r == 0x2716 || r == 0x271D ||
+		r == 0x2721 || r == 0x2728:
+		return true
+	case 0x2733 <= r && r <= 0x2734:
+		return true
+	case r == 0x2744 || r == 0x2747 || r == 0x274C || r == 0x274E:
+		return true
+	case 0x2753 <= r && r <= 0x2755:
+		return true
+	case r == 0x2757 || r == 0x2763 || r == 0x2764:
+		return true
+	case 0x2795 <= r && r <= 0x2797:
+		return true
+	case r == 0x27A1 || r == 0x27B0 || r == 0x27BF:
 		return true
 	case 0xFE00 <= r && r <= 0xFE0F:
 		return true

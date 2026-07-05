@@ -18,6 +18,10 @@ func TestRuneWidthEmoji(t *testing.T) {
 		{"VS16 U+FE0F", 0xFE0F, 1},
 		{"ascii A", 'A', 1},
 		{"cjk 中", '中', 2},
+		{"mult-x U+2715 ✕", 0x2715, 1},
+		{"mult-sign U+00D7 ×", 0x00D7, 1},
+		{"pi U+03C0 π", 0x03C0, 1},
+		{"heavy-x U+2716 ✖", 0x2716, 2},
 	}
 	for _, c := range cases {
 		if got := RuneWidth(c.r); got != c.want {

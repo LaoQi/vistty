@@ -7,10 +7,12 @@
 | 来源 | 字体 | 体积 | 覆盖职责 |
 |------|------|------|----------|
 | 主字体 | Sarasa Fixed SC subset | 6.7MB | CJK（20992字全）、Box Drawing、箭头、数学、几何、CJK 标点、半宽全角 |
-| Fallback | NerdFont PUA subset | 1.05MB | Powerline（U+E0A0-E0D4）+ Nerd Font 图标（PUA 3500个） |
+| Fallback | NerdFont PUA + Dingbats/Greek/Misc Symbols subset | 1.17MB | Powerline（U+E0A0-E0D4）+ Nerd Font 图标（PUA 3500个）+ Dingbats（U+2700-27BF，144 字形，含 ✕）+ Greek（U+0370-03FF，116 字形，含 π）+ Misc Symbols（U+2600-26FF，149 字形） |
 | 合成 | synthBlockElement | - | Block Elements（U+2580-259F，硬边几何） |
 
 查找顺序：`primary.Glyph(r)` → miss → `fallback.Glyph(r)` → miss → `synthBlockElement(r)`（仅块字符）→ nil
+
+> 字形补充由 `scripts/gen-font-subset.sh` 生成：pyftsubset 从 NotoMonoNerdFontMono 提取 PUA + 从 DejaVuSansMono 提取 Dingbats/Greek/Misc Symbols，fonttools 合并。
 
 ## 覆盖概览（cmap 实测）
 
@@ -25,7 +27,9 @@
 | Box Drawing | U+2500-257F | Sarasa | 全 |
 | Block Elements | U+2580-259F | 合成 | 全（32/32） |
 | Geometric Shapes | U+25A0-25FF | Sarasa | 全 |
-| Misc Symbols | U+2600-26FF | Sarasa | 108/256（稀疏） |
+| Misc Symbols | U+2600-26FF | Sarasa+NerdFont | 178/256（Sarasa 108 + NerdFont 补 70） |
+| Dingbats | U+2700-27BF | NerdFont | 144/192（补 ✕ U+2715 等，源 DejaVuSansMono） |
+| Greek | U+0370-03FF | NerdFont | 116/144（补 π U+03C0 等，源 DejaVuSansMono） |
 | CJK Sym & Punct | U+3000-303F | Sarasa | 全 |
 | CJK Unified | U+4E00-9FFF | Sarasa | 全（20992） |
 | Half/Fullwidth | U+FF00-FFEF | Sarasa | 225/240 |
@@ -205,7 +209,10 @@ TESTEOF
 | 日文假名 | U+3040-30FF | Sarasa SC 是简中版 | 日文不显示 |
 | 韩文 | U+AC00-D7AF | 子集不含 | 韩文不显示 |
 | Braille | U+2800-28FF | 子集不含 | 盲文不显示 |
-| 部分Misc Symbols | U+2600-26FF 稀疏 | 子集部分裁剪 | 部分符号缺失 |
+| 部分Misc Symbols | U+2600-26FF | Sarasa 108 + NerdFont 补 70 = 178/256 | 剩余 78 个符号缺失 |
+| Control Pictures | U+2400-243F | 仅 AdwaitaMono 覆盖，upem=1000 与 DejaVu/NerdFont(2048) 不兼容无法合并 | DEC 画线模式 b/c/d/e/h/i（␉␊␋␌␍␤）不显示，实际几乎不触发 |
+| 部分Greek | U+0370-03FF | NerdFont 补 116/144 | 剩余 28 个希腊字母变体缺失 |
+| 部分Dingbats | U+2700-27BF | NerdFont 补 144/192 | 剩余 48 个 Dingbats 缺失 |
 
 ## 排查指南
 

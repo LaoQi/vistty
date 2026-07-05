@@ -13,12 +13,13 @@
 FallbackFace.Glyph(r):
   ① primary.Glyph(r)        [Sarasa，含 synthBlockElement 块字符合成]
      hit → 返回
-  ② fallback.Glyph(r)       [NerdFont subset：Powerline/Nerd图标]
-     hit → 调 YOffset 对齐 primary baseline → 返回
+   ② fallback.Glyph(r)       [NerdFont subset：Powerline/Nerd图标 + Dingbats/Greek/Misc Symbols]
+      hit → 调 YOffset 对齐 primary baseline → 返回
   ③ nil
 ```
 
-**子集范围**：Powerline (U+E0A0-E0D4) + Nerd PUA 图标 (U+E000-F8FF)，约 1.1MB。
+**子集范围**：Powerline (U+E0A0-E0D4) + Nerd PUA 图标 (U+E000-F8FF) + Dingbats (U+2700-27BF) + Greek (U+0370-03FF) + Misc Symbols (U+2600-26FF)，约 1.17MB / 3909 字形。
+Dingbats/Greek/Misc Symbols 来自 DejaVuSansMono，补齐主字体（Sarasa 子集）缺失的 `✕`(U+2715，CSD 关闭按钮)、`π`(U+03C0，DEC 画线模式) 等字形。子集化过程由 `scripts/gen-font-subset.sh` 可复现。
 
 ## 实施阶段
 
@@ -26,14 +27,23 @@ FallbackFace.Glyph(r):
 - **状态**: 已审计
 - **目标**: 实现 FallbackFace 类型、FallbackFaceCache、embed NerdFont subset，compositor 无感知
 - **实施内容**:
-  1. 生成 NerdFont subset 字体文件：
-     ```bash
-     pyftsubset /usr/share/fonts/TTF/NotoMonoNerdFontMono-Regular.ttf \
-       --unicodes=U+E000-F8FF \
-       --notdef-outline \
-       --output-file=internal/font/assets/NerdFontFallback.ttf
-     ```
-     （U+E000-F8FF 整个 PUA 含 Powerline E0A0-E0D4 + Nerd 图标，约 1.1MB）
+   1. 生成 NerdFont subset 字体文件（双源合并）：
+      ```bash
+      # 可复现脚本：./scripts/gen-font-subset.sh
+      # 源 1：NerdFont PUA（Powerline + Nerd 图标）
+      pyftsubset /usr/share/fonts/TTF/NotoMonoNerdFontMono-Regular.ttf \
+        --unicodes=U+E000-F8FF \
+        --notdef-outline \
+        --output-file=pua.ttf
+      # 源 2：Dingbats + Greek + Misc Symbols（补 ✕ π 等主字体缺失字形）
+      pyftsubset /usr/share/fonts/TTF/DejaVuSansMono.ttf \
+        --unicodes=U+2700-27BF,U+0370-03FF,U+2600-26FF \
+        --notdef-outline \
+        --output-file=symbols.ttf
+      # 合并
+      python3 -c "from fontTools.merge import Merger; Merger().merge(['pua.ttf','symbols.ttf']).save('font/assets/NerdFontFallback.ttf')"
+      ```
+      （PUA 3500 字形 + Dingbats 144 + Greek 116 + Misc Symbols 149 = 3909 字形，约 1.17MB）
   2. `internal/font/embedded.go`：新增 `//go:embed assets/NerdFontFallback.ttf` + `embeddedFallbackFont []byte` + `EmbeddedFallbackFontData() []byte`
   3. `internal/font/face.go`：新增 `FallbackFace` 类型：
      ```go
@@ -134,3 +144,4 @@ FallbackFace.Glyph(r):
 | 2026-07-04 | 阶段3 | 实施完成 | master/slave/render_loop/render_harness 集成 fallback |
 | 2026-07-04 | 阶段3 | 审计通过 | 全部调用点更新，build/vet/test 通过 |
 | 2026-07-04 | 整体 | 已完成 | 最终回归通过（仅预先存在 TestP6ExampleInitLua 失败） |
+| 2026-07-06 | 字形补齐 | 实施完成 | NerdFont subset 合并 DejaVuSansMono 的 Dingbats/Greek/Misc Symbols，补齐 ✕(U+2715) π(U+03C0) 等；新增 scripts/gen-font-subset.sh 可复现脚本；1.05MB→1.17MB |
