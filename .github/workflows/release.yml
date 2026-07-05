@@ -1,0 +1,63 @@
+name: Release
+
+# 仅在推送 v* 版本 tag 时触发，构建 linux x86_64 发行包并发布到 Release。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 创建 Release 与上传资源需要该权限
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 完整历史，保证 git describe --tags 正确解析版本号
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          ./scripts/build.sh vistty
+          file vistty
+          ./vistty -version
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          STAGE="vistty-${VERSION}-linux-x86_64"
+          mkdir -p "${STAGE}"
+          cp vistty "${STAGE}/"
+          cp -r examples "${STAGE}/"
+          cp README.md README.zh-CN.md LICENSE "${STAGE}/"
+          zip -r "${STAGE}.zip" "${STAGE}"
+          sha256sum "${STAGE}.zip" > "${STAGE}.zip.sha256"
+          echo "## Artifact" > release_notes.md
+          echo "" >> release_notes.md
+          echo "Package: \`${STAGE}.zip\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "SHA-256:" >> release_notes.md
+          echo '```' >> release_notes.md
+          cat "${STAGE}.zip.sha256" >> release_notes.md
+          echo '```' >> release_notes.md
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: release_notes.md
+          generate_release_notes: true
+          files: |
+            vistty-*-linux-x86_64.zip
+            vistty-*-linux-x86_64.zip.sha256

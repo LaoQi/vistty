@@ -13,6 +13,7 @@ import (
 	"github.com/LaoQi/vistty/internal/platform/gbm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
 	"github.com/LaoQi/vistty/internal/plugins"
+	"github.com/LaoQi/vistty/internal/version"
 	"github.com/LaoQi/vistty/session"
 	"github.com/LaoQi/vistty/terminal"
 )
@@ -35,7 +36,13 @@ func run() error {
 	ttyFlag := flag.String("tty", "", "bind to specified tty (e.g. 2 or /dev/tty2), DRM only")
 	listOutputsFlag := flag.Bool("list-outputs", false, "list all display outputs and exit")
 	configFlag := flag.String("config", "", "init.lua script path (default ~/.config/vistty/init.lua)")
+	versionFlag := flag.Bool("version", false, "print version info and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version.String())
+		return nil
+	}
 
 	configPath := *configFlag
 	if configPath == "" {

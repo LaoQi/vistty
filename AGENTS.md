@@ -194,6 +194,7 @@ github.com/LaoQi/vistty/
 │   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar) + theme.go (OSDTheme + DefaultOSDTheme)
+│   ├── version/                 # version.go（ldflags 注入 + ReadBuildInfo VCS fallback，-version 命令行 + vistty.version()/version_info() Lua API）
 │   ├── perf/replay/             # 三级归因 benchmark
 │   └── platform/
 │       ├── surface.go / output.go / input.go / backend.go / keymap.go
@@ -211,19 +212,20 @@ github.com/LaoQi/vistty/
 │   ├── gen-dict-ice.sh          # rime-ice 词库重建脚本（git clone rime-ice → gen-dict → gzip）
 │   ├── gen-dict-luna.sh         # rime-luna-pinyin 词库重建脚本（-order-weight 倒序赋权）
 │   └── htop-init.lua            # htop 专用 init.lua（shell=/usr/bin/htop, backend=drm-gbm）
+├── .github/workflows/release.yml # CI Release（v* tag 触发：复用 build.sh 编译 linux x86_64 + 打包 vistty/examples/README/LICENSE → GitHub Release，附 sha256）
 └── work_docs/                   # 开发过程文档（含 implementation-emoji.md emoji 实施方案）
 ```
 
 ### 依赖方向
 
 ```
-cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui
+cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui, version
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
 cmd/gen-emoji → internal/runeutil（共享 IsEmojiRune）
 pinyin → 无内部依赖（顶层包，go:embed 词库）
 terminal → screen, vte, render, platform, font, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
-plugins → terminal, platform, ui, pinyin, debug（不依赖 session，通过 PluginContext 依赖倒置）
+plugins → terminal, platform, ui, pinyin, version, debug（不依赖 session，通过 PluginContext 依赖倒置）
 render → font, platform (Surface 接口)
 ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform, runeutil
 platform/drm → platform (Surface/GBMProvider 接口), go-evdev, golang.org/x/sys/unix (inotify/epoll), debug
@@ -234,6 +236,7 @@ platform/wayland → 无外部依赖（自研 wl.go）
 screen, vte → 无内部依赖
 runeutil → 无内部依赖（golang.org/x/text/width）
 font → 无内部依赖（顶层包），golang.org/x/image/font/opentype, golang.org/x/image/draw（emoji 缩放）
+version → 无内部依赖（runtime/debug，ldflags 注入 + ReadBuildInfo VCS fallback）
 plugins → gopher-lua
 debug → 无内部依赖
 ```
@@ -304,6 +307,8 @@ go run ./cmd/vistty -backend drm -tty 2     # 绑定 tty2
 go run ./cmd/vistty -config ~/my-init.lua   # 指定自定义 init.lua
 go run ./cmd/vistty -list-outputs           # 列出所有输出设备
 go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
+go run ./cmd/vistty -version                # 查看版本信息（go run 显示 develop，go build 显示 commit）
+./scripts/build.sh                          # 带版本注入构建（git describe --tags → ldflags）
 ```
 
 ## 已实现功能概要
@@ -334,3 +339,4 @@ go run ./cmd/vistty -primary HDMI-A-1       # 指定主屏
 - GBM flip 超时兜底（channel+select+time.After 5s，防止内核 flip 事件丢失导致 Swap 永久阻塞）
 - DRM EventReader 有状态事件读取（缓存残差 buffer 逐个解析，防止多屏同时 flip 完成时事件丢失）
 - GBM active/closed 统一 commitMu 保护（消除跨锁 data race）
+- 版本信息（internal/version 包：ldflags 注入 git describe --tags --always --dirty + ReadBuildInfo VCS fallback；-version 命令行查询 + vistty.version()/version_info() Lua API；scripts/build.sh 构建脚本）
