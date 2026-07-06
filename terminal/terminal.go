@@ -69,6 +69,8 @@ type Terminal struct {
 	active          bool
 	cols            int
 	rows            int
+	appSyncUpdates  bool
+	syncTimer       *time.Timer
 }
 
 func New(opts Options, cols, rows int) (*Terminal, error) {
@@ -198,6 +200,7 @@ func (t *Terminal) ScrollOffset() int {
 
 func (t *Terminal) SetScrollOffset(n int) {
 	t.scrollOffset = n
+	t.screen.DamageAll()
 }
 
 func (t *Terminal) Active() bool {
@@ -214,6 +217,48 @@ func (t *Terminal) Rows() int {
 
 func (t *Terminal) CursorKeysApp() bool {
 	return t.cursorKeysApp
+}
+
+func (t *Terminal) IsSyncUpdates() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.appSyncUpdates
+}
+
+func (t *Terminal) enableSyncUpdates() {
+	t.appSyncUpdates = true
+	if t.syncTimer == nil {
+		t.syncTimer = time.AfterFunc(time.Second, t.syncUpdateExpired)
+	} else {
+		t.syncTimer.Reset(time.Second)
+	}
+}
+
+func (t *Terminal) disableSyncUpdates() {
+	if !t.appSyncUpdates {
+		return
+	}
+	t.appSyncUpdates = false
+	if t.syncTimer != nil {
+		t.syncTimer.Stop()
+	}
+}
+
+func (t *Terminal) syncUpdateExpired() {
+	t.mu.Lock()
+	if !t.appSyncUpdates {
+		t.mu.Unlock()
+		return
+	}
+	t.appSyncUpdates = false
+	if t.syncTimer != nil {
+		t.syncTimer.Stop()
+	}
+	cb := t.opts.OnRenderRequest
+	t.mu.Unlock()
+	if cb != nil {
+		cb()
+	}
 }
 
 func (t *Terminal) Lock() {
@@ -273,6 +318,8 @@ func (t *Terminal) Resize(cols, rows int) {
 	t.cols = cols
 	t.rows = rows
 	t.setPtySize(rows, cols)
+	t.mainBuf.DamageAll()
+	t.altBuf.DamageAll()
 }
 
 func (t *Terminal) SetPtySize(rows, cols int) {
@@ -289,6 +336,9 @@ func (t *Terminal) setPtySize(rows, cols int) {
 func (t *Terminal) cleanup() {
 	t.cleanupOnce.Do(func() {
 		debug.Debugf("cleanup: starting\n")
+		if t.syncTimer != nil {
+			t.syncTimer.Stop()
+		}
 		if t.ptyCmd != nil {
 			t.ptyCmd.Signal(syscall.SIGTERM)
 			ch := make(chan struct{})
@@ -356,6 +406,8 @@ func (t *Terminal) PtyReadLoop() {
 
 func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 	for _, seq := range seqs {
+		prevRow := t.cursor.Row
+		prevCol := t.cursor.Col
 		switch seq.Action {
 		case vte.ActionPrint:
 			t.execPrint(seq)
@@ -369,6 +421,10 @@ func (t *Terminal) executeSequences(seqs []vte.Sequence) {
 			t.execESC(seq)
 		case vte.ActionDCS:
 		case vte.ActionIgnore:
+		}
+		if t.cursor.Row != prevRow || t.cursor.Col != prevCol {
+			t.screen.DamageCursor(prevRow, prevCol)
+			t.screen.DamageCursor(t.cursor.Row, t.cursor.Col)
 		}
 	}
 }
@@ -419,6 +475,7 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 			t.cursor.Col = t.screen.Cols() - 1
 		}
 	}
+	t.screen.DamageLine(t.cursor.Row)
 }
 
 func (t *Terminal) execControl(seq vte.Sequence) {
@@ -663,6 +720,7 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				t.screen = t.mainBuf
 				t.cursor = t.mainBuf.Cursor()
 			}
+			t.screen.DamageAll()
 		case 1048:
 			if isSet {
 				t.saveCursor()
@@ -685,11 +743,18 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				t.restoreCursor()
 				t.scrollOffset = 0
 			}
-		case 1004:
-			t.focusReporting = isSet
-		case 2004:
-			t.bracketedPaste = isSet
+			t.screen.DamageAll()
+	case 1004:
+		t.focusReporting = isSet
+	case 2004:
+		t.bracketedPaste = isSet
+	case 2026:
+		if isSet {
+			t.enableSyncUpdates()
+		} else {
+			t.disableSyncUpdates()
 		}
+	}
 	}
 }
 
@@ -931,6 +996,7 @@ func (t *Terminal) eraseChars(n int) {
 			cell.Erase(t.curFg, t.curBg, t.curAttr)
 		}
 	}
+	t.screen.DamageLine(t.cursor.Row)
 }
 
 func (t *Terminal) handleDSR(csi vte.CSISequence) {
@@ -945,6 +1011,14 @@ func (t *Terminal) handleDSR(csi vte.CSISequence) {
 			t.PtyWrite([]byte(fmt.Sprintf("\x1b[?%d;%d;1R", row, col)))
 		} else {
 			t.PtyWrite([]byte(fmt.Sprintf("\x1b[%d;%dR", row, col)))
+		}
+	case 2026:
+		if csi.Private {
+			ps := 2
+			if t.appSyncUpdates {
+				ps = 1
+			}
+			t.PtyWrite([]byte(fmt.Sprintf("\x1b[?2026;%d$y", ps)))
 		}
 	}
 }
@@ -971,6 +1045,7 @@ func (t *Terminal) deleteChars(n int) {
 			}
 		}
 	}
+	t.screen.DamageLine(t.cursor.Row)
 }
 
 func (t *Terminal) insertChars(n int) {
@@ -995,6 +1070,7 @@ func (t *Terminal) insertChars(n int) {
 			}
 		}
 	}
+	t.screen.DamageLine(t.cursor.Row)
 }
 
 func (t *Terminal) applySGR(params []int) {
@@ -1311,6 +1387,7 @@ func (t *Terminal) SetTheme(theme *Theme) {
 	fg = t.defFg
 	bg = t.defBg
 	cursor = t.cursorColor
+	t.screen.DamageAll()
 	t.mu.Unlock()
 	if t.opts.OnDefaultColor != nil {
 		t.opts.OnDefaultColor(fg, bg)

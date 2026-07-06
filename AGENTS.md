@@ -191,7 +191,7 @@ github.com/LaoQi/vistty/
 │   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/pinyin/keybind API
 │   ├── vte/                     # 转义序列解析器（xterm-256 兼容）
 │   │   ├── parser.go / csi.go / osc.go / esc.go / control.go / sgr.go
-│   ├── screen/                  # cell.go / line.go / buffer.go / history.go / cursor.go / selection.go
+│   ├── screen/                  # cell.go（AttrClean dirty 位）/ line.go（dirty 字段）/ buffer.go（环形缓冲 offset+mask + DamageRows/View/All/Line/Cursor API）/ history.go / cursor.go / selection.go
 │   ├── render/                  # compositor.go / draw.go / cursor.go / overlay.go
 │   ├── ui/                      # osd.go (OSD + Tab + Config + PanelPrimitive + Render + CSD 按钮 + HitTestTabBar) + theme.go (OSDTheme + DefaultOSDTheme)
 │   ├── version/                 # version.go（ldflags 注入 + ReadBuildInfo VCS fallback，-version 命令行 + vistty.version()/version_info() Lua API）
@@ -214,7 +214,8 @@ github.com/LaoQi/vistty/
 │   ├── gen-font-subset.sh       # NerdFontFallback.ttf 重建脚本（pyftsubset 双源 + fonttools 合并 PUA+Dingbats/Greek/Misc）
 │   └── htop-init.lua            # htop 专用 init.lua（shell=/usr/bin/htop, backend=drm-gbm）
 ├── .github/workflows/release.yml # CI Release（v* tag 触发：复用 build.sh 编译 linux x86_64 + 打包 vistty/examples/README/LICENSE → GitHub Release，附 sha256）
-└── work_docs/                   # 开发过程文档（含 implementation-emoji.md emoji 实施方案）
+├── reference/                   # 参考项目源码（foot 终端克隆，已 gitignore，仅分析对照）
+└── work_docs/                   # 开发过程文档（含 implementation-emoji.md emoji 方案、implementation-foot-optimization.md foot 优化方案）
 ```
 
 ### 依赖方向
@@ -341,3 +342,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - DRM EventReader 有状态事件读取（缓存残差 buffer 逐个解析，防止多屏同时 flip 完成时事件丢失）
 - GBM active/closed 统一 commitMu 保护（消除跨锁 data race）
 - 版本信息（internal/version 包：ldflags 注入 git describe --tags --always --dirty + ReadBuildInfo VCS fallback；-version 命令行查询 + vistty.version()/version_info() Lua API；scripts/build.sh 构建脚本）
+- BSU 同步更新（DECSET 2026）：TUI 应用重绘期间合并渲染不触发 dirty，1 秒超时兜底（timer goroutine 独立加锁+幂等+锁外回调 OnRenderRequest→renderReqCh）+ DECRQM ?2026$p 响应 ?2026;Ps$y（vte parseCSIPrivate 补 case 'p' 路由 DSR）；enable/disable 锁内调用（Go RWMutex 不可重入），syncUpdateExpired timer 回调独立加锁
+- Damage Tracking 双层 dirty（参考 foot render.c）：screen 层 cell AttrClean=1<<7 位 + line dirty 字段 + Buffer DamageRows/View/All/Line/Cursor API；terminal 所有写操作标记 damage（executeSequences 光标移动统一 DamageCursor 旧行+新行、execPrint/eraseChars/deleteChars/insertChars DamageLine、alt screen/Resize/SetScrollOffset/SetTheme DamageAll）；buffer 写操作 ScrollUp/ScrollDown/Clear/ClearAll/ClearRect 自动 damage；compositor CPU 路径（useDirty=!directRender，DRM dumb）dirty 行清背景+非 clean cell 跳过+渲染后 SetClean/SetDirty(false)，Wayland directRender 路径全量（buffer 切换安全）；GPU 路径保持全量 instances（Clear 重绘需全部 cell）；光标行总是渲染（光标闪烁 blinkOff 不残影）
+- 环形缓冲区 grid（参考 foot grid.h）：screen Buffer 改为环形（cap=nextPow2(rows), mask=cap-1, offset 头指针），lineAt(row)/physRow(row) 统一行访问 (offset+row)&mask；全屏滚动 offset+=n O(1)（仅 push history + 底部新行 NewLine+Fill），region 滚动逐行 copy O(region)（新行 NewLine 避免指针别名）；ScrollDown offset-=n；Resize 重建环形复用旧行；history 保持独立 []*Line
+- 渲染调度优化：cursorBlinkTicker 500ms 异步驱动光标闪烁（替代 15 tick 250ms 兜底），无 dirty 时零渲染（稳态仅 500ms 光标闪烁触发一次渲染）；delayed render 评估：已有 60fps ticker 天然合并 seqCh 序列，无需额外 timer

@@ -37,9 +37,10 @@ type Compositor struct {
 	directRender bool
 	gpu          platform.GPURenderer
 	instances    []platform.CellInstance
-	overlay      Overlay
-	originX      int
-	originY      int
+	overlay          Overlay
+	originX          int
+	originY          int
+	prevScrollOffset int
 }
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
@@ -237,7 +238,19 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	c.mu.Unlock()
 
 	defBg := dc.bg
-	FillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
+	useDirty := !c.directRender
+	scrollChanged := offset != c.prevScrollOffset
+	c.prevScrollOffset = offset
+	if useDirty && scrollChanged {
+		buf.DamageAll()
+	}
+	cursorRow := -1
+	if cursor != nil && offset == 0 {
+		cursorRow = cursor.Row
+	}
+	if !useDirty {
+		FillRect(c.backBuf, c.backStride, 0, 0, c.backWidth, c.backHeight, defBg.R, defBg.G, defBg.B)
+	}
 
 	for row := 0; row < c.rows; row++ {
 		var line *screen.Line
@@ -250,12 +263,27 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		if line == nil {
 			continue
 		}
+		if useDirty {
+			if isHistory {
+				if !scrollChanged {
+					continue
+				}
+			} else if !line.Dirty() && row != cursorRow {
+				continue
+			} else {
+				py := c.originY + row*c.metrics.Height
+				FillRect(c.backBuf, c.backStride, c.originX, py, c.cols*c.metrics.Width, c.metrics.Height, defBg.R, defBg.G, defBg.B)
+			}
+		}
 		for col := 0; col < c.cols; col++ {
 			cell := line.Cell(col)
 			if cell == nil {
 				continue
 			}
 			if cell.Width == 0 {
+				continue
+			}
+			if useDirty && !isHistory && cell.Clean() && row != cursorRow {
 				continue
 			}
 			px := c.originX + col*c.metrics.Width
@@ -324,6 +352,12 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 					}
 				}
 			}
+			if useDirty && !isHistory {
+				cell.SetClean()
+			}
+		}
+		if useDirty && !isHistory {
+			line.SetDirty(false)
 		}
 	}
 

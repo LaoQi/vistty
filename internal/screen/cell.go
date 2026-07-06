@@ -15,7 +15,12 @@ const (
 	AttrBlink
 	AttrReverse
 	AttrCrossedOut
+	AttrClean
 )
+
+func (c *Cell) Clean() bool { return c.Attr&AttrClean != 0 }
+func (c *Cell) SetClean()   { c.Attr |= AttrClean }
+func (c *Cell) SetDirty()   { c.Attr &^= AttrClean }
 
 type Cell struct {
 	Rune  rune

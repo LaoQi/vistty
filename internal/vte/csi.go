@@ -182,6 +182,8 @@ func parseCSIPrivate(seq Sequence, marker byte) CSISequence {
 			return CSISequence{Command: CSIResetMode, Private: true}
 		case 'n':
 			return CSISequence{Command: CSIDeviceStatusReport, Params: [16]int{param(seq, 0, 0)}, NParams: 1, Private: true}
+		case 'p':
+			return CSISequence{Command: CSIDeviceStatusReport, Params: [16]int{param(seq, 0, 0)}, NParams: 1, Private: true}
 		default:
 			return CSISequence{Command: CSIUnknown, Params: seq.Params, NParams: seq.NParams, Private: true}
 		}

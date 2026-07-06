@@ -59,6 +59,8 @@ func (m *Master) Run() error {
 
 	ticker := time.NewTicker(m.frameInterval)
 	defer ticker.Stop()
+	cursorBlinkTicker := time.NewTicker(500 * time.Millisecond)
+	defer cursorBlinkTicker.Stop()
 	resizeCh := make(chan platform.ResizeEvent, 4)
 	go func() {
 		var cases []reflect.SelectCase
@@ -96,7 +98,9 @@ func (m *Master) Run() error {
 		case msg := <-usc:
 			msg.term.Apply(msg.seqs)
 			terminal.ReturnSeqPool(msg.seqs)
-			m.dirty = true
+			if !msg.term.IsSyncUpdates() {
+				m.dirty = true
+			}
 		case <-ticker.C:
 			m.tickCount++
 			if m.osdDirty {
@@ -110,11 +114,9 @@ func (m *Master) Run() error {
 				}
 				m.titlePending = m.titlePending[:0]
 			}
-			// 无变化时跳过渲染以省 CPU；每 15 tick（~250ms）兜底渲染一次，
-			// 保证光标闪烁（光标 500ms 翻转，250ms 兜底足以捕捉）。
-			if !m.dirty && m.tickCount%15 != 0 {
-				continue
-			}
+		if !m.dirty {
+			continue
+		}
 			var frameStart time.Time
 			if m.fpsLogging {
 				frameStart = time.Now()
@@ -130,10 +132,12 @@ func (m *Master) Run() error {
 				renderErrCount = 0
 				m.dirty = false
 			}
-			if m.fpsLogging {
-				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
-			}
-		case ev := <-resizeCh:
+		if m.fpsLogging {
+			fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
+		}
+	case <-cursorBlinkTicker.C:
+		m.dirty = true
+	case ev := <-resizeCh:
 			m.handleResize(ev)
 		case ev := <-m.keyEvCh:
 			if m.plugins != nil {

@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"testing"
+	"time"
 
 	"github.com/LaoQi/vistty/internal/screen"
 )
@@ -53,6 +54,76 @@ func TestBracketedPasteFlag(t *testing.T) {
 	if term.bracketedPaste {
 		t.Error("expected bracketedPaste=false")
 	}
+}
+
+func TestBSUEnableDisable(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[?2026h"))
+	if !term.IsSyncUpdates() {
+		t.Error("expected appSyncUpdates=true after ?2026h")
+	}
+	term.FeedBytes([]byte("\x1b[?2026l"))
+	if term.IsSyncUpdates() {
+		t.Error("expected appSyncUpdates=false after ?2026l")
+	}
+}
+
+func TestBSUTimerCallback(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	called := make(chan struct{}, 1)
+	term.opts.OnRenderRequest = func() {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+	}
+	term.FeedBytes([]byte("\x1b[?2026h"))
+	if !term.IsSyncUpdates() {
+		t.Fatal("expected appSyncUpdates=true after ?2026h")
+	}
+	select {
+	case <-called:
+		t.Fatal("callback should not fire before timeout")
+	case <-time.After(200 * time.Millisecond):
+	}
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback should fire after 1s timeout")
+	}
+	if term.IsSyncUpdates() {
+		t.Error("expected appSyncUpdates=false after timeout")
+	}
+}
+
+func TestBSUDSRResponse(t *testing.T) {
+	term, resp := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[?2026n"))
+	if resp.String() != "\x1b[?2026;2$y" {
+		t.Errorf("disabled DSR: expected '\\x1b[?2026;2$y', got %q", resp.String())
+	}
+	resp.Reset()
+	term.FeedBytes([]byte("\x1b[?2026h"))
+	term.FeedBytes([]byte("\x1b[?2026n"))
+	if resp.String() != "\x1b[?2026;1$y" {
+		t.Errorf("enabled DSR: expected '\\x1b[?2026;1$y', got %q", resp.String())
+	}
+	term.FeedBytes([]byte("\x1b[?2026l"))
+}
+
+func TestBSUDECRQM(t *testing.T) {
+	term, resp := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[?2026$p"))
+	if resp.String() != "\x1b[?2026;2$y" {
+		t.Errorf("DECRQM disabled: expected '\\x1b[?2026;2$y', got %q", resp.String())
+	}
+	resp.Reset()
+	term.FeedBytes([]byte("\x1b[?2026h"))
+	term.FeedBytes([]byte("\x1b[?2026$p"))
+	if resp.String() != "\x1b[?2026;1$y" {
+		t.Errorf("DECRQM enabled: expected '\\x1b[?2026;1$y', got %q", resp.String())
+	}
+	term.FeedBytes([]byte("\x1b[?2026l"))
 }
 
 func TestAltScreen47(t *testing.T) {

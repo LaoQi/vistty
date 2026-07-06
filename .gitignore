@@ -9,3 +9,6 @@ plan.md
 
 # 词库源（构建时由 scripts/gen-dict-ice.sh 或 gen-dict-luna.sh 拉取）
 /rime-ice
+
+# 参考项目源码（仅用于分析对照，不纳入版本控制）
+/reference/

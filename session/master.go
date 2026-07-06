@@ -156,6 +156,13 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		done:            make(chan struct{}),
 	}
 
+	m.opts.OnRenderRequest = func() {
+		select {
+		case m.renderReqCh <- struct{}{}:
+		default:
+		}
+	}
+
 	if err := m.initIndependent(); err != nil {
 		for _, s := range slaves {
 			s.Close()

@@ -5,46 +5,78 @@ type Rect struct {
 }
 
 type Buffer struct {
-	lines      []*Line
-	cols       int
-	rows       int
-	scrollTop  int
-	scrollBot  int
-	cursor     *Cursor
-	history    *History
-	altScreen  bool
-	eraseCell  Cell
+	lines     []*Line
+	cols      int
+	rows      int
+	cap       int
+	mask      int
+	offset    int
+	scrollTop int
+	scrollBot int
+	cursor    *Cursor
+	history   *History
+	altScreen bool
+	eraseCell Cell
+}
+
+func nextPow2(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	v := uint(n - 1)
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v |= v >> 32
+	return int(v) + 1
 }
 
 func NewBuffer(cols, rows int) *Buffer {
+	cap := nextPow2(rows)
 	b := &Buffer{
 		cols:      cols,
 		rows:      rows,
+		cap:       cap,
+		mask:      cap - 1,
 		scrollTop: 0,
 		scrollBot: rows - 1,
 		cursor:    NewCursor(),
 		history:   NewHistory(1000),
 		eraseCell: NewCell(),
 	}
-	b.lines = make([]*Line, rows)
-	for i := range b.lines {
+	b.lines = make([]*Line, cap)
+	for i := 0; i < rows; i++ {
 		b.lines[i] = NewLine(cols)
 	}
 	return b
+}
+
+func (b *Buffer) lineAt(row int) *Line {
+	return b.lines[(b.offset+row)&b.mask]
+}
+
+func (b *Buffer) physRow(row int) int {
+	return (b.offset + row) & b.mask
 }
 
 func (b *Buffer) Cell(row, col int) *Cell {
 	if row < 0 || row >= b.rows || col < 0 || col >= b.cols {
 		return nil
 	}
-	return b.lines[row].Cell(col)
+	line := b.lineAt(row)
+	if line == nil {
+		return nil
+	}
+	return line.Cell(col)
 }
 
 func (b *Buffer) Line(row int) *Line {
 	if row < 0 || row >= b.rows {
 		return nil
 	}
-	return b.lines[row]
+	return b.lineAt(row)
 }
 
 func (b *Buffer) Cols() int {
@@ -80,16 +112,40 @@ func (b *Buffer) ScrollUp(n int) {
 	if n > b.scrollBot-b.scrollTop+1 {
 		n = b.scrollBot - b.scrollTop + 1
 	}
-	for i := b.scrollTop; i < b.scrollTop+n; i++ {
-		if b.lines[i] != nil && !b.altScreen {
-			b.history.Push(b.lines[i])
+	if b.scrollTop == 0 && b.scrollBot == b.rows-1 {
+		for i := 0; i < n; i++ {
+			pr := b.physRow(i)
+			if b.lines[pr] != nil && !b.altScreen {
+				b.history.Push(b.lines[pr])
+			}
+			b.lines[pr] = nil
+		}
+		b.offset = (b.offset + n) & b.mask
+		for i := b.rows - n; i < b.rows; i++ {
+			pr := b.physRow(i)
+			if b.lines[pr] == nil {
+				b.lines[pr] = NewLine(b.cols)
+			}
+			b.lines[pr].Fill(b.eraseCell)
+		}
+	} else {
+		for i := b.scrollTop; i < b.scrollTop+n; i++ {
+			pr := b.physRow(i)
+			if b.lines[pr] != nil && !b.altScreen {
+				b.history.Push(b.lines[pr])
+			}
+			b.lines[pr] = nil
+		}
+		for i := b.scrollTop; i <= b.scrollBot-n; i++ {
+			b.lines[b.physRow(i)] = b.lines[b.physRow(i+n)]
+		}
+		for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
+			pr := b.physRow(i)
+			b.lines[pr] = NewLine(b.cols)
+			b.lines[pr].Fill(b.eraseCell)
 		}
 	}
-	copy(b.lines[b.scrollTop:], b.lines[b.scrollTop+n:b.scrollBot+1])
-	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
-		b.lines[i] = NewLine(b.cols)
-		b.lines[i].Fill(b.eraseCell)
-	}
+	b.DamageRows(b.scrollTop, b.scrollBot)
 }
 
 func (b *Buffer) ScrollDown(n int) {
@@ -99,11 +155,40 @@ func (b *Buffer) ScrollDown(n int) {
 	if n > b.scrollBot-b.scrollTop+1 {
 		n = b.scrollBot - b.scrollTop + 1
 	}
-	copy(b.lines[b.scrollTop+n:b.scrollBot+1], b.lines[b.scrollTop:b.scrollBot-n+1])
-	for i := b.scrollTop; i < b.scrollTop+n; i++ {
-		b.lines[i] = NewLine(b.cols)
-		b.lines[i].Fill(b.eraseCell)
+	if b.scrollTop == 0 && b.scrollBot == b.rows-1 {
+		for i := 0; i < n; i++ {
+			pr := b.physRow(b.rows - 1 - i)
+			if b.lines[pr] != nil && !b.altScreen {
+				b.history.Push(b.lines[pr])
+			}
+			b.lines[pr] = nil
+		}
+		b.offset = (b.offset - n) & b.mask
+		for i := 0; i < n; i++ {
+			pr := b.physRow(i)
+			if b.lines[pr] == nil {
+				b.lines[pr] = NewLine(b.cols)
+			}
+			b.lines[pr].Fill(b.eraseCell)
+		}
+	} else {
+		for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
+			pr := b.physRow(i)
+			if b.lines[pr] != nil && !b.altScreen {
+				b.history.Push(b.lines[pr])
+			}
+			b.lines[pr] = nil
+		}
+		for i := b.scrollBot; i >= b.scrollTop+n; i-- {
+			b.lines[b.physRow(i)] = b.lines[b.physRow(i-n)]
+		}
+		for i := b.scrollTop; i < b.scrollTop+n; i++ {
+			pr := b.physRow(i)
+			b.lines[pr] = NewLine(b.cols)
+			b.lines[pr].Fill(b.eraseCell)
+		}
 	}
+	b.DamageRows(b.scrollTop, b.scrollBot)
 }
 
 func (b *Buffer) SetScrollRegion(top, bot int) {
@@ -156,21 +241,28 @@ func (b *Buffer) Resize(cols, rows int) {
 	if cols == b.cols && rows == b.rows {
 		return
 	}
-	newLines := make([]*Line, rows)
+	newCap := nextPow2(rows)
+	newLines := make([]*Line, newCap)
 	copyLen := rows
 	if copyLen > b.rows {
 		copyLen = b.rows
 	}
 	for i := 0; i < copyLen; i++ {
-		if i < b.rows {
-			b.lines[i].Resize(cols)
-			newLines[i] = b.lines[i]
+		line := b.lineAt(i)
+		if line == nil {
+			line = NewLine(cols)
+		} else {
+			line.Resize(cols)
 		}
+		newLines[i] = line
 	}
 	for i := copyLen; i < rows; i++ {
 		newLines[i] = NewLine(cols)
 	}
 	b.lines = newLines
+	b.cap = newCap
+	b.mask = newCap - 1
+	b.offset = 0
 	b.cols = cols
 	b.rows = rows
 	b.scrollTop = 0
@@ -178,22 +270,36 @@ func (b *Buffer) Resize(cols, rows int) {
 }
 
 func (b *Buffer) Clear() {
-	for i := range b.lines {
-		b.lines[i].Fill(b.eraseCell)
+	for i := 0; i < b.rows; i++ {
+		pr := b.physRow(i)
+		if b.lines[pr] == nil {
+			b.lines[pr] = NewLine(b.cols)
+		}
+		b.lines[pr].Fill(b.eraseCell)
 	}
+	b.DamageAll()
 }
 
 func (b *Buffer) ClearAll() {
-	for i := range b.lines {
-		b.lines[i].Fill(b.eraseCell)
+	for i := 0; i < b.rows; i++ {
+		pr := b.physRow(i)
+		if b.lines[pr] == nil {
+			b.lines[pr] = NewLine(b.cols)
+		}
+		b.lines[pr].Fill(b.eraseCell)
 	}
 	b.history.Clear()
+	b.DamageAll()
 }
 
 func (b *Buffer) ClearRect(r Rect) {
 	for y := r.Y; y < r.Y+r.H && y < b.rows; y++ {
 		if y < 0 {
 			continue
+		}
+		line := b.lineAt(y)
+		if line != nil {
+			line.SetDirty(true)
 		}
 		for x := r.X; x < r.X+r.W && x < b.cols; x++ {
 			if x < 0 {
@@ -204,5 +310,62 @@ func (b *Buffer) ClearRect(r Rect) {
 				*cell = b.eraseCell
 			}
 		}
+	}
+}
+
+func (b *Buffer) DamageRows(start, end int) {
+	if start < 0 {
+		start = 0
+	}
+	if end >= b.rows {
+		end = b.rows - 1
+	}
+	for r := start; r <= end; r++ {
+		line := b.lineAt(r)
+		if line == nil {
+			continue
+		}
+		line.SetDirty(true)
+		for c := 0; c < b.cols; c++ {
+			cell := line.Cell(c)
+			if cell != nil {
+				cell.SetDirty()
+			}
+		}
+	}
+}
+
+func (b *Buffer) DamageView() { b.DamageRows(0, b.rows-1) }
+func (b *Buffer) DamageAll()  { b.DamageRows(0, b.rows-1) }
+
+func (b *Buffer) DamageLine(row int) {
+	if row < 0 || row >= b.rows {
+		return
+	}
+	line := b.lineAt(row)
+	if line == nil {
+		return
+	}
+	line.SetDirty(true)
+	for c := 0; c < b.cols; c++ {
+		cell := line.Cell(c)
+		if cell != nil {
+			cell.SetDirty()
+		}
+	}
+}
+
+func (b *Buffer) DamageCursor(row, col int) {
+	if row < 0 || row >= b.rows {
+		return
+	}
+	line := b.lineAt(row)
+	if line == nil {
+		return
+	}
+	line.SetDirty(true)
+	cell := line.Cell(col)
+	if cell != nil {
+		cell.SetDirty()
 	}
 }

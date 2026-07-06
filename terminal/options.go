@@ -17,6 +17,7 @@ type Options struct {
 	OnTitle        func(string)
 	OnDefaultColor func(fg, bg screen.Color)
 	OnCursorColor  func(screen.Color)
+	OnRenderRequest func()
 	Theme          *Theme
 	RecordWriter   io.Writer
 	Primary        string
