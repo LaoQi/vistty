@@ -4,11 +4,15 @@ import "unsafe"
 
 func FillRect(data []byte, stride int, x, y, w, h int, r, g, b uint8) {
 	pixel := uint32(255)<<24 | uint32(r)<<16 | uint32(g)<<8 | uint32(b)
+	rowEnd := func(row int) int { return row*stride + stride }
 	for row := y; row < y+h; row++ {
 		startOff := row*stride + x*4
 		endOff := startOff + w*4
-		if startOff < 0 {
+		if startOff < 0 || row < 0 {
 			continue
+		}
+		if re := rowEnd(row); endOff > re {
+			endOff = re
 		}
 		if endOff > len(data) {
 			endOff = len(data)
@@ -32,11 +36,15 @@ func FillRectBlend(data []byte, stride int, x, y, w, h int, r, g, b, a uint8) {
 		FillRect(data, stride, x, y, w, h, r, g, b)
 		return
 	}
+	rowEnd := func(row int) int { return row*stride + stride }
 	for row := y; row < y+h; row++ {
 		startOff := row*stride + x*4
 		endOff := startOff + w*4
-		if startOff < 0 {
+		if startOff < 0 || row < 0 {
 			continue
+		}
+		if re := rowEnd(row); endOff > re {
+			endOff = re
 		}
 		if endOff > len(data) {
 			endOff = len(data)

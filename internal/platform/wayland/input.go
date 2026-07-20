@@ -16,8 +16,8 @@ type WaylandInput struct {
 	keyCh   chan platform.KeyEvent
 	mouseCh chan platform.MouseEvent
 
-	mu   sync.Mutex
-	mods platform.Modifiers
+	mu         sync.Mutex
+	mods       platform.Modifiers
 	posX       int
 	posY       int
 	lastSerial uint32

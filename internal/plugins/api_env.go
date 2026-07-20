@@ -5,10 +5,11 @@ import (
 )
 
 // registerEnv 注册运行环境查询接口：
-//   vistty.backend_name()       → string  ("wayland"/"drm"/"drm-gbm"，Load 阶段未注入时为 "")
-//   vistty.backend.is_wayland() → bool
-//   vistty.backend.is_drm()     → bool    (drm 或 drm-gbm 均为 true)
-//   vistty.on_activate(fn)      → 注册钩子，在 Activate 后以 backend_name 为参数回调
+//
+//	vistty.backend_name()       → string  ("wayland"/"drm"/"drm-gbm"，Load 阶段未注入时为 "")
+//	vistty.backend.is_wayland() → bool
+//	vistty.backend.is_drm()     → bool    (drm 或 drm-gbm 均为 true)
+//	vistty.on_activate(fn)      → 注册钩子，在 Activate 后以 backend_name 为参数回调
 //
 // on_activate 用于解决 auto 模式下 init.lua 加载阶段（Load）尚不知实际后端的
 // 时序矛盾：backend 在 Load 之后创建，创建完成且 SetBackendName 注入后由

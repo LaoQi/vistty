@@ -19,9 +19,9 @@ type entry struct {
 }
 
 type fileSpec struct {
-	path      string
-	topN      int
-	annotate  string
+	path     string
+	topN     int
+	annotate string
 }
 
 func main() {

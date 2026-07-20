@@ -1,6 +1,7 @@
 package gbm
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,6 +57,44 @@ func TestWaitForFlipComplete_Timeout(t *testing.T) {
 	s.commitMu.Unlock()
 	if stillPending {
 		t.Error("超时后 flipPending 应清零，否则下一帧仍会等待")
+	}
+}
+
+// TestWaitForFlipTimeoutReleasesCommitted 验证 P0-8 修复：超时分支必须模拟
+// onFlipComplete 轮转三缓冲，避免下一帧 Swap 的 `s.committed = frame`
+// 覆盖旧 committed 导致 BO+FB 泄漏。
+func TestWaitForFlipTimeoutReleasesCommitted(t *testing.T) {
+	s := newSyncTestSurface()
+	oldScanout := &pendingFrame{bo: 1, fbID: 100, stride: 320}
+	newCommitted := &pendingFrame{bo: 2, fbID: 200, stride: 320}
+	s.scanout = oldScanout
+	s.committed = newCommitted
+	s.flipPending = true
+
+	start := time.Now()
+	ok := s.waitForFlipComplete()
+	elapsed := time.Since(start)
+
+	if !ok {
+		t.Error("超时应返回 true")
+	}
+	if elapsed < s.flipTimeout {
+		t.Errorf("应等待约 %v 才超时，实际 %v", s.flipTimeout, elapsed)
+	}
+
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	if s.committed != nil {
+		t.Error("超时后 committed 应清空，否则下一帧 Swap 覆盖会泄漏 BO+FB")
+	}
+	if s.scanout != newCommitted {
+		t.Error("超时后 scanout 应为原 committed（模拟 flip 完成轮转）")
+	}
+	if s.releaseBO != oldScanout {
+		t.Error("超时后 releaseBO 应为原 scanout，下次 Swap 开头释放")
+	}
+	if s.flipPending {
+		t.Error("超时后 flipPending 应清零")
 	}
 }
 
@@ -218,5 +257,98 @@ func TestConcurrentSwapAndFlip(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("并发 Swap/flip 死锁（修复前 sync.Cond 无超时会永久阻塞）")
+	}
+}
+
+// TestSetActiveFalseRotatesBuffers 验证 P1-23 修复：VT 切走时
+// GBMSurface.SetActive(false) 必须模拟 onFlipComplete 轮转三缓冲并清
+// flipPending。否则 DropMaster 后内核不再发送 flip 事件，切回后首次
+// Swap 必然走完 5s 超时；且 committed 帧会被下一帧 Swap 覆盖泄漏。
+func TestSetActiveFalseRotatesBuffers(t *testing.T) {
+	s := newSyncTestSurface()
+	oldScanout := &pendingFrame{bo: 1, fbID: 100, stride: 320}
+	newCommitted := &pendingFrame{bo: 2, fbID: 200, stride: 320}
+	s.scanout = oldScanout
+	s.committed = newCommitted
+	s.flipPending = true
+	s.active = true
+
+	s.SetActive(false)
+
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	if s.active {
+		t.Error("SetActive(false) 后 active 应为 false")
+	}
+	if s.flipPending {
+		t.Error("SetActive(false) 后 flipPending 应清零")
+	}
+	if s.committed != nil {
+		t.Error("SetActive(false) 后 committed 应清空（避免下帧 Swap 覆盖泄漏）")
+	}
+	if s.scanout != newCommitted {
+		t.Error("SetActive(false) 后 scanout 应为原 committed")
+	}
+	if s.releaseBO != oldScanout {
+		t.Error("SetActive(false) 后 releaseBO 应为原 scanout")
+	}
+}
+
+// TestSetActiveTrueNoRotation 验证 SetActive(true) 不触碰三缓冲状态
+// （仅重新置位 active 标志），避免在切回时误清尚未释放的帧。
+func TestSetActiveTrueNoRotation(t *testing.T) {
+	s := newSyncTestSurface()
+	oldScanout := &pendingFrame{bo: 1, fbID: 100, stride: 320}
+	newCommitted := &pendingFrame{bo: 2, fbID: 200, stride: 320}
+	s.scanout = oldScanout
+	s.committed = newCommitted
+	s.flipPending = true
+	s.active = false
+
+	s.SetActive(true)
+
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	if !s.active {
+		t.Error("SetActive(true) 后 active 应为 true")
+	}
+	if !s.flipPending {
+		t.Error("SetActive(true) 不应清 flipPending")
+	}
+	if s.scanout != oldScanout {
+		t.Error("SetActive(true) 不应改 scanout")
+	}
+	if s.committed != newCommitted {
+		t.Error("SetActive(true) 不应改 committed")
+	}
+	if s.releaseBO != nil {
+		t.Error("SetActive(true) 不应改 releaseBO")
+	}
+}
+
+// TestGBMSurfaceCloseRemovesFromDeviceMap 验证 GBMSurface.Close 从
+// GBMDevice.surfaces map 移除自身（P2-32）。
+func TestGBMSurfaceCloseRemovesFromDeviceMap(t *testing.T) {
+	d := &GBMDevice{
+		surfaces: make(map[uint32]*GBMSurface),
+	}
+	s := &GBMSurface{
+		device:   d,
+		crtcID:   42,
+		flipDone: make(chan struct{}, 1),
+		closedCh: make(chan struct{}),
+		commitMu: sync.Mutex{},
+	}
+	d.surfaces[42] = s
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d.mu.Lock()
+	_, ok := d.surfaces[42]
+	d.mu.Unlock()
+	if ok {
+		t.Error("surface should be removed from device.surfaces after Close")
 	}
 }

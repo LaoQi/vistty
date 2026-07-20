@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
@@ -32,7 +35,7 @@ func NewDRMBackend(ttyPath string) (*DRMBackend, error) {
 	var fd *os.File
 	var err error
 	for _, card := range cards {
-		fd, err = os.OpenFile(card, os.O_RDWR, 0)
+		fd, err = os.OpenFile(card, os.O_RDWR|syscall.O_CLOEXEC, 0)
 		if err == nil {
 			break
 		}
@@ -198,6 +201,7 @@ func (b *DRMBackend) eventLoop() {
 			case <-b.eventDone:
 				return
 			default:
+				time.Sleep(10 * time.Millisecond)
 				continue
 			}
 		}
@@ -227,7 +231,12 @@ func (b *DRMBackend) Close() error {
 				if saved.ModeValid {
 					mode = &saved.Mode
 				}
-				SetCrtc(int(b.fd.Fd()), saved.ID, saved.FbID, saved.X, saved.Y, mode, nil)
+				// 恢复时必须带原 connector ID，多数驱动不支持 0 connector
+				// 的 SetCrtc（无法点亮原控制台）。失败记日志而非吞掉，
+				// 便于诊断原 Console 不恢复的问题。
+				if err := SetCrtc(int(b.fd.Fd()), saved.ID, saved.FbID, saved.X, saved.Y, mode, []uint32{out.connID}); err != nil {
+					debug.Warningf("DRM: restore crtc %d failed: %v\n", saved.ID, err)
+				}
 			}
 		}
 		if b.vt != nil {
@@ -263,9 +272,9 @@ func Probe() bool {
 }
 
 type ProbeResult struct {
-	FD        *os.File
-	HasDumb   bool
-	Outputs   []*DisplayInfo
+	FD      *os.File
+	HasDumb bool
+	Outputs []*DisplayInfo
 }
 
 func ProbeDetailed() (*os.File, error) {
@@ -275,7 +284,7 @@ func ProbeDetailed() (*os.File, error) {
 	}
 
 	for _, card := range cards {
-		fd, err := os.OpenFile(card, os.O_RDWR, 0)
+		fd, err := os.OpenFile(card, os.O_RDWR|syscall.O_CLOEXEC, 0)
 		if err != nil {
 			continue
 		}
@@ -306,11 +315,11 @@ func NewDRMBackendFromFD(fd *os.File, ttyPath string) (*DRMBackend, error) {
 	}
 
 	b := &DRMBackend{
-		fd:       fd,
-		display:  outputs[0],
-		outputs:  outputs,
-		surfaces: make(map[uint32]*DRMSurface),
-		doneCh:   make(chan struct{}),
+		fd:        fd,
+		display:   outputs[0],
+		outputs:   outputs,
+		surfaces:  make(map[uint32]*DRMSurface),
+		doneCh:    make(chan struct{}),
 		eventDone: make(chan struct{}),
 	}
 

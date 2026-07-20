@@ -80,3 +80,123 @@ func TestCursorClamp(t *testing.T) {
 		t.Errorf("col should not change, expected 5, got %d", term.cursor.Col)
 	}
 }
+
+func TestScrollRegionResetNoParams(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.screen.SetScrollRegion(5, 10)
+	if term.screen.ScrollTop() != 5 || term.screen.ScrollBot() != 10 {
+		t.Fatalf("setup failed: expected region [5,10], got [%d,%d]", term.screen.ScrollTop(), term.screen.ScrollBot())
+	}
+	term.FeedBytes([]byte("\x1b[r"))
+	if term.screen.ScrollTop() != 0 || term.screen.ScrollBot() != 23 {
+		t.Errorf("ESC[r should reset region to full screen [0,23], got [%d,%d]", term.screen.ScrollTop(), term.screen.ScrollBot())
+	}
+}
+
+func TestScrollRegionResetZeroParams(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.screen.SetScrollRegion(5, 10)
+	term.FeedBytes([]byte("\x1b[0;0r"))
+	if term.screen.ScrollTop() != 0 || term.screen.ScrollBot() != 23 {
+		t.Errorf("ESC[0;0r should reset region to full screen [0,23], got [%d,%d]", term.screen.ScrollTop(), term.screen.ScrollBot())
+	}
+}
+
+func TestScrollRegionTopOnly(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.screen.SetScrollRegion(5, 10)
+	term.FeedBytes([]byte("\x1b[3r"))
+	if term.screen.ScrollTop() != 2 || term.screen.ScrollBot() != 23 {
+		t.Errorf("ESC[3r should set region [2,23], got [%d,%d]", term.screen.ScrollTop(), term.screen.ScrollBot())
+	}
+}
+
+func TestScrollRegionBothParams(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[3;10r"))
+	if term.screen.ScrollTop() != 2 || term.screen.ScrollBot() != 9 {
+		t.Errorf("ESC[3;10r should set region [2,9], got [%d,%d]", term.screen.ScrollTop(), term.screen.ScrollBot())
+	}
+}
+
+func TestInsertLinesCSI(t *testing.T) {
+	term, _ := newTerminalForTest(10, 10)
+	term.FeedBytes([]byte("0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9"))
+	term.cursor.Row = 2
+	term.cursor.Col = 0
+	term.FeedBytes([]byte("\x1b[2L"))
+	want := []rune{'0', '1', ' ', ' ', '2', '3', '4', '5', '6', '7'}
+	for i, w := range want {
+		got := term.screen.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+	if term.screen.History().Len() != 0 {
+		t.Errorf("IL should not push history, got len %d", term.screen.History().Len())
+	}
+}
+
+func TestDeleteLinesCSI(t *testing.T) {
+	term, _ := newTerminalForTest(10, 10)
+	term.FeedBytes([]byte("0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9"))
+	term.cursor.Row = 2
+	term.cursor.Col = 0
+	term.FeedBytes([]byte("\x1b[2M"))
+	want := []rune{'0', '1', '4', '5', '6', '7', '8', '9', ' ', ' '}
+	for i, w := range want {
+		got := term.screen.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+	if term.screen.History().Len() != 0 {
+		t.Errorf("DL should not push history, got len %d", term.screen.History().Len())
+	}
+}
+
+func TestInsertLinesCSIRespectsScrollRegion(t *testing.T) {
+	term, _ := newTerminalForTest(10, 10)
+	term.FeedBytes([]byte("0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9"))
+	term.FeedBytes([]byte("\x1b[3;8r"))
+	term.cursor.Row = 4
+	term.cursor.Col = 0
+	term.FeedBytes([]byte("\x1b[2L"))
+	want := []rune{'0', '1', '2', '3', ' ', ' ', '4', '5', '8', '9'}
+	for i, w := range want {
+		got := term.screen.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestDeleteLinesCSIRespectsScrollRegion(t *testing.T) {
+	term, _ := newTerminalForTest(10, 10)
+	term.FeedBytes([]byte("0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9"))
+	term.FeedBytes([]byte("\x1b[3;8r"))
+	term.cursor.Row = 4
+	term.cursor.Col = 0
+	term.FeedBytes([]byte("\x1b[2M"))
+	want := []rune{'0', '1', '2', '3', '6', '7', ' ', ' ', '8', '9'}
+	for i, w := range want {
+		got := term.screen.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestInsertLinesCSINoopOutsideRegion(t *testing.T) {
+	term, _ := newTerminalForTest(10, 10)
+	term.FeedBytes([]byte("0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9"))
+	term.FeedBytes([]byte("\x1b[3;8r"))
+	term.cursor.Row = 0
+	term.cursor.Col = 0
+	term.FeedBytes([]byte("\x1b[2L"))
+	for i := 0; i < 10; i++ {
+		if got := term.screen.Cell(i, 0).Rune; got != rune('0'+i) {
+			t.Errorf("row %d: IL above scrollTop should be no-op, got '%c'", i, got)
+		}
+	}
+}

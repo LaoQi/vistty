@@ -33,30 +33,36 @@ type PropertyResult struct {
 }
 
 func GetObjectProperties(fd int, objID, objType uint32) ([]uint32, []uint64, error) {
-	var op ObjProperties
-	op.ObjID = objID
-	op.ObjType = objType
+	for {
+		var op ObjProperties
+		op.ObjID = objID
+		op.ObjType = objType
 
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, unsafe.Pointer(&op), "DRM_IOCTL_MODE_OBJ_GETPROPERTIES"); err != nil {
-		return nil, nil, err
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, unsafe.Pointer(&op), "DRM_IOCTL_MODE_OBJ_GETPROPERTIES"); err != nil {
+			return nil, nil, err
+		}
+
+		propCount := op.CountProps
+		propIDs := make([]uint32, propCount)
+		propValues := make([]uint64, propCount)
+
+		if propCount > 0 {
+			op.PropsPtr = uint64(uintptr(unsafe.Pointer(&propIDs[0])))
+			op.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propValues[0])))
+		}
+
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, unsafe.Pointer(&op), "DRM_IOCTL_MODE_OBJ_GETPROPERTIES"); err != nil {
+			return nil, nil, err
+		}
+
+		if op.CountProps > uint32(len(propIDs)) {
+			continue
+		}
+
+		propIDs = propIDs[:op.CountProps]
+		propValues = propValues[:op.CountProps]
+		return propIDs, propValues, nil
 	}
-
-	propCount := op.CountProps
-	propIDs := make([]uint32, propCount)
-	propValues := make([]uint64, propCount)
-
-	if propCount > 0 {
-		op.PropsPtr = uint64(uintptr(unsafe.Pointer(&propIDs[0])))
-		op.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propValues[0])))
-	}
-
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, unsafe.Pointer(&op), "DRM_IOCTL_MODE_OBJ_GETPROPERTIES"); err != nil {
-		return nil, nil, err
-	}
-
-	propIDs = propIDs[:op.CountProps]
-	propValues = propValues[:op.CountProps]
-	return propIDs, propValues, nil
 }
 
 func GetProperty(fd int, propID uint32) (*PropertyResult, error) {

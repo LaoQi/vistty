@@ -69,10 +69,19 @@ func LoadGBM() (*GBMLoader, error) {
 		purego.RegisterFunc(s.fptr, addr)
 	}
 	if len(errs) > 0 {
+		purego.Dlclose(lib)
 		return nil, fmt.Errorf("GBM symbol resolution: %w", errors.Join(errs...))
 	}
 
 	return l, nil
+}
+
+func (l *GBMLoader) Close() error {
+	if l.lib != 0 {
+		purego.Dlclose(l.lib)
+		l.lib = 0
+	}
+	return nil
 }
 
 func (l *GBMLoader) CreateDevice(fd int) uintptr {

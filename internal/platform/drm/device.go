@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"unsafe"
 )
 
 func OpenCard(idx int) (*os.File, error) {
-	return os.OpenFile(fmt.Sprintf("/dev/dri/card%d", idx), os.O_RDWR, 0)
+	return os.OpenFile(fmt.Sprintf("/dev/dri/card%d", idx), os.O_RDWR|syscall.O_CLOEXEC, 0)
 }
 
 func OpenRender(idx int) (*os.File, error) {
-	return os.OpenFile(fmt.Sprintf("/dev/dri/renderD%d", 128+idx), os.O_RDWR, 0)
+	return os.OpenFile(fmt.Sprintf("/dev/dri/renderD%d", 128+idx), os.O_RDWR|syscall.O_CLOEXEC, 0)
 }
 
 func GetVersion(fd int) (name, desc, date string, major, minor, patch int, err error) {

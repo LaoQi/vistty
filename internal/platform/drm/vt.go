@@ -13,18 +13,18 @@ import (
 
 const (
 	ioctlTiocGwinsz = 0x5413
-	ioctlTiocSctty   = 0x540E
-	ioctlKdSetmode   = 0x4B3A
-	ioctlKdGetmode   = 0x4B3B
-	ioctlVtGetstate  = 0x5603
-	ioctlVtSetmode   = 0x5602
-	ioctlVtReldis    = 0x5605
-	ioctlVtAcqdis    = 0x5606
+	ioctlTiocSctty  = 0x540E
+	ioctlKdSetmode  = 0x4B3A
+	ioctlKdGetmode  = 0x4B3B
+	ioctlVtGetstate = 0x5603
+	ioctlVtSetmode  = 0x5602
+	ioctlVtReldis   = 0x5605
+	ioctlVtAcqdis   = 0x5606
 
 	kdGraphics = 0x03
 	kdText     = 0x00
 
-	vtAuto   = 0x00
+	vtAuto    = 0x00
 	vtProcess = 0x01
 )
 
@@ -88,9 +88,13 @@ func (v *VTManager) signalLoop() {
 			switch sig {
 			case syscall.SIGUSR2:
 				v.callbacks.OnDeactivate()
-				vtIoctl(v.ttyFd, ioctlVtReldis, 0)
+				if err := vtIoctl(v.ttyFd, ioctlVtReldis, 0); err != nil {
+					debug.Warningf("vt: VT_RELDISP ioctl failed: %v\n", err)
+				}
 			case syscall.SIGUSR1:
-				vtIoctl(v.ttyFd, ioctlVtAcqdis, 0)
+				if err := vtIoctl(v.ttyFd, ioctlVtAcqdis, 0); err != nil {
+					debug.Warningf("vt: VT_ACTIVATE ioctl failed: %v\n", err)
+				}
 				v.callbacks.OnActivate()
 			}
 		}
@@ -130,7 +134,9 @@ func (v *VTManager) Close() error {
 		close(v.done)
 		signal.Stop(v.sigCh)
 		v.wg.Wait()
-		v.SetTextMode()
+		if err := v.SetTextMode(); err != nil {
+			debug.Warningf("vt: SetTextMode on close failed: %v\n", err)
+		}
 		syscall.Close(v.ttyFd)
 	})
 	return nil
@@ -146,7 +152,7 @@ func syscallOpenTty(ttyPath string) (int, error) {
 		}
 	}
 
-	fd, err := syscall.Open(target, syscall.O_RDWR, 0)
+	fd, err := syscall.Open(target, syscall.O_RDWR|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return 0, fmt.Errorf("open %s: %w", target, err)
 	}

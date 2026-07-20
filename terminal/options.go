@@ -12,15 +12,15 @@ type Options struct {
 	FontPath         string
 	FallbackFontPath string // path to fallback font; empty uses built-in NerdFont subset
 	FontSize         float64
-	RepeatDelay    time.Duration
-	RepeatRate     time.Duration
-	OnTitle        func(string)
-	OnDefaultColor func(fg, bg screen.Color)
-	OnCursorColor  func(screen.Color)
-	OnRenderRequest func()
-	Theme          *Theme
-	RecordWriter   io.Writer
-	Primary        string
+	RepeatDelay      time.Duration
+	RepeatRate       time.Duration
+	OnTitle          func(string)
+	OnDefaultColor   func(fg, bg screen.Color)
+	OnCursorColor    func(screen.Color)
+	OnRenderRequest  func()
+	Theme            *Theme
+	RecordWriter     io.Writer
+	Primary          string
 }
 
 func DefaultOptions() Options {

@@ -43,14 +43,14 @@ func (f *p6FakeCtx) TabList() []TabInfo {
 	}
 	return f.tabs
 }
-func (f *p6FakeCtx) NextScreen()                { f.screenIdx++ }
-func (f *p6FakeCtx) PrevScreen()                { f.screenIdx-- }
-func (f *p6FakeCtx) SwitchScreen(i int)         { f.screenIdx = i - 1 }
-func (f *p6FakeCtx) ScreenCount() int           { return 3 }
-func (f *p6FakeCtx) FocusScreenIdx() int        { return f.screenIdx + 1 }
-func (f *p6FakeCtx) ZoomIn()                    { f.zoomCalls = append(f.zoomCalls, 1) }
-func (f *p6FakeCtx) ZoomOut()                   { f.zoomCalls = append(f.zoomCalls, -1) }
-func (f *p6FakeCtx) ZoomReset()                 { f.zoomCalls = append(f.zoomCalls, 0) }
+func (f *p6FakeCtx) NextScreen()         { f.screenIdx++ }
+func (f *p6FakeCtx) PrevScreen()         { f.screenIdx-- }
+func (f *p6FakeCtx) SwitchScreen(i int)  { f.screenIdx = i - 1 }
+func (f *p6FakeCtx) ScreenCount() int    { return 3 }
+func (f *p6FakeCtx) FocusScreenIdx() int { return f.screenIdx + 1 }
+func (f *p6FakeCtx) ZoomIn()             { f.zoomCalls = append(f.zoomCalls, 1) }
+func (f *p6FakeCtx) ZoomOut()            { f.zoomCalls = append(f.zoomCalls, -1) }
+func (f *p6FakeCtx) ZoomReset()          { f.zoomCalls = append(f.zoomCalls, 0) }
 func (f *p6FakeCtx) EnablePanel(s string, n int) {
 	if f.enabledPanx == nil {
 		f.enabledPanx = make(map[string]int)
@@ -62,8 +62,8 @@ func (f *p6FakeCtx) DisablePanel(s string) {
 		delete(f.enabledPanx, s)
 	}
 }
-func (f *p6FakeCtx) ReloadPlugins() error { return nil }
-func (f *p6FakeCtx) Exit()                {}
+func (f *p6FakeCtx) ReloadPlugins() error                            { return nil }
+func (f *p6FakeCtx) Exit()                                           {}
 func (f *p6FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 // examplesDir 返回仓库根目录下的 examples 目录绝对路径。
@@ -293,8 +293,8 @@ func TestP6ExampleInitLua(t *testing.T) {
 	if cfg.Shell != "/bin/bash" {
 		t.Fatalf("shell want /bin/bash got %s", cfg.Shell)
 	}
-	if cfg.FontSize != 14 {
-		t.Fatalf("fontsize want 14 got %v", cfg.FontSize)
+	if cfg.FontSize != 24 {
+		t.Fatalf("fontsize want 24 got %v", cfg.FontSize)
 	}
 
 	panels := pm.EnabledPanels()

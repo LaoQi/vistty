@@ -16,24 +16,27 @@ type fakeCtx struct {
 
 func (f *fakeCtx) FocusTerm() *terminal.Terminal { return nil }
 func (f *fakeCtx) Terms() []*terminal.Terminal   { return nil }
-func (f *fakeCtx) NewTab() error                 { f.tabs = append(f.tabs, TabInfo{Title: "new", Active: true}); return nil }
-func (f *fakeCtx) CloseCurrentTab()              {}
-func (f *fakeCtx) NextTab()                      {}
-func (f *fakeCtx) PrevTab()                      {}
-func (f *fakeCtx) SwitchTab(i int)               {}
-func (f *fakeCtx) TabList() []TabInfo            { return f.tabs }
-func (f *fakeCtx) NextScreen()                   { f.screenIdx++ }
-func (f *fakeCtx) PrevScreen()                   { f.screenIdx-- }
-func (f *fakeCtx) SwitchScreen(i int)            { f.screenIdx = i - 1 }
-func (f *fakeCtx) ScreenCount() int              { return 3 }
-func (f *fakeCtx) FocusScreenIdx() int           { return f.screenIdx + 1 }
-func (f *fakeCtx) ZoomIn()                       { f.zoomCalls = append(f.zoomCalls, 1) }
-func (f *fakeCtx) ZoomOut()                      { f.zoomCalls = append(f.zoomCalls, -1) }
-func (f *fakeCtx) ZoomReset()                    { f.zoomCalls = append(f.zoomCalls, 0) }
-func (f *fakeCtx) EnablePanel(s string, n int)   {}
-func (f *fakeCtx) DisablePanel(s string)         {}
-func (f *fakeCtx) ReloadPlugins() error          { return nil }
-func (f *fakeCtx) Exit()                          {}
+func (f *fakeCtx) NewTab() error {
+	f.tabs = append(f.tabs, TabInfo{Title: "new", Active: true})
+	return nil
+}
+func (f *fakeCtx) CloseCurrentTab()                                {}
+func (f *fakeCtx) NextTab()                                        {}
+func (f *fakeCtx) PrevTab()                                        {}
+func (f *fakeCtx) SwitchTab(i int)                                 {}
+func (f *fakeCtx) TabList() []TabInfo                              { return f.tabs }
+func (f *fakeCtx) NextScreen()                                     { f.screenIdx++ }
+func (f *fakeCtx) PrevScreen()                                     { f.screenIdx-- }
+func (f *fakeCtx) SwitchScreen(i int)                              { f.screenIdx = i - 1 }
+func (f *fakeCtx) ScreenCount() int                                { return 3 }
+func (f *fakeCtx) FocusScreenIdx() int                             { return f.screenIdx + 1 }
+func (f *fakeCtx) ZoomIn()                                         { f.zoomCalls = append(f.zoomCalls, 1) }
+func (f *fakeCtx) ZoomOut()                                        { f.zoomCalls = append(f.zoomCalls, -1) }
+func (f *fakeCtx) ZoomReset()                                      { f.zoomCalls = append(f.zoomCalls, 0) }
+func (f *fakeCtx) EnablePanel(s string, n int)                     {}
+func (f *fakeCtx) DisablePanel(s string)                           {}
+func (f *fakeCtx) ReloadPlugins() error                            { return nil }
+func (f *fakeCtx) Exit()                                           {}
 func (f *fakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 func TestP2TabAPI(t *testing.T) {
@@ -169,4 +172,37 @@ func newPMWithCtx(t *testing.T, src string, ctx PluginContext) *PluginManager {
 		t.Fatal(err)
 	}
 	return pm
+}
+
+// TestP2UIEnableTopRejected 验证 isValidSide 拒绝 "top"（P2-29）。
+func TestP2UIEnableTopRejected(t *testing.T) {
+	src := `
+local ok, err = pcall(vistty.ui.enable, "top", 1)
+assert(not ok, "enable('top') should fail")
+assert(err, "error should be non-nil")
+`
+	f := writeTemp(t, src)
+	pm := NewPluginManager(f)
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	panels := pm.EnabledPanels()
+	if _, ok := panels["top"]; ok {
+		t.Fatal("panel 'top' should not be enabled")
+	}
+	pm.Close()
+}
+
+// TestP2BindKeysNonNumberRaises 验证 bind_keys 传非数字安全报错而非 panic（P2-30）。
+func TestP2BindKeysNonNumberRaises(t *testing.T) {
+	src := `
+local ok, err = pcall(vistty.input.bind_keys, {"a", "b"}, function() end)
+assert(not ok, "bind_keys with non-number should raise error")
+`
+	f := writeTemp(t, src)
+	pm := NewPluginManager(f)
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pm.Close()
 }

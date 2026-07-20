@@ -16,8 +16,8 @@ var (
 	on      bool
 
 	errMu      sync.Mutex
-	errWriters  []io.Writer
-	errFile     *os.File
+	errWriters []io.Writer
+	errFile    *os.File
 )
 
 func init() {

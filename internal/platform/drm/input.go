@@ -1,5 +1,8 @@
 package drm
 
+// DRM 后端仅支持键盘输入（EV_KEY），鼠标事件（EV_REL/EV_ABS）未实现。
+// render_loop.go 中 MouseEvents 处理在 DRM 后端不可达（mouseCh 永不产生事件）。
+
 import (
 	"fmt"
 	"strings"
@@ -7,9 +10,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/holoplot/go-evdev"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
+	"github.com/holoplot/go-evdev"
 	"golang.org/x/sys/unix"
 )
 
@@ -30,6 +33,7 @@ type DRMInput struct {
 	inotifyFd int
 	watchDone chan struct{}
 	exitFd    int
+	ready     chan struct{}
 }
 
 func newDRMInput() (*DRMInput, error) {
@@ -40,6 +44,7 @@ func newDRMInput() (*DRMInput, error) {
 		done:      make(chan struct{}),
 		inotifyFd: -1,
 		watchDone: make(chan struct{}),
+		ready:     make(chan struct{}),
 	}
 
 	paths, err := evdev.ListDevicePaths()
@@ -255,6 +260,26 @@ func (i *DRMInput) rescanDevices() {
 	}
 }
 
+func (i *DRMInput) closeInotifyFdLocked() {
+	i.mu.Lock()
+	fd := i.inotifyFd
+	i.inotifyFd = -1
+	i.mu.Unlock()
+	if fd >= 0 {
+		unix.Close(fd)
+	}
+}
+
+func (i *DRMInput) closeExitFdLocked() {
+	i.mu.Lock()
+	fd := i.exitFd
+	i.exitFd = -1
+	i.mu.Unlock()
+	if fd >= 0 {
+		unix.Close(fd)
+	}
+}
+
 func (i *DRMInput) watchLoop() {
 	defer close(i.watchDone)
 
@@ -263,13 +288,14 @@ func (i *DRMInput) watchLoop() {
 		debug.Warningf("inotify init failed: %v", err)
 		return
 	}
+	i.mu.Lock()
 	i.inotifyFd = fd
+	i.mu.Unlock()
+	defer i.closeInotifyFdLocked()
 
 	wd, err := unix.InotifyAddWatch(fd, "/dev/input", unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_TO)
 	if err != nil {
 		debug.Warningf("inotify add watch failed: %v", err)
-		unix.Close(fd)
-		i.inotifyFd = -1
 		return
 	}
 	_ = wd
@@ -277,8 +303,6 @@ func (i *DRMInput) watchLoop() {
 	epollFd, err := unix.EpollCreate1(unix.EPOLL_CLOEXEC)
 	if err != nil {
 		debug.Warningf("epoll create failed: %v", err)
-		unix.Close(fd)
-		i.inotifyFd = -1
 		return
 	}
 	defer unix.Close(epollFd)
@@ -286,12 +310,13 @@ func (i *DRMInput) watchLoop() {
 	exitFd, err := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.EFD_CLOEXEC)
 	if err != nil {
 		debug.Warningf("eventfd create failed: %v", err)
-		unix.Close(fd)
-		i.inotifyFd = -1
+		i.closeInotifyFdLocked()
 		return
 	}
+	i.mu.Lock()
 	i.exitFd = exitFd
-	defer unix.Close(exitFd)
+	i.mu.Unlock()
+	defer i.closeExitFdLocked()
 
 	inotifyEvent := &unix.EpollEvent{
 		Events: unix.EPOLLIN,
@@ -304,20 +329,14 @@ func (i *DRMInput) watchLoop() {
 
 	if err := unix.EpollCtl(epollFd, unix.EPOLL_CTL_ADD, fd, inotifyEvent); err != nil {
 		debug.Warningf("epoll add inotify failed: %v", err)
-		unix.Close(exitFd)
-		i.exitFd = -1
-		unix.Close(fd)
-		i.inotifyFd = -1
 		return
 	}
 	if err := unix.EpollCtl(epollFd, unix.EPOLL_CTL_ADD, exitFd, exitEvent); err != nil {
 		debug.Warningf("epoll add eventfd failed: %v", err)
-		unix.Close(exitFd)
-		i.exitFd = -1
-		unix.Close(fd)
-		i.inotifyFd = -1
 		return
 	}
+
+	close(i.ready)
 
 	events := make([]unix.EpollEvent, 8)
 	buf := make([]byte, 4096)
@@ -361,6 +380,11 @@ func (i *DRMInput) watchLoop() {
 						offset = end
 					}
 
+					if hdr.Mask&unix.IN_Q_OVERFLOW != 0 {
+						i.rescanDevices()
+						continue
+					}
+
 					if !strings.HasPrefix(name, "event") {
 						continue
 					}
@@ -372,9 +396,6 @@ func (i *DRMInput) watchLoop() {
 					}
 					if hdr.Mask&unix.IN_DELETE != 0 {
 						i.closeDevice(fullPath)
-					}
-					if hdr.Mask&unix.IN_Q_OVERFLOW != 0 {
-						i.rescanDevices()
 					}
 				}
 			}
@@ -394,24 +415,37 @@ func (i *DRMInput) Close() error {
 	i.closeOnce.Do(func() {
 		close(i.done)
 
-		if i.exitFd >= 0 {
-			buf := make([]byte, 8)
-			buf[0] = 1
-			_, _ = unix.Write(i.exitFd, buf)
+		select {
+		case <-i.ready:
+			i.mu.Lock()
+			exitFd := i.exitFd
+			i.mu.Unlock()
+			if exitFd >= 0 {
+				buf := make([]byte, 8)
+				buf[0] = 1
+				_, _ = unix.Write(exitFd, buf)
+			}
+		case <-i.watchDone:
 		}
+
 		<-i.watchDone
 
-		if i.inotifyFd >= 0 {
-			unix.Close(i.inotifyFd)
+		i.mu.Lock()
+		inotifyFd := i.inotifyFd
+		i.inotifyFd = -1
+		devs := i.devices
+		i.devices = nil
+		i.mu.Unlock()
+
+		if inotifyFd >= 0 {
+			unix.Close(inotifyFd)
 		}
 
-		i.mu.Lock()
-		for _, e := range i.devices {
+		for _, e := range devs {
 			close(e.done)
 			e.dev.Ungrab()
 			e.dev.Close()
 		}
-		i.mu.Unlock()
 	})
 	return nil
 }

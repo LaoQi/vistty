@@ -1,7 +1,7 @@
 package screen
 
 type Color struct {
-	R, G, B    uint8
+	R, G, B   uint8
 	IsDefault bool
 }
 

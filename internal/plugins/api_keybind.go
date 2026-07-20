@@ -25,7 +25,11 @@ func registerKeybind(L *lua.LState, pm *PluginManager) {
 		fn := L.CheckFunction(2)
 		var codes []uint16
 		tbl.ForEach(func(_, v lua.LValue) {
-			codes = append(codes, uint16(v.(lua.LNumber)))
+			num, ok := v.(lua.LNumber)
+			if !ok {
+				L.RaiseError("vistty.input.bind_keys: expected number in codes table, got %T", v)
+			}
+			codes = append(codes, uint16(num))
 		})
 		pm.bindings = append(pm.bindings, keyBinding{codes: codes, indexed: true, fn: fn})
 		return 0

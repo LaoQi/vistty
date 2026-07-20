@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	testW     = 100
-	testH     = 100
+	testW      = 100
+	testH      = 100
 	testStride = testW * 4
 )
 
@@ -54,6 +54,21 @@ func TestFillRect(t *testing.T) {
 	b, g, r, a = pixelAt(data, testStride, 99, 99)
 	if r != 0xFF || g != 0xFF || b != 0xFF || a != 255 {
 		t.Errorf("clipped rect edge = (R=%02X,G=%02X,B=%02X,A=%02X), want (FF,FF,FF,FF)", r, g, b, a)
+	}
+}
+
+func TestFillRectRowBoundaryClamp(t *testing.T) {
+	data := newFrameBuf()
+	// Fill starting at col 95 with width 10 -- should NOT bleed into next row.
+	// Row 10 should only have pixels 95..99 filled; (10,0) must remain zero.
+	FillRect(data, testStride, 95, 10, 10, 1, 0xAA, 0xBB, 0xCC)
+	b, g, r, a := pixelAt(data, testStride, 99, 10)
+	if r != 0xAA || g != 0xBB || b != 0xCC || a != 255 {
+		t.Errorf("last pixel of row = (R=%02X,G=%02X,B=%02X,A=%02X), want (AA,BB,CC,FF)", r, g, b, a)
+	}
+	b, g, r, a = pixelAt(data, testStride, 0, 11)
+	if r != 0 || g != 0 || b != 0 || a != 0 {
+		t.Errorf("pixel at next row start should be zero (no bleed), got (R=%02X,G=%02X,B=%02X,A=%02X)", r, g, b, a)
 	}
 }
 

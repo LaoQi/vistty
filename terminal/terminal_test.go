@@ -23,15 +23,15 @@ func newFakeSurface(w, h int) *fakeSurface {
 		resizeC: make(chan platform.ResizeEvent, 4),
 	}
 }
-func (s *fakeSurface) Size() (int, int)             { return s.w, s.h }
-func (s *fakeSurface) Data() []byte                 { return s.data }
-func (s *fakeSurface) Stride() int                  { return s.stride }
-func (s *fakeSurface) Swap() error                  { return nil }
-func (s *fakeSurface) Close() error                 { return nil }
+func (s *fakeSurface) Size() (int, int) { return s.w, s.h }
+func (s *fakeSurface) Data() []byte     { return s.data }
+func (s *fakeSurface) Stride() int      { return s.stride }
+func (s *fakeSurface) Swap() error      { return nil }
+func (s *fakeSurface) Close() error     { return nil }
 func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return s.resizeC
 }
-func (s *fakeSurface) OutputID() uint32 { return 0 }
+func (s *fakeSurface) OutputID() uint32   { return 0 }
 func (s *fakeSurface) DirectRender() bool { return true }
 func (s *fakeSurface) DecoMode() uint32   { return 2 }
 
@@ -46,9 +46,9 @@ func newFakeInput() *fakeInput {
 		mouseCh: make(chan platform.MouseEvent, 16),
 	}
 }
-func (i *fakeInput) KeyEvents() <-chan platform.KeyEvent   { return i.keyCh }
+func (i *fakeInput) KeyEvents() <-chan platform.KeyEvent     { return i.keyCh }
 func (i *fakeInput) MouseEvents() <-chan platform.MouseEvent { return i.mouseCh }
-func (i *fakeInput) Close() error                          { return nil }
+func (i *fakeInput) Close() error                            { return nil }
 
 type fakeBackend struct {
 	surface *fakeSurface
@@ -91,24 +91,24 @@ func newTerminalForTest(cols, rows int) (*Terminal, *bytes.Buffer) {
 	altBuf.SetAltScreen(true)
 	resp := &bytes.Buffer{}
 	t := &Terminal{
-		screen:     buf,
-		cursor:     buf.Cursor(),
-		parser:     vte.NewParser(),
-		mainBuf:    buf,
-		altBuf:     altBuf,
-		hostWriter: resp,
-		done:       make(chan struct{}),
-		curFg:      screen.Color{IsDefault: true},
-		curBg:      screen.Color{IsDefault: true},
-		theme:      &DefaultTheme,
-		defFg:      DefaultTheme.DefFg,
-		defBg:      DefaultTheme.DefBg,
+		screen:      buf,
+		cursor:      buf.Cursor(),
+		parser:      vte.NewParser(),
+		mainBuf:     buf,
+		altBuf:      altBuf,
+		hostWriter:  resp,
+		done:        make(chan struct{}),
+		curFg:       screen.Color{IsDefault: true},
+		curBg:       screen.Color{IsDefault: true},
+		theme:       &DefaultTheme,
+		defFg:       DefaultTheme.DefFg,
+		defBg:       DefaultTheme.DefBg,
 		cursorColor: DefaultTheme.CursorColor,
-		autoWrap:   true,
-		charset:    newCharsetState(),
-		active:     true,
-		cols:       cols,
-		rows:       rows,
+		autoWrap:    true,
+		charset:     newCharsetState(),
+		active:      true,
+		cols:        cols,
+		rows:        rows,
 	}
 	t.initTabStops()
 	return t, resp

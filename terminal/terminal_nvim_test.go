@@ -315,4 +315,3 @@ func TestEraseCharsUsesCurrentBg(t *testing.T) {
 		}
 	}
 }
-

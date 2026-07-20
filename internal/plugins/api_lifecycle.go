@@ -5,14 +5,15 @@ import (
 )
 
 // registerLifecycle 注册生命周期钩子：
-//   vistty.on_exit(fn)              — 主循环退出后触发（无参数）
-//   vistty.on_tab_new(fn)           — 新标签创建后触发，fn(idx, title)
-//   vistty.on_tab_close(fn)         — 标签关闭后触发，fn(idx, title)
-//   vistty.on_tab_switch(fn)        — 标签切换后触发，fn(new_idx, old_idx)
-//   vistty.on_screen_switch(fn)     — 屏幕焦点切换后触发，fn(idx)
-//   vistty.on_title_change(fn)      — 终端标题变化后触发（经主线程缓冲），fn(title)
-//   vistty.on_resize(fn)            — 窗口/尺寸变化后触发，fn(output_id, width, height, cols, rows)
-//   vistty.on_zoom(fn)              — 字体缩放后触发，fn(size)
+//
+//	vistty.on_exit(fn)              — 主循环退出后触发（无参数）
+//	vistty.on_tab_new(fn)           — 新标签创建后触发，fn(idx, title)
+//	vistty.on_tab_close(fn)         — 标签关闭后触发，fn(idx, title)
+//	vistty.on_tab_switch(fn)        — 标签切换后触发，fn(new_idx, old_idx)
+//	vistty.on_screen_switch(fn)     — 屏幕焦点切换后触发，fn(idx)
+//	vistty.on_title_change(fn)      — 终端标题变化后触发（经主线程缓冲），fn(title)
+//	vistty.on_resize(fn)            — 窗口/尺寸变化后触发，fn(output_id, width, height, cols, rows)
+//	vistty.on_zoom(fn)              — 字体缩放后触发，fn(size)
 //
 // 所有 idx 均为 1-based。钩子在主渲染线程触发（与 OnKey/OnRender 同线程），
 // 可安全调用 vistty.* API。单个钩子出错不影响后续。

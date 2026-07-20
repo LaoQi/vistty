@@ -163,6 +163,16 @@ func (s *DRMSurface) notifyFlip() {
 func (s *DRMSurface) SetActive(active bool) {
 	s.mu.Lock()
 	s.active = active
+	if !active && s.flipPending {
+		// VT 切走时 DropMaster 会取消内核 pending page flip 且不再发送
+		// flip 事件。若不清 flipPending，切回后首次 Swap 的 waitForFlip 必然
+		// 走完 5s 超时。排空 flipCh 防止残留信号误唤醒。
+		s.flipPending = false
+		select {
+		case <-s.flipCh:
+		default:
+		}
+	}
 	s.mu.Unlock()
 }
 

@@ -184,3 +184,36 @@ func TestMasterInputNoDeadlock(t *testing.T) {
 		t.Fatal("Run did not return after Close")
 	}
 }
+
+// TestSeqRelayExitsOnTerminalDone 验证 terminal Done channel 关闭后
+// seq-relay goroutine 退出，不再泄漏（P1-10 修复）。
+func TestSeqRelayExitsOnTerminalDone(t *testing.T) {
+	opts := terminal.DefaultOptions()
+	opts.Shell = "/bin/cat"
+	term, err := terminal.New(opts, 80, 24)
+	if err != nil {
+		t.Skipf("skip: cannot create terminal: %v", err)
+	}
+
+	m := &Master{
+		seqRelay: make(chan seqMsg, 16),
+		exitCh:   make(chan *terminal.Terminal, 16),
+		done:     make(chan struct{}),
+	}
+	m.terms = append(m.terms, term)
+	m.startTerminalGoroutines(term)
+
+	term.SignalClose()
+
+	waitDone := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("seq-relay goroutine did not exit after terminal SignalClose (goroutine leak)")
+	}
+}

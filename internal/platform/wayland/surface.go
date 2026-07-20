@@ -5,16 +5,18 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"golang.org/x/sys/unix"
 )
 
 type shmBuf struct {
-	fd     int
-	data   []byte
-	size   int
-	pool   *wlShmPool
-	buffer *wlBuffer
+	fd       int
+	data     []byte
+	size     int
+	pool     *wlShmPool
+	buffer   *wlBuffer
+	released *bool // 与 buffer.onRelease 共享；true=合成器已释放，可安全覆写
 }
 
 type WaylandSurface struct {
@@ -32,6 +34,11 @@ type WaylandSurface struct {
 	front    int
 	swapBR   bool
 	decoMode uint32
+
+	// pendingW/pendingH: onConfigure 记录的待应用尺寸，由 Data() 在渲染线程消费。
+	// 避免 dispatch 线程直接替换 buffer 导致与渲染线程的 use-after-munmap 竞争。
+	pendingW int
+	pendingH int
 
 	resizeCh chan platform.ResizeEvent
 	outputID uint32
@@ -73,7 +80,7 @@ func newWaylandSurface(backend *WaylandBackend, width, height int, outputID uint
 
 	bufSize := s.stride * height
 	for i := 0; i < 2; i++ {
-		buf, err := createShmBuf(backend.shm, bufSize, width, height, s.stride, backend.shmFormat)
+		buf, err := createShmBuf(backend.shm, bufSize, width, height, s.stride, backend.shmFormat, &s.mu)
 		if err != nil {
 			s.closeBufs(i)
 			s.toplevel.destroy()
@@ -94,8 +101,17 @@ func newWaylandSurface(backend *WaylandBackend, width, height int, outputID uint
 	}
 
 	s.toplevel.onConfigure = func(w, h int32) {
-		if w > 0 && h > 0 && (int(w) != s.width || int(h) != s.height) {
-			s.resize(int(w), int(h))
+		if w > 0 && h > 0 {
+			// 两阶段 resize：dispatch 线程只记录 pending 尺寸 + 发送 ResizeEvent。
+			// buffer 替换延迟到渲染线程 Data() 中执行，避免与渲染线程整帧写入的 use-after-munmap 竞争。
+			s.mu.Lock()
+			s.pendingW = int(w)
+			s.pendingH = int(h)
+			s.mu.Unlock()
+			select {
+			case s.resizeCh <- platform.ResizeEvent{Width: int(w), Height: int(h), OutputID: s.outputID}:
+			default:
+			}
 		}
 	}
 
@@ -136,6 +152,12 @@ func (s *WaylandSurface) Size() (int, int) {
 func (s *WaylandSurface) Data() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// 在渲染线程串行应用 pending resize：buffer 替换在此执行，
+	// 旧 buffer Munmap 时无其他 goroutine 在写，消除 use-after-munmap 竞争。
+	if s.pendingW > 0 && s.pendingH > 0 {
+		s.applyResizeLocked(s.pendingW, s.pendingH)
+		s.pendingW, s.pendingH = 0, 0
+	}
 	backIdx := s.front ^ 1
 	return s.bufs[backIdx].data
 }
@@ -163,6 +185,13 @@ func (s *WaylandSurface) Swap() error {
 	backIdx := s.front ^ 1
 	buf := &s.bufs[backIdx]
 
+	// 跟踪 wl_buffer.release：若合成器尚未释放 back buffer，跳过本帧 Swap，
+	// 避免覆写合成器正读取的 buffer 导致撕裂。
+	if buf.released == nil || !*buf.released {
+		debug.Warningf("wayland: swap skipped: back buffer not released yet (%dx%d)", s.width, s.height)
+		return nil
+	}
+
 	if s.swapBR {
 		data := buf.data
 		for i := 0; i+4 <= len(data); i += 4 {
@@ -176,6 +205,7 @@ func (s *WaylandSurface) Swap() error {
 	s.wlSurface.damage(0, 0, int32(s.width), int32(s.height))
 	s.wlSurface.commit()
 
+	*buf.released = false
 	s.front = backIdx
 	return nil
 }
@@ -199,24 +229,29 @@ func (s *WaylandSurface) Close() error {
 
 func (s *WaylandSurface) closeBufs(upTo int) {
 	for i := 0; i < upTo; i++ {
-		b := &s.bufs[i]
-		if b.data != nil {
-			unix.Munmap(b.data)
-			b.data = nil
-		}
-		if b.buffer != nil {
-			b.buffer.destroy()
-			b.buffer = nil
-		}
-		if b.pool != nil {
-			b.pool.destroy()
-			b.pool = nil
-		}
-		if b.fd >= 0 {
-			unix.Close(b.fd)
-			b.fd = -1
-		}
+		destroyShmBuf(&s.bufs[i])
 	}
+}
+
+// destroyShmBuf 释放单个 shmBuf 的全部资源（munmap + destroy buffer/pool + close fd）。
+func destroyShmBuf(b *shmBuf) {
+	if b.data != nil {
+		unix.Munmap(b.data)
+		b.data = nil
+	}
+	if b.buffer != nil {
+		b.buffer.destroy()
+		b.buffer = nil
+	}
+	if b.pool != nil {
+		b.pool.destroy()
+		b.pool = nil
+	}
+	if b.fd >= 0 {
+		unix.Close(b.fd)
+		b.fd = -1
+	}
+	b.released = nil
 }
 
 func (s *WaylandSurface) ResizeEvents() <-chan platform.ResizeEvent {
@@ -243,52 +278,55 @@ func (s *WaylandSurface) StartResize(serial uint32, edge uint32) {
 	}
 }
 
-func (s *WaylandSurface) resize(newWidth, newHeight int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// applyResizeLocked 在渲染线程 Data() 中持 s.mu 调用，执行 buffer 替换。
+// 两阶段 resize 的第二阶段：创建新 buffer -> 替换 -> 销毁旧 buffer。
+// P1-20: 先创建到临时变量，任一失败则销毁已创建的，保留旧 bufs 不动。
+func (s *WaylandSurface) applyResizeLocked(newWidth, newHeight int) {
 	if newWidth <= 0 || newHeight <= 0 {
+		return
+	}
+	if newWidth == s.width && newHeight == s.height && s.bufs[0].buffer != nil {
+		return
+	}
+
+	newStride := newWidth * 4
+	bufSize := newStride * newHeight
+
+	var newBufs [2]shmBuf
+	created := 0
+	var createErr error
+	for i := 0; i < 2; i++ {
+		buf, err := createShmBuf(s.backend.shm, bufSize, newWidth, newHeight, newStride, s.backend.shmFormat, &s.mu)
+		if err != nil {
+			createErr = err
+			break
+		}
+		newBufs[i] = buf
+		created++
+	}
+
+	if createErr != nil {
+		for i := 0; i < created; i++ {
+			destroyShmBuf(&newBufs[i])
+		}
+		debug.Warningf("wayland: resize to %dx%d failed: %v (keeping %dx%d)", newWidth, newHeight, createErr, s.width, s.height)
 		return
 	}
 
 	oldBufs := s.bufs
 	s.width = newWidth
 	s.height = newHeight
-	s.stride = newWidth * 4
-
-	bufSize := s.stride * newHeight
-	for i := 0; i < 2; i++ {
-		buf, err := createShmBuf(s.backend.shm, bufSize, newWidth, newHeight, s.stride, s.backend.shmFormat)
-		if err != nil {
-			s.bufs = oldBufs
-			return
-		}
-		s.bufs[i] = buf
-	}
+	s.stride = newStride
+	s.bufs = newBufs
 
 	for i := 0; i < 2; i++ {
-		if oldBufs[i].data != nil {
-			unix.Munmap(oldBufs[i].data)
-		}
-		if oldBufs[i].buffer != nil {
-			oldBufs[i].buffer.destroy()
-		}
-		if oldBufs[i].pool != nil {
-			oldBufs[i].pool.destroy()
-		}
-		if oldBufs[i].fd >= 0 {
-			unix.Close(oldBufs[i].fd)
-		}
+		destroyShmBuf(&oldBufs[i])
 	}
 
 	s.xdgSurface.setWindowGeometry(0, 0, int32(newWidth), int32(newHeight))
-
-	select {
-	case s.resizeCh <- platform.ResizeEvent{Width: newWidth, Height: newHeight, OutputID: s.outputID}:
-	default:
-	}
 }
 
-func createShmBuf(shm *wlShm, size, width, height, stride int, format uint32) (shmBuf, error) {
+func createShmBuf(shm *wlShm, size, width, height, stride int, format uint32, mu *sync.Mutex) (shmBuf, error) {
 	fd, err := unix.MemfdCreate("vistty-wl-shm", unix.MFD_CLOEXEC)
 	if err != nil {
 		return shmBuf{}, fmt.Errorf("memfd_create: %w", err)
@@ -308,12 +346,24 @@ func createShmBuf(shm *wlShm, size, width, height, stride int, format uint32) (s
 	pool := shm.createPool(fd, int32(size))
 	buffer := pool.createBuffer(0, int32(width), int32(height), int32(stride), format)
 
+	// released 标志由 shmBuf 和 buffer.onRelease 共享（*bool 指针）。
+	// 新 buffer 初始 released=true（空闲可写）。
+	// onRelease 在 dispatch 线程触发，通过 mu 保护与渲染线程 Swap() 的读写同步。
+	rel := new(bool)
+	*rel = true
+	buffer.onRelease = func() {
+		mu.Lock()
+		*rel = true
+		mu.Unlock()
+	}
+
 	return shmBuf{
-		fd:     fd,
-		data:   data,
-		size:   size,
-		pool:   pool,
-		buffer: buffer,
+		fd:       fd,
+		data:     data,
+		size:     size,
+		pool:     pool,
+		buffer:   buffer,
+		released: rel,
 	}, nil
 }
 

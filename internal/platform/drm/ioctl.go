@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	IoctlNone uint8 = 0
+	IoctlNone  uint8 = 0
 	IoctlWrite uint8 = 1
 	IoctlRead  uint8 = 2
 	IoctlRW    uint8 = 3

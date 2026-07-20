@@ -41,8 +41,8 @@ type surfaceAtomicInfo struct {
 	pProps planeProps
 	aConn  connProps
 
-	modeBlobID   uint32
-	modesetDone  bool
+	modeBlobID  uint32
+	modesetDone bool
 }
 
 type pendingFlip struct {

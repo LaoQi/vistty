@@ -41,11 +41,14 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 
 	eglLoader, err := gl.LoadEGL()
 	if err != nil {
+		gbmLoader.Close()
 		return nil, fmt.Errorf("load EGL: %w", err)
 	}
 
 	gbmDev := gbmLoader.CreateDevice(fd)
 	if gbmDev == 0 {
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("gbm_create_device failed")
 	}
 
@@ -56,17 +59,23 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	}
 	if eglDisplay == 0 || eglDisplay == gl.EGL_NO_DISPLAY {
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("eglGetDisplay failed")
 	}
 
 	if _, _, err := eglLoader.Initialize(eglDisplay); err != nil {
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("eglInitialize: %w", err)
 	}
 
 	if err := eglLoader.BindAPI(gl.EGL_OPENGL_ES_API); err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("eglBindAPI: %w", err)
 	}
 
@@ -83,6 +92,8 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	if err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("eglChooseConfig: %w", err)
 	}
 
@@ -90,6 +101,8 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	if err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("query EGL_NATIVE_VISUAL_ID: %w", err)
 	}
 
@@ -104,6 +117,8 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	if err != nil {
 		eglLoader.Terminate(eglDisplay)
 		gbmLoader.DeviceDestroy(gbmDev)
+		eglLoader.Close()
+		gbmLoader.Close()
 		return nil, fmt.Errorf("load GLES: %w", err)
 	}
 
@@ -224,6 +239,18 @@ func (d *GBMDevice) Close() {
 	if d.gbmDev != 0 {
 		d.gbmLoader.DeviceDestroy(d.gbmDev)
 		d.gbmDev = 0
+	}
+	if d.glesLoader != nil {
+		d.glesLoader.Close()
+		d.glesLoader = nil
+	}
+	if d.eglLoader != nil {
+		d.eglLoader.Close()
+		d.eglLoader = nil
+	}
+	if d.gbmLoader != nil {
+		d.gbmLoader.Close()
+		d.gbmLoader = nil
 	}
 }
 

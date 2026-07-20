@@ -40,11 +40,11 @@ type DisplayInfo struct {
 	name      string
 }
 
-func (d *DisplayInfo) ID() uint32          { return d.connID }
-func (d *DisplayInfo) ConnectorID() uint32 { return d.connID }
-func (d *DisplayInfo) CrtcID() uint32       { return d.crtcID }
-func (d *DisplayInfo) Name() string        { return d.name }
-func (d *DisplayInfo) Size() (int, int)        { return int(d.mode.HDisplay), int(d.mode.VDisplay) }
+func (d *DisplayInfo) ID() uint32               { return d.connID }
+func (d *DisplayInfo) ConnectorID() uint32      { return d.connID }
+func (d *DisplayInfo) CrtcID() uint32           { return d.crtcID }
+func (d *DisplayInfo) Name() string             { return d.name }
+func (d *DisplayInfo) Size() (int, int)         { return int(d.mode.HDisplay), int(d.mode.VDisplay) }
 func (d *DisplayInfo) ModeInfo() ModeInfoPublic { return d.mode }
 
 var _ platform.Output = (*DisplayInfo)(nil)

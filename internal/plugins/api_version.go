@@ -6,8 +6,9 @@ import (
 )
 
 // registerVersion 注册版本查询接口：
-//   vistty.version()      → string  版本号单行（如 "v1.0.0" 或 "dev-abc12345"），便于状态栏显示
-//   vistty.version_info() → table   {version, commit, build_time, go}
+//
+//	vistty.version()      → string  版本号单行（如 "v1.0.0" 或 "dev-abc12345"），便于状态栏显示
+//	vistty.version_info() → table   {version, commit, build_time, go}
 func registerVersion(L *lua.LState, pm *PluginManager) {
 	vt := ensureVisttyTable(L)
 

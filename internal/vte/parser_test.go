@@ -254,6 +254,40 @@ func TestFeedUTF8Truncated(t *testing.T) {
 	}
 }
 
+func TestFeedUTF8InvalidContinuationRedispatch(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xE4, 'A'})
+	if len(seqs) != 2 {
+		t.Fatalf("expected 2 sequences (FFFD + 'A'), got %d", len(seqs))
+	}
+	if seqs[0].Rune != 0xFFFD {
+		t.Errorf("expected first U+FFFD, got U+%04X", seqs[0].Rune)
+	}
+	if seqs[0].Action != ActionPrint {
+		t.Errorf("expected first ActionPrint, got %v", seqs[0].Action)
+	}
+	if seqs[1].Rune != 'A' {
+		t.Errorf("expected second 'A', got U+%04X", seqs[1].Rune)
+	}
+	if seqs[1].Action != ActionPrint {
+		t.Errorf("expected second ActionPrint, got %v", seqs[1].Action)
+	}
+}
+
+func TestFeedUTF8InvalidContinuationESC(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte{0xE4, 0x1B, '[', 'r'})
+	if len(seqs) != 2 {
+		t.Fatalf("expected 2 sequences (FFFD + CSI 'r'), got %d", len(seqs))
+	}
+	if seqs[0].Action != ActionPrint || seqs[0].Rune != 0xFFFD {
+		t.Errorf("expected first U+FFFD ActionPrint, got %+v", seqs[0])
+	}
+	if seqs[1].Action != ActionCSI {
+		t.Errorf("expected second ActionCSI, got %v", seqs[1].Action)
+	}
+}
+
 func TestCSIDECSCUSRIntermed(t *testing.T) {
 	p := NewParser()
 	seqs := p.FeedAll([]byte{0x1B, '[', '2', ' ', 'q'})
@@ -287,5 +321,63 @@ func TestOSCBackToBack(t *testing.T) {
 	}
 	if string(seqs[1].Data) != "1;b" {
 		t.Errorf("expected data '1;b', got %q", string(seqs[1].Data))
+	}
+}
+
+func TestCSIParams32(t *testing.T) {
+	p := NewParser()
+	input := []byte{0x1B, '['}
+	for i := 1; i <= 20; i++ {
+		if i > 1 {
+			input = append(input, ';')
+		}
+		input = append(input, byte('0'+i/10), byte('0'+i%10))
+	}
+	input = append(input, 'm')
+	seqs := p.FeedAll(input)
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if seqs[0].NParams != 20 {
+		t.Fatalf("expected 20 params, got %d", seqs[0].NParams)
+	}
+	for i := 0; i < 20; i++ {
+		want := i + 1
+		if seqs[0].Params[i] != want {
+			t.Errorf("param[%d]: expected %d, got %d", i, want, seqs[0].Params[i])
+		}
+	}
+}
+
+func TestCSIParamOverflow(t *testing.T) {
+	p := NewParser()
+	seqs := p.FeedAll([]byte("\x1b[999999999999C"))
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if seqs[0].NParams != 1 {
+		t.Fatalf("expected 1 param, got %d", seqs[0].NParams)
+	}
+	if seqs[0].Params[0] != 65535 {
+		t.Errorf("expected param clamped to 65535, got %d", seqs[0].Params[0])
+	}
+}
+
+func TestOSCDataLimit(t *testing.T) {
+	p := NewParser()
+	input := []byte{0x1B, ']', '0', ';'}
+	for i := 0; i < 70000; i++ {
+		input = append(input, 'A')
+	}
+	input = append(input, 0x07)
+	seqs := p.FeedAll(input)
+	if len(seqs) != 1 {
+		t.Fatalf("expected 1 sequence, got %d", len(seqs))
+	}
+	if len(seqs[0].Data) > 65536 {
+		t.Errorf("expected data bounded at 65536 bytes, got %d", len(seqs[0].Data))
+	}
+	if len(seqs[0].Data) != 65536 {
+		t.Errorf("expected data exactly 65536 bytes, got %d", len(seqs[0].Data))
 	}
 }

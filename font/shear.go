@@ -5,9 +5,11 @@ import "math"
 // ShearGlyph 对字形做 shear（剪切）变换生成斜体字形。
 // slope 表示顶部向右偏移 slope*(Height-1) 像素，底部不动，形成 / 形（标准 italic）。
 // align 控制整体水平偏移以平衡左右溢出：XOffset -= round(align*maxShift)。
-//   align=0  → 底部对齐（右侧溢出 maxShift，左侧 0）
-//   align=0.5→ 居中（左右各溢出 0.5*maxShift）
-//   align=1  → 顶部对齐（左侧溢出 maxShift，右侧 0）
+//
+//	align=0  → 底部对齐（右侧溢出 maxShift，左侧 0）
+//	align=0.5→ 居中（左右各溢出 0.5*maxShift）
+//	align=1  → 顶部对齐（左侧溢出 maxShift，右侧 0）
+//
 // 使用双线性插值抗锯齿。返回新 Glyph（不修改原 g）：
 //   - 新 Bitmap 宽度 = Width + ceil(slope*(Height-1))
 //   - 新 Height = 原 Height

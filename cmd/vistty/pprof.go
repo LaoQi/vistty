@@ -9,13 +9,13 @@ import (
 )
 
 type profileConfig struct {
-	cpuProfile    string
-	memProfile    string
-	mutexProfile  string
-	traceFile     string
-	fps           bool
-	cpuStarted    bool
-	traceStarted  bool
+	cpuProfile   string
+	memProfile   string
+	mutexProfile string
+	traceFile    string
+	fps          bool
+	cpuStarted   bool
+	traceStarted bool
 }
 
 func (p *profileConfig) start() error {

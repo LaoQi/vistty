@@ -252,7 +252,7 @@ func parseTableColor(L *lua.LState, t *lua.LTable) [4]uint8 {
 
 func isValidSide(s string) bool {
 	switch s {
-	case "top", "bottom", "left", "right":
+	case "bottom", "left", "right":
 		return true
 	}
 	return false

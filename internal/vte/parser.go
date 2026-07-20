@@ -34,7 +34,7 @@ const (
 type Sequence struct {
 	Action   Action
 	Command  byte
-	Params   [16]int
+	Params   [32]int
 	NParams  int
 	Intermed []byte
 	Data     []byte
@@ -42,20 +42,20 @@ type Sequence struct {
 }
 
 type Parser struct {
-	state       state
-	params      []int
-	curParam    int
-	hasParam    bool
-	intermed    []byte
-	data        []byte
+	state         state
+	params        []int
+	curParam      int
+	hasParam      bool
+	intermed      []byte
+	data          []byte
 	private       bool
 	privateMarker byte
 	pendingOSC    bool
-	pendingDCS  bool
-	utf8Buf     [4]byte
-	utf8Len     int
-	utf8Total   int
-	seqs        []Sequence
+	pendingDCS    bool
+	utf8Buf       [4]byte
+	utf8Len       int
+	utf8Total     int
+	seqs          []Sequence
 }
 
 func NewParser() *Parser {
@@ -118,6 +118,7 @@ func (p *Parser) dispatch(b byte) {
 
 func (p *Parser) feedGround(b byte) {
 	if b == 0x1B {
+		p.intermed = p.intermed[:0]
 		p.state = stateEscape
 		return
 	}
@@ -269,7 +270,12 @@ func (p *Parser) feedCSIParameter(b byte) {
 		return
 	}
 	if b >= 0x30 && b <= 0x39 {
-		p.curParam = p.curParam*10 + int(b-'0')
+		if p.curParam < 65536 {
+			p.curParam = p.curParam*10 + int(b-'0')
+			if p.curParam > 65535 {
+				p.curParam = 65535
+			}
+		}
 		p.hasParam = true
 		return
 	}
@@ -347,7 +353,9 @@ func (p *Parser) feedOSCString(b byte) {
 		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
 		return
 	}
-	p.data = append(p.data, b)
+	if len(p.data) < 65536 {
+		p.data = append(p.data, b)
+	}
 }
 
 func (p *Parser) feedDCSString(b byte) {
@@ -365,7 +373,9 @@ func (p *Parser) feedDCSString(b byte) {
 		p.seqs = append(p.seqs, Sequence{Action: ActionExecute, Command: b})
 		return
 	}
-	p.data = append(p.data, b)
+	if len(p.data) < 65536 {
+		p.data = append(p.data, b)
+	}
 }
 
 func (p *Parser) feedUTF8(b byte) {
@@ -373,6 +383,7 @@ func (p *Parser) feedUTF8(b byte) {
 		p.state = stateGround
 		p.utf8Total = 0
 		p.seqs = append(p.seqs, Sequence{Action: ActionPrint, Rune: unicode.ReplacementChar})
+		p.dispatch(b)
 		return
 	}
 	p.utf8Buf[p.utf8Len] = b
@@ -460,8 +471,11 @@ func copyBytes(b []byte) []byte {
 	return cp
 }
 
-func (p *Parser) copyParams() ([16]int, int) {
-	var arr [16]int
+func (p *Parser) copyParams() ([32]int, int) {
+	var arr [32]int
 	n := copy(arr[:], p.params)
+	if len(p.params) > 32 {
+		n = 32
+	}
 	return arr, n
 }

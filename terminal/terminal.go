@@ -22,7 +22,16 @@ import (
 )
 
 var seqPool = sync.Pool{
-	New: func() any { return make([]vte.Sequence, 0, 4096) },
+	New: func() any { return make([]vte.Sequence, 0, 256) },
+}
+
+// returnSeqPool returns a seq slice to the pool, but discards slices whose
+// backing array grew too large (cap > 2048) to avoid pinning ~800KB+ per entry.
+func returnSeqPool(seqs []vte.Sequence) {
+	if cap(seqs) > 2048 {
+		return
+	}
+	seqPool.Put(seqs[:0])
 }
 
 type savedCursorState struct {
@@ -34,43 +43,55 @@ type savedCursorState struct {
 	charset charsetState
 }
 
+// Terminal 表示一个终端会话。
+//
+// 线程契约：
+//   - executeSequences / execCSI / execOSC / execPrint / execControl / handleMode
+//     及所有 curFg/curBg/curAttr/cursor/screen 写操作仅由主渲染线程通过
+//     seqCh 消费驱动（render_loop.go ticker/seqCh 分支），无并发。
+//   - 下列无锁 accessor（Cursor / CursorKeysApp / Title / Active / Cols / Rows /
+//     ScrollOffset / Theme / AutoWrap 等）仅由主渲染线程读取，依赖单线程串行假设。
+//   - PtyWrite / Resize / SetPtySize / Close / Activate / Deactivate 通过 mu 或
+//     channel 串行化，可跨 goroutine 调用。
 type Terminal struct {
-	mu              sync.RWMutex
-	screen          *screen.Buffer
-	cursor          *screen.Cursor
-	parser          *vte.Parser
-	pty             *os.File
-	ptyCmd          *os.Process
-	hostWriter      io.Writer
-	mainBuf         *screen.Buffer
-	altBuf          *screen.Buffer
-	done            chan struct{}
-	closeOnce       sync.Once
-	seqCh           chan []vte.Sequence
-	eofCh           chan struct{}
-	cleanupOnce     sync.Once
-	opts            Options
-	curFg           screen.Color
-	curBg           screen.Color
-	curAttr         screen.Attributes
-	defFg           screen.Color
-	defBg           screen.Color
-	theme           *Theme
-	cursorColor     screen.Color
-	saved           savedCursorState
-	scrollOffset    int
-	autoWrap        bool
+	mu             sync.RWMutex
+	screen         *screen.Buffer
+	cursor         *screen.Cursor
+	parser         *vte.Parser
+	pty            *os.File
+	ptyCmd         *os.Process
+	hostWriter     io.Writer
+	mainBuf        *screen.Buffer
+	altBuf         *screen.Buffer
+	done           chan struct{}
+	closeOnce      sync.Once
+	seqCh          chan []vte.Sequence
+	eofCh          chan struct{}
+	cleanupOnce    sync.Once
+	opts           Options
+	curFg          screen.Color
+	curBg          screen.Color
+	curAttr        screen.Attributes
+	defFg          screen.Color
+	defBg          screen.Color
+	theme          *Theme
+	cursorColor    screen.Color
+	saved          savedCursorState
+	scrollOffset   int
+	autoWrap       bool
+	insertMode     bool
 	cursorKeysApp  bool
-	bracketedPaste  bool
-	focusReporting  bool
-	title           string
-	charset         charsetState
-	tabStops        []bool
-	active          bool
-	cols            int
-	rows            int
-	appSyncUpdates  bool
-	syncTimer       *time.Timer
+	bracketedPaste bool
+	focusReporting bool
+	title          string
+	charset        charsetState
+	tabStops       []bool
+	active         bool
+	cols           int
+	rows           int
+	appSyncUpdates bool
+	syncTimer      *time.Timer
+	writeCh        chan []byte
 }
 
 func New(opts Options, cols, rows int) (*Terminal, error) {
@@ -100,16 +121,16 @@ func New(opts Options, cols, rows int) (*Terminal, error) {
 		done:       make(chan struct{}),
 		seqCh:      make(chan []vte.Sequence, 64),
 		eofCh:      make(chan struct{}, 1),
-		opts:        opts,
-		mainBuf:     buf,
-		altBuf:      altBuf,
-		curFg:       screen.Color{IsDefault: true},
-		curBg:       screen.Color{IsDefault: true},
-		autoWrap:    true,
-		charset:     newCharsetState(),
-		active:      true,
-		cols:        cols,
-		rows:        rows,
+		opts:       opts,
+		mainBuf:    buf,
+		altBuf:     altBuf,
+		curFg:      screen.Color{IsDefault: true},
+		curBg:      screen.Color{IsDefault: true},
+		autoWrap:   true,
+		charset:    newCharsetState(),
+		active:     true,
+		cols:       cols,
+		rows:       rows,
 	}
 	if opts.Theme != nil {
 		th := *opts.Theme
@@ -128,6 +149,8 @@ func New(opts Options, cols, rows int) (*Terminal, error) {
 	if term.opts.OnCursorColor != nil {
 		term.opts.OnCursorColor(term.cursorColor)
 	}
+	term.writeCh = make(chan []byte, 64)
+	go term.ptyWriteLoop()
 	return term, nil
 }
 
@@ -183,7 +206,7 @@ func (t *Terminal) SeqCh() <-chan []vte.Sequence {
 }
 
 func ReturnSeqPool(seqs []vte.Sequence) {
-	seqPool.Put(seqs[:0])
+	returnSeqPool(seqs)
 }
 
 func (t *Terminal) EofCh() <-chan struct{} {
@@ -313,6 +336,18 @@ func (t *Terminal) Resize(cols, rows int) {
 	if t.cursor.Col >= cols {
 		t.cursor.Col = cols - 1
 	}
+	if t.saved.row >= rows {
+		t.saved.row = rows - 1
+	}
+	if t.saved.col >= cols {
+		t.saved.col = cols - 1
+	}
+	if t.saved.row < 0 {
+		t.saved.row = 0
+	}
+	if t.saved.col < 0 {
+		t.saved.col = 0
+	}
 	t.scrollOffset = 0
 	t.initTabStops()
 	t.cols = cols
@@ -320,10 +355,6 @@ func (t *Terminal) Resize(cols, rows int) {
 	t.setPtySize(rows, cols)
 	t.mainBuf.DamageAll()
 	t.altBuf.DamageAll()
-}
-
-func (t *Terminal) SetPtySize(rows, cols int) {
-	t.setPtySize(rows, cols)
 }
 
 func (t *Terminal) setPtySize(rows, cols int) {
@@ -382,7 +413,9 @@ func (t *Terminal) PtyReadLoop() {
 			}
 			return
 		}
-		debug.Debugf("PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
+		if debug.Enabled() {
+			debug.Debugf("PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
+		}
 		if t.opts.RecordWriter != nil {
 			t.opts.RecordWriter.Write(buf[:n])
 		}
@@ -395,11 +428,11 @@ func (t *Terminal) PtyReadLoop() {
 			select {
 			case t.seqCh <- seqs:
 			case <-t.done:
-				seqPool.Put(seqs[:0])
+				returnSeqPool(seqs)
 				return
 			}
 		} else {
-			seqPool.Put(seqs[:0])
+			returnSeqPool(seqs)
 		}
 	}
 }
@@ -448,6 +481,11 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 		}
 	}
 
+	if t.insertMode {
+		t.insertChars(w)
+	}
+
+	writtenCol := t.cursor.Col
 	cell := t.screen.Cell(t.cursor.Row, t.cursor.Col)
 	if cell != nil {
 		cell.Rune = r
@@ -475,7 +513,10 @@ func (t *Terminal) execPrint(seq vte.Sequence) {
 			t.cursor.Col = t.screen.Cols() - 1
 		}
 	}
-	t.screen.DamageLine(t.cursor.Row)
+	t.screen.DamageCell(t.cursor.Row, writtenCol)
+	if w == 2 {
+		t.screen.DamageCell(t.cursor.Row, writtenCol+1)
+	}
 }
 
 func (t *Terminal) execControl(seq vte.Sequence) {
@@ -598,10 +639,10 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 		t.eraseLine(n)
 	case vte.CSIInsertLines:
 		n := csiParam(csi, 0, 1)
-		t.screen.ScrollDown(n)
+		t.screen.InsertLines(t.cursor.Row, n)
 	case vte.CSIDeleteLines:
 		n := csiParam(csi, 0, 1)
-		t.screen.ScrollUp(n)
+		t.screen.DeleteLines(t.cursor.Row, n)
 	case vte.CSIDeleteChars:
 		n := csiParam(csi, 0, 1)
 		t.deleteChars(n)
@@ -615,11 +656,16 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 		n := csiParam(csi, 0, 1)
 		t.screen.ScrollDown(n)
 	case vte.CSISetTopBottomMargin:
-		if csi.NParams >= 2 {
-			t.screen.SetScrollRegion(csi.Params[0]-1, csi.Params[1]-1)
-		} else {
-			t.screen.SetScrollRegion(0, t.screen.Rows()-1)
+		rows := t.screen.Rows()
+		top := 1
+		if csi.NParams > 0 && csi.Params[0] > 0 {
+			top = csi.Params[0]
 		}
+		bot := rows
+		if csi.NParams >= 2 && csi.Params[1] > 0 {
+			bot = csi.Params[1]
+		}
+		t.screen.SetScrollRegion(top-1, bot-1)
 		t.cursor.Row = t.screen.ScrollTop()
 		t.cursor.Col = 0
 	case vte.CSICursorStyle:
@@ -692,6 +738,15 @@ func (t *Terminal) execCSI(seq vte.Sequence) {
 
 func (t *Terminal) handleMode(csi vte.CSISequence) {
 	isSet := csi.Command == vte.CSISetMode
+	if !csi.Private {
+		for _, p := range csi.Params[:csi.NParams] {
+			switch p {
+			case 4:
+				t.insertMode = isSet
+			}
+		}
+		return
+	}
 	for _, p := range csi.Params[:csi.NParams] {
 		switch p {
 		case 1:
@@ -719,6 +774,7 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				}
 				t.screen = t.mainBuf
 				t.cursor = t.mainBuf.Cursor()
+				t.scrollOffset = 0
 			}
 			t.screen.DamageAll()
 		case 1048:
@@ -744,17 +800,17 @@ func (t *Terminal) handleMode(csi vte.CSISequence) {
 				t.scrollOffset = 0
 			}
 			t.screen.DamageAll()
-	case 1004:
-		t.focusReporting = isSet
-	case 2004:
-		t.bracketedPaste = isSet
-	case 2026:
-		if isSet {
-			t.enableSyncUpdates()
-		} else {
-			t.disableSyncUpdates()
+		case 1004:
+			t.focusReporting = isSet
+		case 2004:
+			t.bracketedPaste = isSet
+		case 2026:
+			if isSet {
+				t.enableSyncUpdates()
+			} else {
+				t.disableSyncUpdates()
+			}
 		}
-	}
 	}
 }
 
@@ -880,6 +936,19 @@ func (t *Terminal) saveCursor() {
 func (t *Terminal) restoreCursor() {
 	t.cursor.Row = t.saved.row
 	t.cursor.Col = t.saved.col
+	if t.cursor.Row >= t.rows {
+		t.cursor.Row = t.rows - 1
+	}
+	if t.cursor.Col >= t.cols {
+		t.cursor.Col = t.cols - 1
+	}
+	if t.cursor.Row < 0 {
+		t.cursor.Row = 0
+	}
+	if t.cursor.Col < 0 {
+		t.cursor.Col = 0
+	}
+	t.cursor.WrapPending = false
 	t.curFg = t.saved.fg
 	t.curBg = t.saved.bg
 	t.curAttr = t.saved.attr
@@ -904,11 +973,21 @@ func (t *Terminal) fullReset() {
 	t.screen.SetScrollRegion(0, t.screen.Rows()-1)
 	t.cursor.Row = 0
 	t.cursor.Col = 0
+	t.cursor.WrapPending = false
+	t.cursor.Style = screen.CursorBlock
+	t.cursor.Visible = true
+	t.cursor.Blinking = true
 	t.saved = savedCursorState{}
 	t.charset = newCharsetState()
 	t.autoWrap = true
+	t.insertMode = false
 	t.scrollOffset = 0
 	t.initTabStops()
+	t.cursorKeysApp = false
+	t.bracketedPaste = false
+	t.focusReporting = false
+	t.disableSyncUpdates()
+	t.title = ""
 }
 
 func (t *Terminal) initTabStops() {
@@ -1142,12 +1221,12 @@ func (t *Terminal) HandleKey(ev platform.KeyEvent) {
 			case 104:
 				histLen := t.screen.History().Len()
 				if t.scrollOffset < histLen {
-					t.scrollOffset++
+					t.SetScrollOffset(t.scrollOffset + 1)
 				}
 				return
 			case 109:
 				if t.scrollOffset > 0 {
-					t.scrollOffset--
+					t.SetScrollOffset(t.scrollOffset - 1)
 				}
 				return
 			}
@@ -1178,11 +1257,37 @@ func (t *Terminal) HandleKey(ev platform.KeyEvent) {
 }
 
 func (t *Terminal) PtyWrite(b []byte) {
-	if t.hostWriter == nil {
+	if t.writeCh == nil {
+		if t.hostWriter == nil {
+			return
+		}
+		if _, err := t.hostWriter.Write(b); err != nil {
+			debug.Warningf("PtyWrite: direct write error: %v\n", err)
+		}
 		return
 	}
-	if _, err := t.hostWriter.Write(b); err != nil {
-		t.SignalClose()
+	select {
+	case t.writeCh <- b:
+	default:
+		debug.Warningf("pty write queue full, dropping %d bytes\n", len(b))
+	}
+}
+
+// ptyWriteLoop drains the writeCh and writes to the host (pty) from a
+// dedicated goroutine so that PtyWrite callers (which may hold t.mu) never
+// block on a slow/stuck pty write.
+func (t *Terminal) ptyWriteLoop() {
+	for {
+		select {
+		case b := <-t.writeCh:
+			if t.hostWriter != nil {
+				if _, err := t.hostWriter.Write(b); err != nil {
+					debug.Warningf("ptyWriteLoop: write error: %v\n", err)
+				}
+			}
+		case <-t.done:
+			return
+		}
 	}
 }
 
@@ -1250,7 +1355,15 @@ func (t *Terminal) WriteKeyEscape(code uint16, mods platform.Modifiers) {
 func startPty(shell string, rows, cols int) (*os.File, *os.Process, error) {
 	ws := &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}
 	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TERM=") || strings.HasPrefix(e, "COLORTERM=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = env
 	ptmx, err := pty.StartWithSize(cmd, ws)
 	if err != nil {
 		return nil, nil, err

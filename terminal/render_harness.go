@@ -64,12 +64,15 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, e
 	}
 
 	m := face.Metrics()
+	if m.Width <= 0 {
+		m.Width = 8
+	}
+	if m.Height <= 0 {
+		m.Height = 16
+	}
 	w, h := surface.Size()
 	cols := w / m.Width
-	rows := 0
-	if m.Height > 0 {
-		rows = h / m.Height
-	}
+	rows := h / m.Height
 	if cols <= 0 {
 		cols = 80
 	}

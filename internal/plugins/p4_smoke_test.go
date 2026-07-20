@@ -11,26 +11,26 @@ import (
 // p4FakeCtx 用于 P4 OnRender 测试
 type p4FakeCtx struct{}
 
-func (f *p4FakeCtx) FocusTerm() *terminal.Terminal { return nil }
-func (f *p4FakeCtx) Terms() []*terminal.Terminal   { return nil }
-func (f *p4FakeCtx) NewTab() error                 { return nil }
-func (f *p4FakeCtx) CloseCurrentTab()              {}
-func (f *p4FakeCtx) NextTab()                      {}
-func (f *p4FakeCtx) PrevTab()                      {}
-func (f *p4FakeCtx) SwitchTab(i int)               {}
-func (f *p4FakeCtx) TabList() []TabInfo            { return nil }
-func (f *p4FakeCtx) NextScreen()                   {}
-func (f *p4FakeCtx) PrevScreen()                   {}
-func (f *p4FakeCtx) SwitchScreen(i int)            {}
-func (f *p4FakeCtx) ScreenCount() int              { return 1 }
-func (f *p4FakeCtx) FocusScreenIdx() int           { return 1 }
-func (f *p4FakeCtx) ZoomIn()                       {}
-func (f *p4FakeCtx) ZoomOut()                      {}
-func (f *p4FakeCtx) ZoomReset()                    {}
-func (f *p4FakeCtx) EnablePanel(s string, n int)   {}
-func (f *p4FakeCtx) DisablePanel(s string)         {}
-func (f *p4FakeCtx) ReloadPlugins() error          { return nil }
-func (f *p4FakeCtx) Exit()                          {}
+func (f *p4FakeCtx) FocusTerm() *terminal.Terminal                   { return nil }
+func (f *p4FakeCtx) Terms() []*terminal.Terminal                     { return nil }
+func (f *p4FakeCtx) NewTab() error                                   { return nil }
+func (f *p4FakeCtx) CloseCurrentTab()                                {}
+func (f *p4FakeCtx) NextTab()                                        {}
+func (f *p4FakeCtx) PrevTab()                                        {}
+func (f *p4FakeCtx) SwitchTab(i int)                                 {}
+func (f *p4FakeCtx) TabList() []TabInfo                              { return nil }
+func (f *p4FakeCtx) NextScreen()                                     {}
+func (f *p4FakeCtx) PrevScreen()                                     {}
+func (f *p4FakeCtx) SwitchScreen(i int)                              {}
+func (f *p4FakeCtx) ScreenCount() int                                { return 1 }
+func (f *p4FakeCtx) FocusScreenIdx() int                             { return 1 }
+func (f *p4FakeCtx) ZoomIn()                                         {}
+func (f *p4FakeCtx) ZoomOut()                                        {}
+func (f *p4FakeCtx) ZoomReset()                                      {}
+func (f *p4FakeCtx) EnablePanel(s string, n int)                     {}
+func (f *p4FakeCtx) DisablePanel(s string)                           {}
+func (f *p4FakeCtx) ReloadPlugins() error                            { return nil }
+func (f *p4FakeCtx) Exit()                                           {}
 func (f *p4FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 // TestP4CtxTextRectOpts 验证 ctx:text/ctx:rect 的 opts 参数解析（fg/bg/bold）。

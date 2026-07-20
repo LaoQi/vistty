@@ -13,26 +13,26 @@ type p3FakeCtx struct {
 	sent []byte
 }
 
-func (f *p3FakeCtx) FocusTerm() *terminal.Terminal { return nil }
-func (f *p3FakeCtx) Terms() []*terminal.Terminal   { return nil }
-func (f *p3FakeCtx) NewTab() error                 { return nil }
-func (f *p3FakeCtx) CloseCurrentTab()              {}
-func (f *p3FakeCtx) NextTab()                      {}
-func (f *p3FakeCtx) PrevTab()                      {}
-func (f *p3FakeCtx) SwitchTab(i int)               {}
-func (f *p3FakeCtx) TabList() []TabInfo            { return nil }
-func (f *p3FakeCtx) NextScreen()                   {}
-func (f *p3FakeCtx) PrevScreen()                   {}
-func (f *p3FakeCtx) SwitchScreen(i int)            {}
-func (f *p3FakeCtx) ScreenCount() int              { return 1 }
-func (f *p3FakeCtx) FocusScreenIdx() int           { return 1 }
-func (f *p3FakeCtx) ZoomIn()                       {}
-func (f *p3FakeCtx) ZoomOut()                      {}
-func (f *p3FakeCtx) ZoomReset()                    {}
-func (f *p3FakeCtx) EnablePanel(s string, n int)   {}
-func (f *p3FakeCtx) DisablePanel(s string)         {}
-func (f *p3FakeCtx) ReloadPlugins() error          { return nil }
-func (f *p3FakeCtx) Exit()                          {}
+func (f *p3FakeCtx) FocusTerm() *terminal.Terminal                   { return nil }
+func (f *p3FakeCtx) Terms() []*terminal.Terminal                     { return nil }
+func (f *p3FakeCtx) NewTab() error                                   { return nil }
+func (f *p3FakeCtx) CloseCurrentTab()                                {}
+func (f *p3FakeCtx) NextTab()                                        {}
+func (f *p3FakeCtx) PrevTab()                                        {}
+func (f *p3FakeCtx) SwitchTab(i int)                                 {}
+func (f *p3FakeCtx) TabList() []TabInfo                              { return nil }
+func (f *p3FakeCtx) NextScreen()                                     {}
+func (f *p3FakeCtx) PrevScreen()                                     {}
+func (f *p3FakeCtx) SwitchScreen(i int)                              {}
+func (f *p3FakeCtx) ScreenCount() int                                { return 1 }
+func (f *p3FakeCtx) FocusScreenIdx() int                             { return 1 }
+func (f *p3FakeCtx) ZoomIn()                                         {}
+func (f *p3FakeCtx) ZoomOut()                                        {}
+func (f *p3FakeCtx) ZoomReset()                                      {}
+func (f *p3FakeCtx) EnablePanel(s string, n int)                     {}
+func (f *p3FakeCtx) DisablePanel(s string)                           {}
+func (f *p3FakeCtx) ReloadPlugins() error                            { return nil }
+func (f *p3FakeCtx) Exit()                                           {}
 func (f *p3FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 
 // TestP3OnKeyConsume 验证插件消费事件后 consumed=true

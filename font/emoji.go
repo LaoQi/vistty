@@ -102,11 +102,11 @@ func (idx *emojiIndex) find(r rune) (emojiEntry, bool) {
 }
 
 type EmojiFace struct {
-	index *emojiIndex
-	cellW int
-	cellH int
+	index  *emojiIndex
+	cellW  int
+	cellH  int
 	ascent int
-	cache map[rune]*Glyph
+	cache  map[rune]*Glyph
 }
 
 func NewEmojiFace(cellW, cellH, ascent int) (*EmojiFace, error) {

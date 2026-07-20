@@ -127,9 +127,9 @@ const (
 	keycodesBegin = "xkb_keycodes"
 	keycodesEnd   = "};"
 	typesEnd      = "};"
-	compatEnd    = "};"
-	symbolsBegin = "xkb_symbols"
-	symbolsEnd   = "};"
+	compatEnd     = "};"
+	symbolsBegin  = "xkb_symbols"
+	symbolsEnd    = "};"
 )
 
 func splitLines(data []byte) [][]byte {
@@ -433,7 +433,7 @@ func keyNameToKeysym(name string) xkbKeysym {
 
 func keyNameToKeycode(name string) uint32 {
 	mapping := map[string]uint32{
-		"ESC":  9, "AE01": 10, "AE02": 11, "AE03": 12, "AE04": 13, "AE05": 14,
+		"ESC": 9, "AE01": 10, "AE02": 11, "AE03": 12, "AE04": 13, "AE05": 14,
 		"AE06": 15, "AE07": 16, "AE08": 17, "AE09": 18, "AE10": 19, "AE11": 20,
 		"AE12": 21, "BKSP": 22, "TAB": 23, "AD01": 24, "AD02": 25, "AD03": 26,
 		"AD04": 27, "AD05": 28, "AD06": 29, "AD07": 30, "AD08": 31, "AD09": 32,

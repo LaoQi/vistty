@@ -184,6 +184,21 @@ func TestFocusReportingFlag(t *testing.T) {
 	}
 }
 
+func TestPrivateMode25MultiParam(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[?25l"))
+	if term.cursor.Visible {
+		t.Fatal("expected cursor hidden after ?25l")
+	}
+	term.FeedBytes([]byte("\x1b[?25;1049h"))
+	if !term.cursor.Visible {
+		t.Error("expected cursor shown after ?25;1049h (param 25)")
+	}
+	if term.screen != term.altBuf {
+		t.Error("expected alt screen after ?25;1049h (param 1049)")
+	}
+}
+
 func TestDECSCUSRDoesNotBreakMode1049(t *testing.T) {
 	term, _ := newTerminalForTest(80, 24)
 	term.cursor.Row = 3
@@ -252,6 +267,87 @@ func TestAltScreenNoScrollback(t *testing.T) {
 	term.FeedBytes([]byte("AAAAA\r\nBBBBB\r\nCCCCC\r\nDDDD\r\n"))
 	if term.altBuf.History().Len() != 0 {
 		t.Errorf("alt screen should have no scrollback, got %d", term.altBuf.History().Len())
+	}
+}
+
+func TestANSIIRMInsertMode(t *testing.T) {
+	term, _ := newTerminalForTest(5, 2)
+	term.FeedBytes([]byte("AB\r"))
+	term.FeedBytes([]byte("\x1b[4h"))
+	term.FeedBytes([]byte("X"))
+	c0 := term.screen.Cell(0, 0)
+	c1 := term.screen.Cell(0, 1)
+	if c0.Rune != 'X' {
+		t.Errorf("expected 'X' at (0,0), got %c", c0.Rune)
+	}
+	if c1.Rune != 'A' {
+		t.Errorf("expected 'A' shifted to (0,1), got %c", c1.Rune)
+	}
+	term.FeedBytes([]byte("\x1b[4l"))
+	term.FeedBytes([]byte("Y"))
+	c1 = term.screen.Cell(0, 1)
+	if c1.Rune != 'Y' {
+		t.Errorf("expected 'Y' overwrite at (0,1) after reset, got %c", c1.Rune)
+	}
+}
+
+func TestDECPrivateMode4Ignored(t *testing.T) {
+	term, _ := newTerminalForTest(5, 2)
+	term.insertMode = true
+	term.FeedBytes([]byte("\x1b[?4h"))
+	if !term.insertMode {
+		t.Error("DEC private ?4 should not affect ANSI insertMode (still true)")
+	}
+	term.FeedBytes([]byte("\x1b[?4l"))
+	if !term.insertMode {
+		t.Error("DEC private ?4 should not affect ANSI insertMode (still true)")
+	}
+}
+
+func TestScrollOffsetResetOnAltScreenExit47(t *testing.T) {
+	term, _ := newTerminalForTest(10, 4)
+	term.FeedBytes([]byte("line1\r\nline2\r\nline3\r\nline4\r\nline5"))
+	term.scrollOffset = 1
+	term.FeedBytes([]byte("\x1b[?47h"))
+	term.FeedBytes([]byte("\x1b[?47l"))
+	if term.scrollOffset != 0 {
+		t.Errorf("expected scrollOffset=0 after alt screen exit, got %d", term.scrollOffset)
+	}
+}
+
+func TestScrollOffsetResetOnAltScreenExit1047(t *testing.T) {
+	term, _ := newTerminalForTest(10, 4)
+	term.FeedBytes([]byte("line1\r\nline2\r\nline3\r\nline4\r\nline5"))
+	term.scrollOffset = 2
+	term.FeedBytes([]byte("\x1b[?1047h"))
+	term.FeedBytes([]byte("\x1b[?1047l"))
+	if term.scrollOffset != 0 {
+		t.Errorf("expected scrollOffset=0 after alt screen exit, got %d", term.scrollOffset)
+	}
+}
+
+func TestEraseCellStripsAttributes(t *testing.T) {
+	term, _ := newTerminalForTest(10, 2)
+	term.curAttr = screen.AttrBold | screen.AttrReverse | screen.AttrBlink | screen.AttrUnderline
+	term.curFg = screen.Color{R: 1, G: 2, B: 3}
+	term.curBg = screen.Color{R: 4, G: 5, B: 6}
+	term.screen.SetEraseCell(term.curFg, term.curBg, term.curAttr)
+	term.screen.ClearAll()
+	cell := term.screen.Cell(0, 0)
+	if cell.Attr&screen.AttrReverse != 0 {
+		t.Error("erase cell should not have AttrReverse")
+	}
+	if cell.Attr&screen.AttrBold != 0 {
+		t.Error("erase cell should not have AttrBold")
+	}
+	if cell.Attr&screen.AttrBlink != 0 {
+		t.Error("erase cell should not have AttrBlink")
+	}
+	if cell.Attr&screen.AttrUnderline != 0 {
+		t.Error("erase cell should not have AttrUnderline")
+	}
+	if cell.Bg.R != 4 || cell.Bg.G != 5 || cell.Bg.B != 6 {
+		t.Errorf("erase cell should preserve bg color, got %+v", cell.Bg)
 	}
 }
 

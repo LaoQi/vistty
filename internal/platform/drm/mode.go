@@ -61,101 +61,122 @@ type EncoderResult struct {
 }
 
 type CrtcResult struct {
-	ID         uint32
-	FbID       uint32
-	X          uint32
-	Y          uint32
-	GammaSize  uint32
-	ModeValid  bool
-	Mode       ModeInfoPublic
+	ID        uint32
+	FbID      uint32
+	X         uint32
+	Y         uint32
+	GammaSize uint32
+	ModeValid bool
+	Mode      ModeInfoPublic
 }
 
 func GetResources(fd int) (*ResourcesPublic, error) {
-	var res Resources
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, unsafe.Pointer(&res), "DRM_IOCTL_MODE_GETRESOURCES"); err != nil {
-		return nil, err
-	}
+	for {
+		var res Resources
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, unsafe.Pointer(&res), "DRM_IOCTL_MODE_GETRESOURCES"); err != nil {
+			return nil, err
+		}
 
-	fbIDs := make([]uint32, res.CountFbs)
-	crtcIDs := make([]uint32, res.CountCrtcs)
-	connIDs := make([]uint32, res.CountConnectors)
-	encIDs := make([]uint32, res.CountEncoders)
+		fbIDs := make([]uint32, res.CountFbs)
+		crtcIDs := make([]uint32, res.CountCrtcs)
+		connIDs := make([]uint32, res.CountConnectors)
+		encIDs := make([]uint32, res.CountEncoders)
 
-	if res.CountFbs > 0 {
-		res.FbIDPtr = uint64(uintptr(unsafe.Pointer(&fbIDs[0])))
-	}
-	if res.CountCrtcs > 0 {
-		res.CrtcIDPtr = uint64(uintptr(unsafe.Pointer(&crtcIDs[0])))
-	}
-	if res.CountConnectors > 0 {
-		res.ConnectorIDPtr = uint64(uintptr(unsafe.Pointer(&connIDs[0])))
-	}
-	if res.CountEncoders > 0 {
-		res.EncoderIDPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
-	}
+		if res.CountFbs > 0 {
+			res.FbIDPtr = uint64(uintptr(unsafe.Pointer(&fbIDs[0])))
+		}
+		if res.CountCrtcs > 0 {
+			res.CrtcIDPtr = uint64(uintptr(unsafe.Pointer(&crtcIDs[0])))
+		}
+		if res.CountConnectors > 0 {
+			res.ConnectorIDPtr = uint64(uintptr(unsafe.Pointer(&connIDs[0])))
+		}
+		if res.CountEncoders > 0 {
+			res.EncoderIDPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
+		}
 
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, unsafe.Pointer(&res), "DRM_IOCTL_MODE_GETRESOURCES"); err != nil {
-		return nil, err
-	}
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, unsafe.Pointer(&res), "DRM_IOCTL_MODE_GETRESOURCES"); err != nil {
+			return nil, err
+		}
 
-	return &ResourcesPublic{
-		FbIDs:        fbIDs,
-		CrtcIDs:      crtcIDs,
-		ConnectorIDs: connIDs,
-		EncoderIDs:   encIDs,
-		MinWidth:     res.MinWidth,
-		MaxWidth:     res.MaxWidth,
-		MinHeight:    res.MinHeight,
-		MaxHeight:    res.MaxHeight,
-	}, nil
+		if res.CountFbs > uint32(len(fbIDs)) || res.CountCrtcs > uint32(len(crtcIDs)) ||
+			res.CountConnectors > uint32(len(connIDs)) || res.CountEncoders > uint32(len(encIDs)) {
+			continue
+		}
+
+		fbIDs = fbIDs[:res.CountFbs]
+		crtcIDs = crtcIDs[:res.CountCrtcs]
+		connIDs = connIDs[:res.CountConnectors]
+		encIDs = encIDs[:res.CountEncoders]
+
+		return &ResourcesPublic{
+			FbIDs:        fbIDs,
+			CrtcIDs:      crtcIDs,
+			ConnectorIDs: connIDs,
+			EncoderIDs:   encIDs,
+			MinWidth:     res.MinWidth,
+			MaxWidth:     res.MaxWidth,
+			MinHeight:    res.MinHeight,
+			MaxHeight:    res.MaxHeight,
+		}, nil
+	}
 }
 
 func GetConnector(fd int, id uint32) (*ConnectorResult, error) {
-	var c Connector
-	c.ConnectorID = id
+	for {
+		var c Connector
+		c.ConnectorID = id
 
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, unsafe.Pointer(&c), "DRM_IOCTL_MODE_GETCONNECTOR"); err != nil {
-		return nil, err
-	}
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, unsafe.Pointer(&c), "DRM_IOCTL_MODE_GETCONNECTOR"); err != nil {
+			return nil, err
+		}
 
-	encIDs := make([]uint32, c.CountEncoders)
-	modes := make([]ModeInfo, c.CountModes)
-	props := make([]uint32, c.CountProps)
-	propVals := make([]uint64, c.CountProps)
+		encIDs := make([]uint32, c.CountEncoders)
+		modes := make([]ModeInfo, c.CountModes)
+		props := make([]uint32, c.CountProps)
+		propVals := make([]uint64, c.CountProps)
 
-	if c.CountEncoders > 0 {
-		c.EncodersPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
-	}
-	if c.CountModes > 0 {
-		c.ModesPtr = uint64(uintptr(unsafe.Pointer(&modes[0])))
-	}
-	if c.CountProps > 0 {
-		c.PropsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
-		c.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propVals[0])))
-	}
-	c.CountProps = 0
+		if c.CountEncoders > 0 {
+			c.EncodersPtr = uint64(uintptr(unsafe.Pointer(&encIDs[0])))
+		}
+		if c.CountModes > 0 {
+			c.ModesPtr = uint64(uintptr(unsafe.Pointer(&modes[0])))
+		}
+		if c.CountProps > 0 {
+			c.PropsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
+			c.PropValuesPtr = uint64(uintptr(unsafe.Pointer(&propVals[0])))
+		}
+		c.CountProps = 0
 
-	if err := drmIoctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, unsafe.Pointer(&c), "DRM_IOCTL_MODE_GETCONNECTOR"); err != nil {
-		return nil, err
-	}
+		if err := drmIoctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, unsafe.Pointer(&c), "DRM_IOCTL_MODE_GETCONNECTOR"); err != nil {
+			return nil, err
+		}
 
-	pubModes := make([]ModeInfoPublic, len(modes))
-	for i, m := range modes {
-		pubModes[i] = modeInfoToPublic(&m)
-	}
+		if c.CountEncoders > uint32(len(encIDs)) || c.CountModes > uint32(len(modes)) {
+			continue
+		}
 
-	return &ConnectorResult{
-		ID:            c.ConnectorID,
-		ConnectorType: c.ConnectorType,
-		TypeID:        c.ConnectorTypeID,
-		Connection:    c.Connection,
-		MMWidth:       c.MMWidth,
-		MMHeight:      c.MMHeight,
-		Subpixel:      c.Subpixel,
-		EncoderID:     c.EncoderID,
-		EncoderIDs:    encIDs,
-		Modes:         pubModes,
-	}, nil
+		encIDs = encIDs[:c.CountEncoders]
+		modes = modes[:c.CountModes]
+
+		pubModes := make([]ModeInfoPublic, len(modes))
+		for i, m := range modes {
+			pubModes[i] = modeInfoToPublic(&m)
+		}
+
+		return &ConnectorResult{
+			ID:            c.ConnectorID,
+			ConnectorType: c.ConnectorType,
+			TypeID:        c.ConnectorTypeID,
+			Connection:    c.Connection,
+			MMWidth:       c.MMWidth,
+			MMHeight:      c.MMHeight,
+			Subpixel:      c.Subpixel,
+			EncoderID:     c.EncoderID,
+			EncoderIDs:    encIDs,
+			Modes:         pubModes,
+		}, nil
+	}
 }
 
 func GetEncoder(fd int, id uint32) (*EncoderResult, error) {

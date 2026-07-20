@@ -465,3 +465,186 @@ func TestClearKeepsHistory(t *testing.T) {
 		t.Errorf("Clear should keep history (ED 2 semantics), got len %d", buf.History().Len())
 	}
 }
+
+func TestScrollDownNoHistoryFullScreen(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	for i := 0; i < 5; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.ScrollDown(1)
+	if buf.History().Len() != 0 {
+		t.Errorf("full-screen ScrollDown should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestScrollDownNoHistoryRegion(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(2, 10)
+	for i := 2; i <= 10; i++ {
+		buf.Cell(i, 0).Rune = rune('a' + i)
+	}
+	buf.ScrollDown(1)
+	if buf.History().Len() != 0 {
+		t.Errorf("region ScrollDown should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestScrollUpRegionNoHistory(t *testing.T) {
+	buf := NewBuffer(10, 24)
+	buf.SetScrollRegion(2, 5)
+	for i := 2; i <= 5; i++ {
+		buf.Cell(i, 0).Rune = rune('a' + i)
+	}
+	buf.ScrollUp(1)
+	if buf.History().Len() != 0 {
+		t.Errorf("region ScrollUp should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestScrollUpFullScreenHistory(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	for i := 0; i < 5; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.ScrollUp(1)
+	if buf.History().Len() != 1 {
+		t.Errorf("full-screen ScrollUp should push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestInsertLines(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.InsertLines(2, 2)
+	want := []rune{'0', '1', ' ', ' ', '2', '3', '4', '5', '6', '7'}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+	if buf.History().Len() != 0 {
+		t.Errorf("InsertLines should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestDeleteLines(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.DeleteLines(2, 2)
+	want := []rune{'0', '1', '4', '5', '6', '7', '8', '9', ' ', ' '}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+	if buf.History().Len() != 0 {
+		t.Errorf("DeleteLines should not push history, got len %d", buf.History().Len())
+	}
+}
+
+func TestInsertLinesOutsideRegionNoop(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	buf.SetScrollRegion(2, 7)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.InsertLines(0, 2)
+	for i := 0; i < 10; i++ {
+		if buf.Cell(i, 0).Rune != rune('0'+i) {
+			t.Errorf("row %d: IL above scrollTop should be no-op, got '%c'", i, buf.Cell(i, 0).Rune)
+		}
+	}
+	buf.InsertLines(9, 2)
+	for i := 0; i < 10; i++ {
+		if buf.Cell(i, 0).Rune != rune('0'+i) {
+			t.Errorf("row %d: IL below scrollBot should be no-op, got '%c'", i, buf.Cell(i, 0).Rune)
+		}
+	}
+}
+
+func TestInsertLinesInRegionPreservesOutside(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	buf.SetScrollRegion(2, 7)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.InsertLines(3, 2)
+	want := []rune{'0', '1', '2', ' ', ' ', '3', '4', '5', '8', '9'}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestDeleteLinesInRegionPreservesOutside(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	buf.SetScrollRegion(2, 7)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.DeleteLines(3, 2)
+	want := []rune{'0', '1', '2', '5', '6', '7', ' ', ' ', '8', '9'}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestInsertLinesClampN(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.InsertLines(5, 100)
+	want := []rune{'0', '1', '2', '3', '4', ' ', ' ', ' ', ' ', ' '}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestDeleteLinesClampN(t *testing.T) {
+	buf := NewBuffer(10, 10)
+	for i := 0; i < 10; i++ {
+		buf.Cell(i, 0).Rune = rune('0' + i)
+	}
+	buf.DeleteLines(5, 100)
+	want := []rune{'0', '1', '2', '3', '4', ' ', ' ', ' ', ' ', ' '}
+	for i, w := range want {
+		got := buf.Cell(i, 0).Rune
+		if got != w {
+			t.Errorf("row %d: expected '%c', got '%c'", i, w, got)
+		}
+	}
+}
+
+func TestDamageCellMarksDirty(t *testing.T) {
+	buf := NewBuffer(10, 5)
+	line := buf.Line(0)
+	line.SetDirty(false)
+	for c := 0; c < 10; c++ {
+		buf.Cell(0, c).SetClean()
+	}
+	buf.DamageCell(0, 3)
+	if !line.Dirty() {
+		t.Error("DamageCell should mark line dirty")
+	}
+	if buf.Cell(0, 3).Clean() {
+		t.Error("DamageCell should mark target cell dirty")
+	}
+	if !buf.Cell(0, 4).Clean() {
+		t.Error("DamageCell should not touch other cells")
+	}
+}

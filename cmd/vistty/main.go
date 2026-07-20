@@ -198,7 +198,6 @@ func run() error {
 
 	m.SetPluginManager(pm)
 	pm.SetBackendName(backendName)
-	pm.Activate(m)
 
 	if runCfg.TermTheme != nil {
 		m.ApplyTheme(*runCfg.TermTheme, *runCfg.OSDTheme)
@@ -226,4 +225,3 @@ func resolveTtyPath(tty string) string {
 	}
 	return tty
 }
-

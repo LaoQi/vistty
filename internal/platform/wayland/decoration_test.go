@@ -31,7 +31,7 @@ func TestSurfaceDecoModeCallbackUpdates(t *testing.T) {
 	defer c.close()
 
 	s := &WaylandSurface{
-		backend: &WaylandBackend{c: c, shmFormat: wlFmtXRGB8888},
+		backend:  &WaylandBackend{c: c, shmFormat: wlFmtXRGB8888},
 		decoMode: decoModeServerSide,
 		mu:       sync.Mutex{},
 	}
@@ -256,8 +256,8 @@ func TestSurfaceCloseOrder(t *testing.T) {
 	unix.SetNonblock(peer, true)
 
 	type msgInfo struct {
-		objID   uint32
-		opcode  uint16
+		objID  uint32
+		opcode uint16
 	}
 	msgs := make([]msgInfo, 0, 4)
 	buf := make([]byte, 8192)
@@ -272,8 +272,8 @@ func TestSurfaceCloseOrder(t *testing.T) {
 				break
 			}
 			objID := binary.LittleEndian.Uint32(buf[off : off+4])
-			opcode := uint16(binary.LittleEndian.Uint32(buf[off+4 : off+8]) & 0xffff)
-			size := int(binary.LittleEndian.Uint32(buf[off+4 : off+8]) >> 16)
+			opcode := uint16(binary.LittleEndian.Uint32(buf[off+4:off+8]) & 0xffff)
+			size := int(binary.LittleEndian.Uint32(buf[off+4:off+8]) >> 16)
 			msgs = append(msgs, msgInfo{objID, opcode})
 			off += size
 		}

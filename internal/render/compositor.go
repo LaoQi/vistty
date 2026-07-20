@@ -17,26 +17,26 @@ type defaultColor struct {
 }
 
 type Compositor struct {
-	surface      platform.Surface
-	face         font.Face
-	atlas        *font.Atlas
-	italicAtlas  *font.Atlas
-	emojiFace    *font.EmojiFace
-	metrics      font.Metrics
-	cols         int
-	rows         int
-	defColor     defaultColor
-	mu           sync.Mutex
-	backBuf      []byte
-	backStride   int
-	backWidth    int
-	backHeight   int
-	frameCount   uint64
-	blinkOn      bool
-	lastBlink    time.Time
-	directRender bool
-	gpu          platform.GPURenderer
-	instances    []platform.CellInstance
+	surface          platform.Surface
+	face             font.Face
+	atlas            *font.Atlas
+	italicAtlas      *font.Atlas
+	emojiFace        *font.EmojiFace
+	metrics          font.Metrics
+	cols             int
+	rows             int
+	defColor         defaultColor
+	mu               sync.Mutex
+	backBuf          []byte
+	backStride       int
+	backWidth        int
+	backHeight       int
+	blinkOn          bool
+	lastBlink        time.Time
+	directRender     bool
+	gpu              platform.GPURenderer
+	gpuDisabled      bool
+	instances        []platform.CellInstance
 	overlay          Overlay
 	originX          int
 	originY          int
@@ -45,12 +45,15 @@ type Compositor struct {
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 	m := face.Metrics()
+	if m.Width <= 0 {
+		m.Width = 8
+	}
+	if m.Height <= 0 {
+		m.Height = 16
+	}
 	w, h := surface.Size()
 	cols := w / m.Width
-	rows := 0
-	if m.Height > 0 {
-		rows = h / m.Height
-	}
+	rows := h / m.Height
 	c := &Compositor{
 		surface:     surface,
 		face:        face,
@@ -175,7 +178,7 @@ func (c *Compositor) OverlayUploadGlyph(r rune) (u0, v0, u1, v1 float32, gw, gh,
 }
 
 // cursorVisible 返回光标是否应当绘制。闪烁基于真实时间戳，
-// 与 frameCount 解耦，使 dirty 跳帧时光标仍能正确闪烁。
+// 与渲染帧率解耦，使 dirty 跳帧时光标仍能正确闪烁。
 func (c *Compositor) cursorVisible(cursor *screen.Cursor) bool {
 	visible := cursor.Visible
 	if cursor.Blinking {
@@ -190,16 +193,21 @@ func (c *Compositor) cursorVisible(cursor *screen.Cursor) bool {
 	return visible
 }
 
+// Render 将终端缓冲区合成到 surface 帧缓冲。
+//
+// 线程契约：仅由主渲染线程调用（render_loop.go 主循环串行）。
+// CPU dirty 路径在 RLock 下读写 cell.Attr（SetClean）与 line.SetDirty(false)--
+// 当前单线程模型下无竞争；若未来引入并发读取 screen.Buffer，需将 dirty
+// 清除移至 terminal.Lock 下或改用原子操作。
 func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
-	c.frameCount++
-
 	// GPU instanced draw 路径
-	if c.gpu == nil {
+	if c.gpu == nil && !c.gpuDisabled {
 		c.gpu, _ = c.surface.(platform.GPURenderer)
 	}
 	if c.gpu != nil {
 		if err := c.renderGPU(buf, scrollOffset); err != nil {
 			c.gpu = nil
+			c.gpuDisabled = true
 		} else {
 			return nil
 		}
@@ -213,8 +221,6 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	}
 
 	cursor := buf.Cursor()
-
-	c.frameCount++
 
 	if c.directRender {
 		c.backBuf = c.surface.Data()
@@ -270,9 +276,6 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				}
 			} else if !line.Dirty() && row != cursorRow {
 				continue
-			} else {
-				py := c.originY + row*c.metrics.Height
-				FillRect(c.backBuf, c.backStride, c.originX, py, c.cols*c.metrics.Width, c.metrics.Height, defBg.R, defBg.G, defBg.B)
 			}
 		}
 		for col := 0; col < c.cols; col++ {
@@ -304,7 +307,7 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				fgB = fgB / 2
 			}
 
-			if bgR != defBg.R || bgG != defBg.G || bgB != defBg.B {
+			if useDirty || (bgR != defBg.R || bgG != defBg.G || bgB != defBg.B) {
 				FillRect(c.backBuf, c.backStride, px, py, cellW, c.metrics.Height, bgR, bgG, bgB)
 			}
 
@@ -375,10 +378,10 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 				if cursorCell.Width == 2 {
 					cursorW *= 2
 				}
-			cursorGlyph, _ = c.getGlyph(cursorRune, false)
-		}
-		cr := dc.cursor
-		drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), cr.R, cr.G, cr.B, cursorRune, cursorGlyph, c.metrics.Ascent)
+				cursorGlyph, _ = c.getGlyph(cursorRune, false)
+			}
+			cr := dc.cursor
+			drawCursor(c.backBuf, c.backStride, cx, cy, cursorW, c.metrics.Height, toCursorStyle(cursor.Style), cr.R, cr.G, cr.B, cursorRune, cursorGlyph, c.metrics.Ascent)
 		}
 	}
 
@@ -596,6 +599,12 @@ func (c *Compositor) copyAllToSurface() {
 	backStride := c.backStride
 	if surfStride == backStride {
 		totalBytes := backStride * c.backHeight
+		if totalBytes > len(surfData) {
+			totalBytes = len(surfData)
+		}
+		if totalBytes > len(c.backBuf) {
+			totalBytes = len(c.backBuf)
+		}
 		copy(surfData[:totalBytes], c.backBuf[:totalBytes])
 		return
 	}
@@ -603,10 +612,26 @@ func (c *Compositor) copyAllToSurface() {
 	if surfStride < minStride {
 		minStride = surfStride
 	}
-	for y := 0; y < c.backHeight; y++ {
+	rows := c.backHeight
+	if surfStride > 0 {
+		if maxRows := len(surfData) / surfStride; maxRows < rows {
+			rows = maxRows
+		}
+	}
+	for y := 0; y < rows; y++ {
 		srcOff := y * backStride
 		dstOff := y * surfStride
-		copy(surfData[dstOff:dstOff+minStride], c.backBuf[srcOff:srcOff+minStride])
+		n := minStride
+		if dstOff+n > len(surfData) {
+			n = len(surfData) - dstOff
+		}
+		if srcOff+n > len(c.backBuf) {
+			n = len(c.backBuf) - srcOff
+		}
+		if n <= 0 {
+			break
+		}
+		copy(surfData[dstOff:dstOff+n], c.backBuf[srcOff:srcOff+n])
 	}
 }
 

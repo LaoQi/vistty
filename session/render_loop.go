@@ -40,6 +40,10 @@ func (m *Master) Run() error {
 		close(backendDone)
 	}()
 
+	if m.plugins != nil {
+		m.plugins.Activate(m)
+	}
+
 	if err := m.renderFrame(); err != nil {
 		return fmt.Errorf("initial render: %w", err)
 	}
@@ -114,9 +118,9 @@ func (m *Master) Run() error {
 				}
 				m.titlePending = m.titlePending[:0]
 			}
-		if !m.dirty {
-			continue
-		}
+			if !m.dirty {
+				continue
+			}
 			var frameStart time.Time
 			if m.fpsLogging {
 				frameStart = time.Now()
@@ -132,12 +136,12 @@ func (m *Master) Run() error {
 				renderErrCount = 0
 				m.dirty = false
 			}
-		if m.fpsLogging {
-			fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
-		}
-	case <-cursorBlinkTicker.C:
-		m.dirty = true
-	case ev := <-resizeCh:
+			if m.fpsLogging {
+				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
+			}
+		case <-cursorBlinkTicker.C:
+			m.dirty = true
+		case ev := <-resizeCh:
 			m.handleResize(ev)
 		case ev := <-m.keyEvCh:
 			if m.plugins != nil {
@@ -148,6 +152,7 @@ func (m *Master) Run() error {
 				ev = out
 			}
 			m.handleKey(ev)
+			m.dirty = true
 		case req := <-m.scaleReqCh:
 			m.handleScale(req)
 		case <-m.renderReqCh:
@@ -254,6 +259,12 @@ func (m *Master) renderPlugins() {
 
 // pluginPanelCellSize 计算指定 side 面板的 cell 尺寸（宽×列数，高×行数）。
 func pluginPanelCellSize(side string, surfW, surfH, top, bottom, left, right int, m font.Metrics) (w, h int) {
+	if m.Width <= 0 {
+		m.Width = 8
+	}
+	if m.Height <= 0 {
+		m.Height = 16
+	}
 	switch side {
 	case "bottom":
 		innerW := surfW - left - right
@@ -343,14 +354,17 @@ func (m *Master) handleResizeIndependent(ev platform.ResizeEvent) {
 		return
 	}
 	metrics := s.Face().Metrics()
+	if metrics.Width <= 0 {
+		metrics.Width = 8
+	}
+	if metrics.Height <= 0 {
+		metrics.Height = 16
+	}
 	top, bot, left, right := s.Insets()
 	innerW := ev.Width - left - right
 	innerH := ev.Height - top - bot
 	cols := innerW / metrics.Width
-	rows := 0
-	if metrics.Height > 0 {
-		rows = innerH / metrics.Height
-	}
+	rows := innerH / metrics.Height
 	if cols <= 0 {
 		cols = 80
 	}
@@ -401,15 +415,18 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	s.Compositor().SetFace(newFace)
 
 	metrics := newFace.Metrics()
+	if metrics.Width <= 0 {
+		metrics.Width = 8
+	}
+	if metrics.Height <= 0 {
+		metrics.Height = 16
+	}
 	w, h := s.Surface().Size()
 	top, bot, left, right := s.Insets()
 	innerW := w - left - right
 	innerH := h - top - bot
 	cols := innerW / metrics.Width
-	rows := 0
-	if metrics.Height > 0 {
-		rows = innerH / metrics.Height
-	}
+	rows := innerH / metrics.Height
 	if cols <= 0 {
 		cols = 80
 	}
@@ -451,7 +468,10 @@ func (m *Master) inputLoop() {
 
 	for {
 		select {
-		case ev := <-m.input.KeyEvents():
+		case ev, ok := <-m.input.KeyEvents():
+			if !ok {
+				return
+			}
 			stopRepeat()
 			if ev.State == platform.KeyPress {
 				m.dispatchKey(ev)
@@ -471,7 +491,10 @@ func (m *Master) inputLoop() {
 			m.dispatchKey(repeatEv)
 		case <-rateCh:
 			m.dispatchKey(repeatEv)
-		case ev := <-m.input.MouseEvents():
+		case ev, ok := <-m.input.MouseEvents():
+			if !ok {
+				return
+			}
 			select {
 			case m.mouseEvCh <- ev:
 			case <-m.done:

@@ -52,3 +52,46 @@ func TestSCOSCEquivalence(t *testing.T) {
 		t.Errorf("expected restored (3,7), got (%d,%d)", term.cursor.Row, term.cursor.Col)
 	}
 }
+
+func TestFullResetResetsModes(t *testing.T) {
+	term, _ := newTerminalForTest(80, 24)
+	term.FeedBytes([]byte("\x1b[?1h\x1b[?2004h\x1b[?1004h\x1b[?2026h\x1b[?25l\x1b[4 q"))
+	term.title = "test-title"
+	if !term.cursorKeysApp || !term.bracketedPaste || !term.focusReporting {
+		t.Fatal("setup failed: expected modes enabled")
+	}
+	if !term.IsSyncUpdates() {
+		t.Fatal("setup failed: expected appSyncUpdates=true")
+	}
+	if term.cursor.Visible {
+		t.Fatal("setup failed: expected cursor hidden")
+	}
+	if term.cursor.Blinking {
+		t.Fatal("setup failed: expected cursor not blinking")
+	}
+	term.FeedBytes([]byte("\x1bc"))
+	if term.cursorKeysApp {
+		t.Error("expected cursorKeysApp=false after full reset")
+	}
+	if term.bracketedPaste {
+		t.Error("expected bracketedPaste=false after full reset")
+	}
+	if term.focusReporting {
+		t.Error("expected focusReporting=false after full reset")
+	}
+	if term.IsSyncUpdates() {
+		t.Error("expected appSyncUpdates=false after full reset")
+	}
+	if !term.cursor.Visible {
+		t.Error("expected cursor.Visible=true after full reset")
+	}
+	if !term.cursor.Blinking {
+		t.Error("expected cursor.Blinking=true after full reset")
+	}
+	if term.cursor.Style != screen.CursorBlock {
+		t.Error("expected cursor.Style=CursorBlock after full reset")
+	}
+	if term.title != "" {
+		t.Errorf("expected title cleared, got %q", term.title)
+	}
+}

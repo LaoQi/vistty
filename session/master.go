@@ -43,9 +43,9 @@ type Master struct {
 	slaves     []*Slave
 	input      platform.InputSource
 
-	fontData          []byte
-	fallbackFontData  []byte
-	initialFontSize   float64
+	fontData         []byte
+	fallbackFontData []byte
+	initialFontSize  float64
 
 	terms    []*terminal.Terminal
 	focusIdx int
@@ -138,22 +138,22 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 	}
 
 	m := &Master{
-		backend:         backend,
-		opts:            opts,
-		outputs:         outputs,
-		primaryIdx:      primaryIdx,
-		slaves:          slaves,
-		fontData:          fontData,
-		fallbackFontData:  fallbackFontData,
-		initialFontSize:   opts.FontSize,
-		focusIdx:        0,
-		scaleReqCh:      make(chan scaleReq, 1),
-		renderReqCh:     make(chan struct{}, 1),
-		frameInterval:   time.Second / 60,
-		tabReqCh:        make(chan tabReq, 1),
-		keyEvCh:         make(chan platform.KeyEvent, 64),
-		mouseEvCh:       make(chan platform.MouseEvent, 16),
-		done:            make(chan struct{}),
+		backend:          backend,
+		opts:             opts,
+		outputs:          outputs,
+		primaryIdx:       primaryIdx,
+		slaves:           slaves,
+		fontData:         fontData,
+		fallbackFontData: fallbackFontData,
+		initialFontSize:  opts.FontSize,
+		focusIdx:         0,
+		scaleReqCh:       make(chan scaleReq, 8),
+		renderReqCh:      make(chan struct{}, 1),
+		frameInterval:    time.Second / 60,
+		tabReqCh:         make(chan tabReq, 8),
+		keyEvCh:          make(chan platform.KeyEvent, 64),
+		mouseEvCh:        make(chan platform.MouseEvent, 16),
+		done:             make(chan struct{}),
 	}
 
 	m.opts.OnRenderRequest = func() {
@@ -186,15 +186,18 @@ func (m *Master) initIndependent() error {
 			return fmt.Errorf("init independent slave %s: %w", s.Output().Name(), err)
 		}
 		met := s.Face().Metrics()
+		if met.Width <= 0 {
+			met.Width = 8
+		}
+		if met.Height <= 0 {
+			met.Height = 16
+		}
 		w, h := s.Surface().Size()
 		top, bot, left, right := s.Insets()
 		innerW := w - left - right
 		innerH := h - top - bot
 		cols := innerW / met.Width
-		rows := 0
-		if met.Height > 0 {
-			rows = innerH / met.Height
-		}
+		rows := innerH / met.Height
 		if cols <= 0 {
 			cols = 80
 		}
@@ -237,12 +240,17 @@ func (m *Master) startTerminalGoroutines(t *terminal.Terminal) {
 		defer m.wg.Done()
 		for {
 			select {
-			case seqs := <-t.SeqCh():
+			case seqs, ok := <-t.SeqCh():
+				if !ok {
+					return
+				}
 				select {
 				case m.seqRelay <- seqMsg{term: t, seqs: seqs}:
 				case <-m.done:
 					return
 				}
+			case <-t.Done():
+				return
 			case <-m.done:
 				return
 			}
@@ -380,13 +388,16 @@ func (m *Master) handleTabRequest(req tabReq) {
 
 func (m *Master) newTab(s *Slave) {
 	metrics := s.Face().Metrics()
+	if metrics.Width <= 0 {
+		metrics.Width = 8
+	}
+	if metrics.Height <= 0 {
+		metrics.Height = 16
+	}
 	top, bot, left, right := s.Insets()
 	w, h := s.Surface().Size()
 	cols := (w - left - right) / metrics.Width
-	rows := 0
-	if metrics.Height > 0 {
-		rows = (h - top - bot) / metrics.Height
-	}
+	rows := (h - top - bot) / metrics.Height
 	if cols <= 0 {
 		cols = 80
 	}
@@ -474,6 +485,8 @@ func (m *Master) NewTab() error {
 	case m.tabReqCh <- tabReq{action: tabNew}:
 	case <-m.done:
 		return fmt.Errorf("master closed")
+	default:
+		debug.Warningf("NewTab: tab request channel full, dropping")
 	}
 	return nil
 }
@@ -483,6 +496,8 @@ func (m *Master) CloseCurrentTab() {
 	select {
 	case m.tabReqCh <- tabReq{action: tabClose}:
 	case <-m.done:
+	default:
+		debug.Warningf("CloseCurrentTab: tab request channel full, dropping")
 	}
 }
 
@@ -491,6 +506,8 @@ func (m *Master) NextTab() {
 	select {
 	case m.tabReqCh <- tabReq{action: tabNext}:
 	case <-m.done:
+	default:
+		debug.Warningf("NextTab: tab request channel full, dropping")
 	}
 }
 
@@ -499,6 +516,8 @@ func (m *Master) PrevTab() {
 	select {
 	case m.tabReqCh <- tabReq{action: tabPrev}:
 	case <-m.done:
+	default:
+		debug.Warningf("PrevTab: tab request channel full, dropping")
 	}
 }
 
@@ -508,6 +527,8 @@ func (m *Master) SwitchTab(idx int) {
 	select {
 	case m.tabReqCh <- tabReq{action: tabSwitch, idx: idx}:
 	case <-m.done:
+	default:
+		debug.Warningf("SwitchTab: tab request channel full, dropping")
 	}
 }
 
@@ -571,6 +592,8 @@ func (m *Master) ZoomIn() {
 	select {
 	case m.scaleReqCh <- scaleReq{delta: 1}:
 	case <-m.done:
+	default:
+		debug.Warningf("ZoomIn: scale request channel full, dropping")
 	}
 }
 
@@ -579,6 +602,8 @@ func (m *Master) ZoomOut() {
 	select {
 	case m.scaleReqCh <- scaleReq{delta: -1}:
 	case <-m.done:
+	default:
+		debug.Warningf("ZoomOut: scale request channel full, dropping")
 	}
 }
 
@@ -587,6 +612,8 @@ func (m *Master) ZoomReset() {
 	select {
 	case m.scaleReqCh <- scaleReq{delta: 0}:
 	case <-m.done:
+	default:
+		debug.Warningf("ZoomReset: scale request channel full, dropping")
 	}
 }
 

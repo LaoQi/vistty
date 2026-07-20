@@ -7,16 +7,16 @@ import (
 )
 
 type Version struct {
-	VersionMajor    int32
-	VersionMinor    int32
-	VersionPatch    int32
-	_               uint32
-	NameLen        uint64
-	NamePtr        uint64
-	DateLen        uint64
-	DatePtr        uint64
-	DescLen        uint64
-	DescPtr        uint64
+	VersionMajor int32
+	VersionMinor int32
+	VersionPatch int32
+	_            uint32
+	NameLen      uint64
+	NamePtr      uint64
+	DateLen      uint64
+	DatePtr      uint64
+	DescLen      uint64
+	DescPtr      uint64
 }
 
 type Capability struct {
@@ -25,18 +25,18 @@ type Capability struct {
 }
 
 type Resources struct {
-	FbIDPtr        uint64
-	CrtcIDPtr      uint64
-	ConnectorIDPtr uint64
-	EncoderIDPtr   uint64
-	CountFbs       uint32
-	CountCrtcs     uint32
+	FbIDPtr         uint64
+	CrtcIDPtr       uint64
+	ConnectorIDPtr  uint64
+	EncoderIDPtr    uint64
+	CountFbs        uint32
+	CountCrtcs      uint32
 	CountConnectors uint32
-	CountEncoders  uint32
-	MinWidth       uint32
-	MaxWidth       uint32
-	MinHeight      uint32
-	MaxHeight      uint32
+	CountEncoders   uint32
+	MinWidth        uint32
+	MaxWidth        uint32
+	MinHeight       uint32
+	MaxHeight       uint32
 }
 
 type ModeInfo struct {

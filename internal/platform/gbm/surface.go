@@ -189,11 +189,19 @@ func (s *GBMSurface) initGL() error {
 	gles.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
 	gles.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
 
+	// GL_EXT_texture_format_BGRA8888 要求 internalformat 与 format 一致，
+	// 否则 TexImage2D 会报 GL_INVALID_OPERATION 并产生一个未初始化纹理。
+	internalFmt := int32(gl.GL_RGBA)
 	uploadFmt := uint32(gl.GL_RGBA)
 	if s.hasBGRA {
+		internalFmt = int32(gl.GL_BGRA_EXT)
 		uploadFmt = gl.GL_BGRA_EXT
 	}
-	gles.TexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, int32(s.width), int32(s.height), 0, uploadFmt, gl.GL_UNSIGNED_BYTE, s.cpuBuf)
+	gles.GetError() // 清残留错误
+	gles.TexImage2D(gl.GL_TEXTURE_2D, 0, internalFmt, int32(s.width), int32(s.height), 0, uploadFmt, gl.GL_UNSIGNED_BYTE, s.cpuBuf)
+	if err := gles.GetError(); err != gl.GL_NO_ERROR {
+		return fmt.Errorf("glTexImage2D failed: glErr=0x%x", err)
+	}
 
 	var vbos [1]uint32
 	gles.GenBuffers(1, vbos[:])
@@ -433,6 +441,12 @@ func (s *GBMSurface) waitForFlipComplete() bool {
 	case <-time.After(s.flipTimeout):
 		debug.Warningf("GBM Swap: flip 超时 crtc=%d，跳过本帧等待（内核可能未发送 flip complete 事件）\n", s.crtcID)
 		s.commitMu.Lock()
+		// 模拟 onFlipComplete：flip 事件可能丢失，假设 flip 已完成。
+		// 轮转 releaseBO->scanout->committed，避免下一帧 Swap 的
+		// `s.committed = frame` 覆盖旧 committed 导致 BO+FB 泄漏。
+		s.releaseBO = s.scanout
+		s.scanout = s.committed
+		s.committed = nil
 		s.flipPending = false
 		select {
 		case <-s.flipDone:
@@ -465,10 +479,26 @@ func (s *GBMSurface) onFlipComplete() {
 func (s *GBMSurface) SetActive(active bool) {
 	s.commitMu.Lock()
 	s.active = active
+	if !active && s.flipPending {
+		// VT 切走时 DropMaster 会取消内核 pending page flip 且不再发送
+		// flip 事件。若不清 flipPending，切回后首次 waitForFlipComplete 必然
+		// 走完 5s 超时。同时模拟 onFlipComplete 轮转三缓冲，避免 committed
+		// 帧被下一帧 Swap 覆盖泄漏（与超时分支同一处理）。
+		s.releaseBO = s.scanout
+		s.scanout = s.committed
+		s.committed = nil
+		s.flipPending = false
+		select {
+		case <-s.flipDone:
+		default:
+		}
+	}
 	s.commitMu.Unlock()
 }
 
 func (s *GBMSurface) Close() error {
+	// 契约：Close 由渲染主线程在 backend.Stop 后调用（单线程串行），
+	// 不与 Swap 并发；commitMu 保护 closed/帧状态。
 	s.commitMu.Lock()
 	if s.closed {
 		s.commitMu.Unlock()
@@ -491,7 +521,13 @@ func (s *GBMSurface) Close() error {
 	s.flipPending = false
 	s.commitMu.Unlock()
 
-	_ = s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext)
+	s.device.mu.Lock()
+	delete(s.device.surfaces, s.crtcID)
+	s.device.mu.Unlock()
+
+	if s.device.eglLoader != nil && (s.glInitDone || s.eglContext != 0) {
+		_ = s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext)
+	}
 	if s.gpu != nil {
 		s.gpu.Close()
 		s.gpu = nil

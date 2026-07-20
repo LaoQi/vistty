@@ -105,6 +105,8 @@ func isEmojiModifier(r rune) bool {
 		return true
 	case 0xE0020 <= r && r <= 0xE007F:
 		return true
+	case 0x1F3FB <= r && r <= 0x1F3FF:
+		return true
 	}
 	return false
 }

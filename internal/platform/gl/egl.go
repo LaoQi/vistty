@@ -121,10 +121,19 @@ func LoadEGL() (*EGLLoader, error) {
 		purego.RegisterFunc(s.fptr, addr)
 	}
 	if len(errs) > 0 {
+		purego.Dlclose(lib)
 		return nil, fmt.Errorf("EGL symbol resolution: %w", errors.Join(errs...))
 	}
 
 	return l, nil
+}
+
+func (l *EGLLoader) Close() error {
+	if l.lib != 0 {
+		purego.Dlclose(l.lib)
+		l.lib = 0
+	}
+	return nil
 }
 
 func (l *EGLLoader) GetDisplay(nativeDisplay uintptr) uintptr {

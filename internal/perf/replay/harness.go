@@ -25,17 +25,17 @@ func newFakeSurface(w, h int) *fakeSurface {
 	}
 }
 
-func (s *fakeSurface) Size() (int, int)                   { return s.w, s.h }
-func (s *fakeSurface) Data() []byte                       { return s.data }
-func (s *fakeSurface) Stride() int                        { return s.stride }
-func (s *fakeSurface) Swap() error                        { return nil }
-func (s *fakeSurface) Close() error                       { return nil }
+func (s *fakeSurface) Size() (int, int) { return s.w, s.h }
+func (s *fakeSurface) Data() []byte     { return s.data }
+func (s *fakeSurface) Stride() int      { return s.stride }
+func (s *fakeSurface) Swap() error      { return nil }
+func (s *fakeSurface) Close() error     { return nil }
 func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return nil
 }
-func (s *fakeSurface) OutputID() uint32 { return 0 }
+func (s *fakeSurface) OutputID() uint32   { return 0 }
 func (s *fakeSurface) DirectRender() bool { return true }
-func (s *fakeSurface) DecoMode() uint32 { return 0 }
+func (s *fakeSurface) DecoMode() uint32   { return 0 }
 
 var _ platform.Surface = (*fakeSurface)(nil)
 
@@ -61,14 +61,14 @@ func (l Layer) String() string {
 }
 
 type Result struct {
-	Layer      Layer
-	Workload   string
-	Iterations int
-	TotalTime  time.Duration
-	PerOp      time.Duration
+	Layer       Layer
+	Workload    string
+	Iterations  int
+	TotalTime   time.Duration
+	PerOp       time.Duration
 	AllocsPerOp float64
 	BytesPerOp  int64
-	FrameTimes []time.Duration
+	FrameTimes  []time.Duration
 }
 
 func (r Result) Header() string {
@@ -89,13 +89,13 @@ func (r Result) String() string {
 }
 
 type Config struct {
-	Layer     Layer
-	Data      []byte
+	Layer      Layer
+	Data       []byte
 	Iterations int
-	Cols      int
-	Rows      int
-	FontSize  float64
-	Workload  string
+	Cols       int
+	Rows       int
+	FontSize   float64
+	Workload   string
 }
 
 func Bench(cfg Config) Result {

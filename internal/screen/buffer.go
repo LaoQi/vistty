@@ -8,7 +8,7 @@ type Buffer struct {
 	lines     []*Line
 	cols      int
 	rows      int
-	cap       int
+	capacity  int
 	mask      int
 	offset    int
 	scrollTop int
@@ -34,19 +34,19 @@ func nextPow2(n int) int {
 }
 
 func NewBuffer(cols, rows int) *Buffer {
-	cap := nextPow2(rows)
+	capacity := nextPow2(rows)
 	b := &Buffer{
 		cols:      cols,
 		rows:      rows,
-		cap:       cap,
-		mask:      cap - 1,
+		capacity:  capacity,
+		mask:      capacity - 1,
 		scrollTop: 0,
 		scrollBot: rows - 1,
 		cursor:    NewCursor(),
 		history:   NewHistory(1000),
 		eraseCell: NewCell(),
 	}
-	b.lines = make([]*Line, cap)
+	b.lines = make([]*Line, capacity)
 	for i := 0; i < rows; i++ {
 		b.lines[i] = NewLine(cols)
 	}
@@ -101,7 +101,7 @@ func (b *Buffer) SetEraseCell(fg, bg Color, attr Attributes) {
 		Width: 1,
 		Fg:    fg,
 		Bg:    bg,
-		Attr:  attr,
+		Attr:  attr &^ (AttrBold | AttrDim | AttrItalic | AttrUnderline | AttrBlink | AttrReverse | AttrCrossedOut | AttrClean),
 	}
 }
 
@@ -131,9 +131,6 @@ func (b *Buffer) ScrollUp(n int) {
 	} else {
 		for i := b.scrollTop; i < b.scrollTop+n; i++ {
 			pr := b.physRow(i)
-			if b.lines[pr] != nil && !b.altScreen {
-				b.history.Push(b.lines[pr])
-			}
 			b.lines[pr] = nil
 		}
 		for i := b.scrollTop; i <= b.scrollBot-n; i++ {
@@ -158,9 +155,6 @@ func (b *Buffer) ScrollDown(n int) {
 	if b.scrollTop == 0 && b.scrollBot == b.rows-1 {
 		for i := 0; i < n; i++ {
 			pr := b.physRow(b.rows - 1 - i)
-			if b.lines[pr] != nil && !b.altScreen {
-				b.history.Push(b.lines[pr])
-			}
 			b.lines[pr] = nil
 		}
 		b.offset = (b.offset - n) & b.mask
@@ -174,9 +168,6 @@ func (b *Buffer) ScrollDown(n int) {
 	} else {
 		for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
 			pr := b.physRow(i)
-			if b.lines[pr] != nil && !b.altScreen {
-				b.history.Push(b.lines[pr])
-			}
 			b.lines[pr] = nil
 		}
 		for i := b.scrollBot; i >= b.scrollTop+n; i-- {
@@ -260,7 +251,7 @@ func (b *Buffer) Resize(cols, rows int) {
 		newLines[i] = NewLine(cols)
 	}
 	b.lines = newLines
-	b.cap = newCap
+	b.capacity = newCap
 	b.mask = newCap - 1
 	b.offset = 0
 	b.cols = cols
@@ -355,7 +346,7 @@ func (b *Buffer) DamageLine(row int) {
 	}
 }
 
-func (b *Buffer) DamageCursor(row, col int) {
+func (b *Buffer) DamageCell(row, col int) {
 	if row < 0 || row >= b.rows {
 		return
 	}
@@ -368,4 +359,64 @@ func (b *Buffer) DamageCursor(row, col int) {
 	if cell != nil {
 		cell.SetDirty()
 	}
+}
+
+func (b *Buffer) DamageCursor(row, col int) {
+	b.DamageCell(row, col)
+}
+
+// InsertLines 在 row 行插入 n 个新空行，[row, scrollBot] 区间内容下移 n 行，
+// 底部 n 行挤出丢失。不进 history（与 xterm IL 语义一致）。
+// 光标在 scroll region 外时为 no-op。
+func (b *Buffer) InsertLines(row, n int) {
+	if row < b.scrollTop || row > b.scrollBot {
+		return
+	}
+	if n <= 0 {
+		return
+	}
+	if n > b.scrollBot-row+1 {
+		n = b.scrollBot - row + 1
+	}
+	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
+		pr := b.physRow(i)
+		b.lines[pr] = nil
+	}
+	for i := b.scrollBot; i >= row+n; i-- {
+		b.lines[b.physRow(i)] = b.lines[b.physRow(i-n)]
+	}
+	for i := row; i < row+n; i++ {
+		pr := b.physRow(i)
+		b.lines[pr] = NewLine(b.cols)
+		b.lines[pr].Fill(b.eraseCell)
+	}
+	b.DamageRows(row, b.scrollBot)
+}
+
+// DeleteLines 删除 row 行起的 n 行，[row+n, scrollBot] 区间内容上移 n 行，
+// 底部 n 行填新空行。不进 history（与 xterm DL 语义一致）。
+// 光标在 scroll region 外时为 no-op。
+func (b *Buffer) DeleteLines(row, n int) {
+	if row < b.scrollTop || row > b.scrollBot {
+		return
+	}
+	if n <= 0 {
+		return
+	}
+	if n > b.scrollBot-row+1 {
+		n = b.scrollBot - row + 1
+	}
+	for i := row; i < row+n; i++ {
+		pr := b.physRow(i)
+		b.lines[pr] = nil
+	}
+	for i := row; i <= b.scrollBot-n; i++ {
+		b.lines[b.physRow(i)] = b.lines[b.physRow(i+n)]
+	}
+	for i := b.scrollBot - n + 1; i <= b.scrollBot; i++ {
+		pr := b.physRow(i)
+		b.lines[pr] = NewLine(b.cols)
+		b.lines[pr].Fill(b.eraseCell)
+	}
+	b.DamageRows(row, b.scrollBot)
 }

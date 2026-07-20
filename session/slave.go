@@ -9,10 +9,10 @@ import (
 )
 
 type Slave struct {
-	output     platform.Output
-	surface    platform.Surface
-	terms      []*terminal.Terminal
-	activeIdx  int
+	output    platform.Output
+	surface   platform.Surface
+	terms     []*terminal.Terminal
+	activeIdx int
 
 	compositor *render.Compositor
 	faceCache  font.FaceCacheProvider
@@ -137,7 +137,6 @@ func (s *Slave) CheckInsetsChanged() bool {
 func (s *Slave) ResizeTerms(cols, rows int) {
 	for _, t := range s.terms {
 		t.Resize(cols, rows)
-		t.SetPtySize(rows, cols)
 	}
 	s.compositor.Resize(cols, rows)
 }

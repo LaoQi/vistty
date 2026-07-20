@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"golang.org/x/sys/unix"
 )
 
@@ -19,14 +20,16 @@ type conn struct {
 	fd     int
 	nextID uint32
 
-	mu       sync.Mutex // 保护 fd 写入、objects、nextID
-	objects  map[uint32]*wlObject
-	errFunc  func(objID uint32, code uint32, msg string)
+	mu      sync.Mutex // 保护 fd 写入、objects、nextID
+	objects map[uint32]*wlObject
+	errFunc func(objID uint32, code uint32, msg string)
 
 	inBuf  []byte
 	inLen  int
 	oobBuf []byte
 	fds    []int // 待消费的 fd
+
+	closeOnce sync.Once
 }
 
 type wlObject struct {
@@ -49,7 +52,8 @@ func dial() (*conn, error) {
 	}
 
 	// 用 unix.Socket 直接创建 fd，避免 net.DialUnix + File() 的 GC fd 回收问题
-	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	// SOCK_CLOEXEC: 防止 exec 后 fd 泄漏到子进程
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("wayland: socket: %w", err)
 	}
@@ -129,16 +133,32 @@ func (c *conn) dispatch() error {
 	for {
 		if c.inLen >= 8 {
 			size := int(binary.LittleEndian.Uint32(c.inBuf[4:8]) >> 16)
+			if size < 8 {
+				return fmt.Errorf("wayland: invalid message size %d", size)
+			}
 			if c.inLen >= size {
 				break
 			}
+			// 超大消息：动态扩容 inBuf，避免 Recvmsg 写入空切片误判 "connection closed"
+			if size > cap(c.inBuf) {
+				newCap := cap(c.inBuf)
+				for newCap < size {
+					newCap *= 2
+				}
+				newBuf := make([]byte, newCap)
+				copy(newBuf, c.inBuf[:c.inLen])
+				c.inBuf = newBuf
+			}
 		}
-		n, oobn, _, _, err := unix.Recvmsg(c.fd, c.inBuf[c.inLen:cap(c.inBuf)], c.oobBuf, 0)
+		n, oobn, flags, _, err := unix.Recvmsg(c.fd, c.inBuf[c.inLen:cap(c.inBuf)], c.oobBuf, 0)
 		if err != nil {
 			return fmt.Errorf("wayland: recvmsg: %w", err)
 		}
 		if n == 0 {
 			return fmt.Errorf("wayland: connection closed")
+		}
+		if flags&unix.MSG_CTRUNC != 0 {
+			return fmt.Errorf("wayland: control message truncated (oob buffer %d bytes too small, fds may be lost)", cap(c.oobBuf))
 		}
 		c.inLen += n
 		c.parseFds(oobn)
@@ -185,7 +205,11 @@ func (c *conn) parseFds(oobn int) {
 }
 
 func (c *conn) close() error {
-	return unix.Close(c.fd)
+	c.closeOnce.Do(func() {
+		_ = unix.Shutdown(c.fd, unix.SHUT_RDWR)
+		_ = unix.Close(c.fd)
+	})
+	return nil
 }
 
 // display 事件处理: error(opcode 0) / delete_id(opcode 1)
@@ -355,7 +379,10 @@ func (r *wlRegistry) destroy() {
 
 // ---------- Compositor / Surface ----------
 
-type wlCompositor struct{ c *conn; id uint32 }
+type wlCompositor struct {
+	c  *conn
+	id uint32
+}
 
 func (c *conn) bindCompositor(reg *wlRegistry, name, version uint32) *wlCompositor {
 	id := reg.bind(name, "wl_compositor", min(version, 4))
@@ -388,7 +415,9 @@ func (s *wlSurface) attach(buf *wlBuffer, x, y int32) {
 	putU32(payload[0:4], buf.id)
 	putU32(payload[4:8], uint32(x))
 	putU32(payload[8:12], uint32(y))
-	_ = s.c.writeMsg(s.id, 1, payload, nil) // attach: opcode 1
+	if err := s.c.writeMsg(s.id, 1, payload, nil); err != nil { // attach: opcode 1
+		debug.Warningf("wayland: wl_surface.attach write failed: %v\n", err)
+	}
 }
 
 func (s *wlSurface) damage(x, y, w, h int32) {
@@ -397,11 +426,15 @@ func (s *wlSurface) damage(x, y, w, h int32) {
 	putU32(payload[4:8], uint32(y))
 	putU32(payload[8:12], uint32(w))
 	putU32(payload[12:16], uint32(h))
-	_ = s.c.writeMsg(s.id, 2, payload, nil) // damage: opcode 2
+	if err := s.c.writeMsg(s.id, 2, payload, nil); err != nil { // damage: opcode 2
+		debug.Warningf("wayland: wl_surface.damage write failed: %v\n", err)
+	}
 }
 
 func (s *wlSurface) commit() {
-	_ = s.c.writeMsg(s.id, 6, nil, nil) // commit: opcode 6
+	if err := s.c.writeMsg(s.id, 6, nil, nil); err != nil { // commit: opcode 6
+		debug.Warningf("wayland: wl_surface.commit write failed: %v\n", err)
+	}
 }
 
 func (s *wlSurface) destroy() {
@@ -455,7 +488,12 @@ func (shm *wlShm) createPool(fd int, size int32) *wlShmPool {
 func (p *wlShmPool) createBuffer(offset, width, height, stride int32, format uint32) *wlBuffer {
 	id := p.c.newID()
 	buf := &wlBuffer{c: p.c, id: id}
-	p.c.addObject(id, nil)
+	p.c.addObject(id, func(opcode uint16, msg []byte, fds []int) {
+		// wl_buffer.release 事件（opcode 0）：合成器不再使用此 buffer，可安全覆写
+		if opcode == 0 && buf.onRelease != nil {
+			buf.onRelease()
+		}
+	})
 	// wl_shm_pool.create_buffer: opcode 0
 	// 参数顺序与旧 wire.go 一致：new_id 在前
 	payload := make([]byte, 24)
@@ -475,8 +513,9 @@ func (p *wlShmPool) destroy() {
 }
 
 type wlBuffer struct {
-	c  *conn
-	id uint32
+	c         *conn
+	id        uint32
+	onRelease func()
 }
 
 func (b *wlBuffer) destroy() {
@@ -489,12 +528,14 @@ func (b *wlBuffer) destroy() {
 type wlSeat struct {
 	c              *conn
 	id             uint32
+	version        uint32
 	onCapabilities func(caps uint32)
 }
 
 func (c *conn) bindSeat(reg *wlRegistry, name, version uint32) *wlSeat {
-	id := reg.bind(name, "wl_seat", min(version, 5))
-	seat := &wlSeat{c: c, id: id}
+	v := min(version, 5)
+	id := reg.bind(name, "wl_seat", v)
+	seat := &wlSeat{c: c, id: id, version: v}
 	c.addObject(id, func(opcode uint16, msg []byte, fds []int) {
 		if opcode == 0 && seat.onCapabilities != nil { // capabilities: u32
 			if len(msg) >= 4 {
@@ -507,7 +548,7 @@ func (c *conn) bindSeat(reg *wlRegistry, name, version uint32) *wlSeat {
 
 func (s *wlSeat) getKeyboard() *wlKeyboard {
 	id := s.c.newID()
-	kb := &wlKeyboard{c: s.c, id: id}
+	kb := &wlKeyboard{c: s.c, id: id, version: s.version}
 	s.c.addObject(id, func(opcode uint16, msg []byte, fds []int) {
 		switch opcode {
 		case 0: // keymap: format(u32), fd, size(u32)
@@ -554,7 +595,7 @@ func (s *wlSeat) getKeyboard() *wlKeyboard {
 
 func (s *wlSeat) getPointer() *wlPointer {
 	id := s.c.newID()
-	ptr := &wlPointer{c: s.c, id: id}
+	ptr := &wlPointer{c: s.c, id: id, version: s.version}
 	s.c.addObject(id, func(opcode uint16, msg []byte, fds []int) {
 		switch opcode {
 		case 2: // motion: time(u32), x(fixed), y(fixed)
@@ -584,32 +625,40 @@ func (s *wlSeat) getPointer() *wlPointer {
 }
 
 func (s *wlSeat) release() {
-	_ = s.c.writeMsg(s.id, 3, nil, nil) // release: opcode 3 (v5+)
+	if s.version >= 5 {
+		_ = s.c.writeMsg(s.id, 3, nil, nil) // release: opcode 3 (v5+)
+	}
 	s.c.removeObject(s.id)
 }
 
 type wlKeyboard struct {
 	c           *conn
 	id          uint32
+	version     uint32
 	onKeymap    func(format uint32, fd int, size uint32)
 	onKey       func(serial, time, key, state uint32)
 	onModifiers func(serial, depressed, latched, locked, group uint32)
 }
 
 func (k *wlKeyboard) release() {
-	_ = k.c.writeMsg(k.id, 0, nil, nil) // release: opcode 0 (v3+)
+	if k.version >= 3 {
+		_ = k.c.writeMsg(k.id, 0, nil, nil) // release: opcode 0 (v3+)
+	}
 	k.c.removeObject(k.id)
 }
 
 type wlPointer struct {
-	c         *conn
-	id        uint32
-	onMotion  func(time uint32, x, y float64)
-	onButton  func(serial, time, button, state uint32)
+	c        *conn
+	id       uint32
+	version  uint32
+	onMotion func(time uint32, x, y float64)
+	onButton func(serial, time, button, state uint32)
 }
 
 func (p *wlPointer) release() {
-	_ = p.c.writeMsg(p.id, 1, nil, nil) // release: opcode 1 (v3+)
+	if p.version >= 3 {
+		_ = p.c.writeMsg(p.id, 1, nil, nil) // release: opcode 1 (v3+)
+	}
 	p.c.removeObject(p.id)
 }
 
@@ -660,8 +709,8 @@ func (wm *wlXdgWmBase) getXdgSurface(surf *wlSurface) *wlXdgSurface {
 }
 
 type wlXdgSurface struct {
-	c          *conn
-	id         uint32
+	c           *conn
+	id          uint32
 	onConfigure func(serial uint32)
 }
 
@@ -713,10 +762,10 @@ func (x *wlXdgSurface) destroy() {
 }
 
 type wlXdgToplevel struct {
-	c          *conn
-	id         uint32
+	c           *conn
+	id          uint32
 	onConfigure func(w, h int32)
-	onClose    func()
+	onClose     func()
 }
 
 func (t *wlXdgToplevel) setTitle(title string) {

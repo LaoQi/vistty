@@ -17,14 +17,14 @@ var usKeyMap = map[uint32]rune{
 	57: ' ',
 	58: 0,
 	59: 0, 60: 0, 61: 0, 62: 0, 63: 0, 64: 0, 65: 0, 66: 0, 67: 0, 68: 0,
-	97: 0,
+	97:  0,
 	100: 0,
 	103: 0,
 	105: 0,
 	106: 0,
 	108: 0,
 	125: 0,
-	29: 0,
+	29:  0,
 }
 
 var modifierKeys = map[uint32]Modifiers{
@@ -117,4 +117,3 @@ func ShiftRune(r rune) rune {
 	}
 	return r
 }
-

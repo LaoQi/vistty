@@ -108,11 +108,11 @@ func (f *OpenTypeFace) Close() error {
 // the primary face lacks a glyph the fallback is consulted; fallback glyphs
 // have their YOffset adjusted so they align to the primary baseline.
 type FallbackFace struct {
-	primary          *OpenTypeFace
-	fallback         *OpenTypeFace
-	primaryMetrics   Metrics
-	fallbackAscent   int
-	hasFallback      bool
+	primary        *OpenTypeFace
+	fallback       *OpenTypeFace
+	primaryMetrics Metrics
+	fallbackAscent int
+	hasFallback    bool
 }
 
 // NewFallbackFace returns a FallbackFace serving primary, with fallback used

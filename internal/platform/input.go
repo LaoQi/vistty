@@ -10,7 +10,7 @@ const (
 type Modifiers uint8
 
 const (
-	ModCtrl  Modifiers = 1 << iota
+	ModCtrl Modifiers = 1 << iota
 	ModAlt
 	ModShift
 	ModSuper

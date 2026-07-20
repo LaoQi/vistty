@@ -12,6 +12,9 @@ func RuneWidth(r rune) int {
 	if IsEmojiRune(r) && !isEmojiModifier(r) {
 		return 2
 	}
+	if 0x1F3FB <= r && r <= 0x1F3FF {
+		return 0
+	}
 	kind := width.LookupRune(r).Kind()
 	if kind == width.EastAsianFullwidth || kind == width.EastAsianWide {
 		return 2

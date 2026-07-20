@@ -7,10 +7,10 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/LaoQi/vistty/pinyin"
 	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/ui"
+	"github.com/LaoQi/vistty/pinyin"
 	"github.com/LaoQi/vistty/terminal"
 )
 
@@ -21,27 +21,27 @@ type keyBinding struct {
 }
 
 type PluginManager struct {
-	L             *lua.LState
-	ctx           PluginContext
-	initPath      string
-	backendName   string
-	keyHooks      *lua.LTable
-	renderHooks   *lua.LTable
-	activateHooks *lua.LTable
-	exitHooks     *lua.LTable
-	tabNewHooks   *lua.LTable
-	tabCloseHooks *lua.LTable
-	tabSwitchHooks *lua.LTable
+	L                 *lua.LState
+	ctx               PluginContext
+	initPath          string
+	backendName       string
+	keyHooks          *lua.LTable
+	renderHooks       *lua.LTable
+	activateHooks     *lua.LTable
+	exitHooks         *lua.LTable
+	tabNewHooks       *lua.LTable
+	tabCloseHooks     *lua.LTable
+	tabSwitchHooks    *lua.LTable
 	screenSwitchHooks *lua.LTable
-	titleChangeHooks *lua.LTable
-	resizeHooks   *lua.LTable
-	zoomHooks     *lua.LTable
-	panels        map[string]int
-	bindings      []keyBinding
-	pressedKeys   map[uint16]bool
-	active        bool
-	currentTheme    *terminal.Theme
-	currentOSDTheme *ui.OSDTheme
+	titleChangeHooks  *lua.LTable
+	resizeHooks       *lua.LTable
+	zoomHooks         *lua.LTable
+	panels            map[string]int
+	bindings          []keyBinding
+	pressedKeys       map[uint16]bool
+	active            bool
+	currentTheme      *terminal.Theme
+	currentOSDTheme   *ui.OSDTheme
 }
 
 func NewPluginManager(initPath string) *PluginManager {
@@ -209,10 +209,10 @@ func (pm *PluginManager) Reload() error {
 		return err
 	}
 	if pm.ctx != nil {
-		pm.Activate(pm.ctx)
 		if cfg != nil && cfg.TermTheme != nil {
 			pm.ctx.ApplyTheme(*cfg.TermTheme, *cfg.OSDTheme)
 		}
+		pm.Activate(pm.ctx)
 	}
 	return nil
 }

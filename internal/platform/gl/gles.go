@@ -196,10 +196,19 @@ func LoadGLES() (*GLESLoader, error) {
 		purego.RegisterFunc(s.fptr, addr)
 	}
 	if len(errs) > 0 {
+		purego.Dlclose(lib)
 		return nil, fmt.Errorf("GLES symbol resolution: %w", errors.Join(errs...))
 	}
 
 	return l, nil
+}
+
+func (l *GLESLoader) Close() error {
+	if l.lib != 0 {
+		purego.Dlclose(l.lib)
+		l.lib = 0
+	}
+	return nil
 }
 
 func (l *GLESLoader) GenTextures(n int32, textures []uint32) {

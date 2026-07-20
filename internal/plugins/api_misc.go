@@ -13,12 +13,12 @@ import (
 // 产生的图元描述。P1 阶段先定义结构骨架，P4 阶段由 ctx 的
 // text/rect metatable 方法填充并收集。
 type Primitive struct {
-	Kind int // 0=text, 1=rect
-	X, Y int
-	W, H int
-	Text string
+	Kind   int // 0=text, 1=rect
+	X, Y   int
+	W, H   int
+	Text   string
 	Fg, Bg [4]uint8 // RGBA
-	Bold bool
+	Bold   bool
 }
 
 // 图元类型常量。
@@ -45,7 +45,7 @@ var keysTable = map[string]int{
 	"NUM6": 7, "NUM7": 8, "NUM8": 9, "NUM9": 10, "NUM0": 11,
 	// 符号键（Linux input-event-codes.h 标准命名）
 	"MINUS": 12, "EQUAL": 13, "BACKSPACE": 14,
-	"TAB": 15,
+	"TAB":       15,
 	"LEFTBRACE": 26, "RIGHTBRACE": 27, "ENTER": 28, "RETURN": 28,
 	"SEMICOLON": 39, "APOSTROPHE": 40, "GRAVE": 41, "BACKSLASH": 43,
 	"COMMA": 51, "DOT": 52, "SLASH": 53,
@@ -87,39 +87,40 @@ var stateTable = map[string]string{
 
 // colorsTable 是 vistty.colors 常量表，值为 "#RRGGBB" 字符串。
 // 可直接传给 ctx:text / ctx:rect 的 fg/bg 参数，也可追加 AA 通道：
-//   vistty.colors.RED            → "#FF0000"
-//   vistty.colors.RED .. "FF"    → "#FF0000FF"（半透明红）
+//
+//	vistty.colors.RED            → "#FF0000"
+//	vistty.colors.RED .. "FF"    → "#FF0000FF"（半透明红）
 var colorsTable = map[string]string{
-	"BLACK":   "#000000",
-	"WHITE":   "#FFFFFF",
-	"RED":     "#FF0000",
-	"GREEN":   "#00FF00",
-	"BLUE":    "#0000FF",
-	"YELLOW":  "#FFFF00",
-	"CYAN":    "#00FFFF",
-	"MAGENTA": "#FF00FF",
-	"ORANGE":  "#FF8800",
-	"PURPLE":  "#8844CC",
-	"PINK":    "#FF8888",
-	"LIME":    "#88FF00",
-	"TEAL":    "#008888",
-	"GRAY":    "#888888",
-	"GREY":    "#888888",
-	"DARKGRAY":   "#444444",
-	"DARKGREY":   "#444444",
-	"LIGHTGRAY":  "#CCCCCC",
-	"LIGHTGREY":  "#CCCCCC",
-	"BROWN":   "#884400",
-	"NAVY":    "#000088",
-	"MAROON":  "#880000",
-	"OLIVE":   "#888800",
-	"SILVER":  "#C0C0C0",
-	"GOLD":    "#FFD700",
-	"CORAL":   "#FF7F50",
-	"SALMON":  "#FA8072",
-	"KHAKI":   "#F0E68C",
-	"IVORY":   "#FFFFF0",
-	"INDIGO":  "#4B0082",
+	"BLACK":     "#000000",
+	"WHITE":     "#FFFFFF",
+	"RED":       "#FF0000",
+	"GREEN":     "#00FF00",
+	"BLUE":      "#0000FF",
+	"YELLOW":    "#FFFF00",
+	"CYAN":      "#00FFFF",
+	"MAGENTA":   "#FF00FF",
+	"ORANGE":    "#FF8800",
+	"PURPLE":    "#8844CC",
+	"PINK":      "#FF8888",
+	"LIME":      "#88FF00",
+	"TEAL":      "#008888",
+	"GRAY":      "#888888",
+	"GREY":      "#888888",
+	"DARKGRAY":  "#444444",
+	"DARKGREY":  "#444444",
+	"LIGHTGRAY": "#CCCCCC",
+	"LIGHTGREY": "#CCCCCC",
+	"BROWN":     "#884400",
+	"NAVY":      "#000088",
+	"MAROON":    "#880000",
+	"OLIVE":     "#888800",
+	"SILVER":    "#C0C0C0",
+	"GOLD":      "#FFD700",
+	"CORAL":     "#FF7F50",
+	"SALMON":    "#FA8072",
+	"KHAKI":     "#F0E68C",
+	"IVORY":     "#FFFFF0",
+	"INDIGO":    "#4B0082",
 }
 
 // registerAPIs 在给定的 LState 上注册全部 vistty.* 命名空间。

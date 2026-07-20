@@ -740,3 +740,166 @@ func TestWlShmFormatConstants(t *testing.T) {
 		t.Errorf("decoModeServerSide = %d, want 2", decoModeServerSide)
 	}
 }
+
+// TestConnDispatchGrowth 验证 dispatch 遇到 >8KB 的超大消息时动态扩容 inBuf，
+// 而非因 Recvmsg 写入空切片返回 n=0 误判 "connection closed"（P1-21）。
+func TestConnDispatchGrowth(t *testing.T) {
+	c, peer := newTestConn(t)
+	defer unix.Close(peer)
+	defer c.close()
+
+	var gotPayload []byte
+	objID := c.newID()
+	c.addObject(objID, func(opcode uint16, msg []byte, fds []int) {
+		if opcode == 0 {
+			gotPayload = msg
+		}
+	})
+
+	// 构造 16384 字节的消息（超过 inBuf 初始容量 8192）
+	payloadSize := 16384 - 8
+	payload := make([]byte, payloadSize)
+	for i := range payload {
+		payload[i] = byte(i % 256)
+	}
+
+	size := 8 + payloadSize
+	buf := make([]byte, size)
+	binary.LittleEndian.PutUint32(buf[0:4], objID)
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(size<<16)) // opcode 0
+	copy(buf[8:], payload)
+
+	// 分块写入以防短写
+	for off := 0; off < len(buf); {
+		n, err := unix.Write(peer, buf[off:])
+		if err != nil {
+			t.Fatalf("write large event at offset %d: %v", off, err)
+		}
+		off += n
+	}
+
+	if err := c.dispatch(); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	if len(gotPayload) != payloadSize {
+		t.Fatalf("payload len = %d, want %d", len(gotPayload), payloadSize)
+	}
+	for i := 0; i < payloadSize; i++ {
+		if gotPayload[i] != byte(i%256) {
+			t.Fatalf("payload[%d] = %d, want %d", i, gotPayload[i], byte(i%256))
+		}
+	}
+}
+
+// TestWlBufferReleaseEvent 验证 wl_buffer.release 事件触发 onRelease 回调（P1-6）。
+func TestWlBufferReleaseEvent(t *testing.T) {
+	c, peer := newTestConn(t)
+	defer unix.Close(peer)
+	defer c.close()
+
+	pool := &wlShmPool{c: c, id: c.newID()}
+	c.addObject(pool.id, nil)
+
+	buf := pool.createBuffer(0, 100, 100, 400, wlFmtXRGB8888)
+
+	released := false
+	buf.onRelease = func() {
+		released = true
+	}
+
+	// wl_buffer.release 事件：opcode 0，无 payload
+	writeEvent(t, peer, buf.id, 0, nil)
+
+	if err := c.dispatch(); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	if !released {
+		t.Error("onRelease callback was not called for wl_buffer.release event")
+	}
+}
+
+// TestWlBufferReleaseNoCallbackNoPanic 验证未设置 onRelease 时收到 release 事件不 panic。
+func TestWlBufferReleaseNoCallbackNoPanic(t *testing.T) {
+	c, peer := newTestConn(t)
+	defer unix.Close(peer)
+	defer c.close()
+
+	pool := &wlShmPool{c: c, id: c.newID()}
+	c.addObject(pool.id, nil)
+
+	buf := pool.createBuffer(0, 100, 100, 400, wlFmtXRGB8888)
+	// 不设置 onRelease
+
+	writeEvent(t, peer, buf.id, 0, nil)
+
+	if err := c.dispatch(); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+}
+
+// TestWlSeatReleaseVersionClamp 验证 wl_seat/keyboard/pointer release 按
+// 绑定版本跳过（v5/v3 以下不发送 release 请求，P2-23）。
+func TestWlSeatReleaseVersionClamp(t *testing.T) {
+	c, peer := newTestConn(t)
+	defer unix.Close(peer)
+	defer c.close()
+
+	// 模拟 v4 seat：release 应被跳过（不写消息到 socket）
+	seat := &wlSeat{c: c, id: c.newID(), version: 4}
+	c.addObject(seat.id, nil)
+	seat.release()
+	// drain：无消息应可读（Read 立即 EAGAIN）
+	buf := make([]byte, 8)
+	unix.SetNonblock(peer, true)
+	n, err := unix.Read(peer, buf)
+	if err == nil && n > 0 {
+		t.Errorf("v4 seat release should be skipped, but got %d bytes", n)
+	}
+
+	// v5 seat：release 应写入
+	seat2 := &wlSeat{c: c, id: c.newID(), version: 5}
+	c.addObject(seat2.id, nil)
+	seat2.release()
+	objID, _, _ := readMsg(t, peer)
+	if objID != seat2.id {
+		t.Errorf("v5 seat release: expected objID=%d, got %d", seat2.id, objID)
+	}
+
+	// v2 keyboard：release 应被跳过
+	kb := &wlKeyboard{c: c, id: c.newID(), version: 2}
+	c.addObject(kb.id, nil)
+	kb.release()
+	n, err = unix.Read(peer, buf)
+	if err == nil && n > 0 {
+		t.Errorf("v2 keyboard release should be skipped, but got %d bytes", n)
+	}
+
+	// v3 keyboard：release 应写入
+	kb2 := &wlKeyboard{c: c, id: c.newID(), version: 3}
+	c.addObject(kb2.id, nil)
+	kb2.release()
+	objID, _, _ = readMsg(t, peer)
+	if objID != kb2.id {
+		t.Errorf("v3 keyboard release: expected objID=%d, got %d", kb2.id, objID)
+	}
+
+	// v2 pointer：release 应被跳过
+	ptr := &wlPointer{c: c, id: c.newID(), version: 2}
+	c.addObject(ptr.id, nil)
+	ptr.release()
+	n, err = unix.Read(peer, buf)
+	if err == nil && n > 0 {
+		t.Errorf("v2 pointer release should be skipped, but got %d bytes", n)
+	}
+
+	// v3 pointer：release 应写入
+	ptr2 := &wlPointer{c: c, id: c.newID(), version: 3}
+	c.addObject(ptr2.id, nil)
+	ptr2.release()
+	objID, _, _ = readMsg(t, peer)
+	if objID != ptr2.id {
+		t.Errorf("v3 pointer release: expected objID=%d, got %d", ptr2.id, objID)
+	}
+}
