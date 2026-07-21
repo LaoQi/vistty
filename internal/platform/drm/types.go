@@ -106,6 +106,19 @@ type FB struct {
 	Handle uint32
 }
 
+type FB2 struct {
+	FbID        uint32
+	Width       uint32
+	Height      uint32
+	PixelFormat uint32
+	Flags       uint32
+	Handles     [4]uint32
+	Pitches     [4]uint32
+	Offsets     [4]uint32
+	_           uint32
+	Modifier    [4]uint64
+}
+
 type CreateDumb struct {
 	Height uint32
 	Width  uint32
@@ -196,6 +209,11 @@ type DestroyBlobReq struct {
 	BlobID uint32
 }
 
+type PrimeHandle struct {
+	Handle uint32
+	FD     uint32
+}
+
 func init() {
 	if runtime.GOARCH != "amd64" {
 		panic("drm/internal: only linux/amd64 is supported")
@@ -278,6 +296,17 @@ func init() {
 	mustOffset(reflect.TypeOf(FB{}), "FbID", 0)
 	mustOffset(reflect.TypeOf(FB{}), "Handle", 24)
 
+	mustSize(reflect.TypeOf(FB2{}), 104)
+	mustOffset(reflect.TypeOf(FB2{}), "FbID", 0)
+	mustOffset(reflect.TypeOf(FB2{}), "Width", 4)
+	mustOffset(reflect.TypeOf(FB2{}), "Height", 8)
+	mustOffset(reflect.TypeOf(FB2{}), "PixelFormat", 12)
+	mustOffset(reflect.TypeOf(FB2{}), "Flags", 16)
+	mustOffset(reflect.TypeOf(FB2{}), "Handles", 20)
+	mustOffset(reflect.TypeOf(FB2{}), "Pitches", 36)
+	mustOffset(reflect.TypeOf(FB2{}), "Offsets", 52)
+	mustOffset(reflect.TypeOf(FB2{}), "Modifier", 72)
+
 	mustSize(reflect.TypeOf(CreateDumb{}), 32)
 	mustOffset(reflect.TypeOf(CreateDumb{}), "Handle", 16)
 	mustOffset(reflect.TypeOf(CreateDumb{}), "Pitch", 20)
@@ -342,6 +371,10 @@ func init() {
 
 	mustSize(reflect.TypeOf(DestroyBlobReq{}), 4)
 	mustOffset(reflect.TypeOf(DestroyBlobReq{}), "BlobID", 0)
+
+	mustSize(reflect.TypeOf(PrimeHandle{}), 8)
+	mustOffset(reflect.TypeOf(PrimeHandle{}), "Handle", 0)
+	mustOffset(reflect.TypeOf(PrimeHandle{}), "FD", 4)
 }
 
 func strconv(v uintptr) string {
