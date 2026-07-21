@@ -51,6 +51,7 @@ func registerUI(L *lua.LState, pm *PluginManager) {
 	methods.RawSetString("text", L.NewFunction(luaCtxText))
 	methods.RawSetString("rect", L.NewFunction(luaCtxRect))
 	methods.RawSetString("size", L.NewFunction(luaCtxSize))
+	methods.RawSetString("output_id", L.NewFunction(luaCtxOutputID))
 	mt.RawSetString("__index", methods)
 	// 将 mt 存到一个固定位置供 newRenderContextUserdata 查找。
 	uiT.RawSetString("_ctx_mt", mt)
@@ -62,6 +63,7 @@ type renderContextState struct {
 	primitives []Primitive
 	width      int
 	height     int
+	outputID   uint32
 }
 
 // renderContextMetatableName 是 ctx userdata 的元表标识，
@@ -145,6 +147,22 @@ func luaCtxSize(L *lua.LState) int {
 	L.Push(lua.LNumber(st.width))
 	L.Push(lua.LNumber(st.height))
 	return 2
+}
+
+// luaCtxOutputID: ctx:output_id() → number — 返回当前渲染屏幕的 output ID。
+func luaCtxOutputID(L *lua.LState) int {
+	ud, ok := L.Get(1).(*lua.LUserData)
+	if !ok {
+		L.Push(lua.LNumber(0))
+		return 1
+	}
+	st, ok := ud.Value.(*renderContextState)
+	if !ok {
+		L.Push(lua.LNumber(0))
+		return 1
+	}
+	L.Push(lua.LNumber(st.outputID))
+	return 1
 }
 
 // parsePrimitiveOpts 从 idx 处的 Lua table 读取 fg/bg/bold 字段写入 prim。

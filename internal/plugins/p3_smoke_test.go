@@ -26,6 +26,8 @@ func (f *p3FakeCtx) PrevScreen()                                     {}
 func (f *p3FakeCtx) SwitchScreen(i int)                              {}
 func (f *p3FakeCtx) ScreenCount() int                                { return 1 }
 func (f *p3FakeCtx) FocusScreenIdx() int                             { return 1 }
+func (f *p3FakeCtx) FocusOutputID() uint32                           { return 0 }
+func (f *p3FakeCtx) ScreenInfos() []ScreenInfo                       { return nil }
 func (f *p3FakeCtx) ZoomIn()                                         {}
 func (f *p3FakeCtx) ZoomOut()                                        {}
 func (f *p3FakeCtx) ZoomReset()                                      {}

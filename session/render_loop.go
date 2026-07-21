@@ -248,7 +248,7 @@ func (m *Master) renderPlugins() {
 				osd.SetPluginPanel(side, nil)
 				continue
 			}
-			dirty, prims := m.plugins.OnRender(side, w, h)
+			dirty, prims := m.plugins.OnRender(side, s.Output().ID(), w, h)
 			if dirty {
 				m.dirty = true
 			}

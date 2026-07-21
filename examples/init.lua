@@ -77,22 +77,7 @@ vistty.input.bind(vistty.keys.Q, function()
 end)
 
 local statusbar = require("statusbar")
-local ime = require("ime")
-
-vistty.input.on_key(function(ev)
-	if ev.state ~= vistty.state.PRESS then return end
-	if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL
-	   and ev.code == vistty.keys.SPACE then
-		if ime.active() then
-			ime.deactivate()
-		else
-			ime.activate()
-		end
-		return true
-	end
-end)
-
-ime.init()
+statusbar.init()
 
 -- === 生命周期钩子示例（默认注释，按需启用） ===
 --

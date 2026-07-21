@@ -24,6 +24,8 @@ func (f *p4FakeCtx) PrevScreen()                                     {}
 func (f *p4FakeCtx) SwitchScreen(i int)                              {}
 func (f *p4FakeCtx) ScreenCount() int                                { return 1 }
 func (f *p4FakeCtx) FocusScreenIdx() int                             { return 1 }
+func (f *p4FakeCtx) FocusOutputID() uint32                           { return 0 }
+func (f *p4FakeCtx) ScreenInfos() []ScreenInfo                       { return nil }
 func (f *p4FakeCtx) ZoomIn()                                         {}
 func (f *p4FakeCtx) ZoomOut()                                        {}
 func (f *p4FakeCtx) ZoomReset()                                      {}
@@ -48,7 +50,7 @@ end)
 	}
 	pm.Activate(&p4FakeCtx{})
 
-	dirty, prims := pm.OnRender("bottom", 80, 1)
+	dirty, prims := pm.OnRender("bottom", 0, 80, 1)
 	if !dirty {
 		// dirty 由 hook 返回值决定，这里 hook 无返回值，dirty 可能为 false
 	}
@@ -100,7 +102,7 @@ end)
 	}
 	pm.Activate(&p4FakeCtx{})
 
-	pm.OnRender("bottom", 80, 2)
+	pm.OnRender("bottom", 0, 80, 2)
 	w := pm.L.GetField(pm.L.GetGlobal("vistty"), "_w")
 	h := pm.L.GetField(pm.L.GetGlobal("vistty"), "_h")
 	if n, ok := w.(lua.LNumber); !ok || int(n) != 80 {
@@ -126,7 +128,7 @@ end)
 	}
 	pm.Activate(&p4FakeCtx{})
 
-	_, prims := pm.OnRender("top", 80, 1)
+	_, prims := pm.OnRender("top", 0, 80, 1)
 	if len(prims) != 0 {
 		t.Fatalf("top panel should be skipped, got %d primitives", len(prims))
 	}
@@ -142,7 +144,7 @@ func TestP4OnRenderNotActive(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 未 Activate
-	_, prims := pm.OnRender("bottom", 80, 1)
+	_, prims := 	pm.OnRender("bottom", 0, 80, 1)
 	if len(prims) != 0 {
 		t.Fatalf("not active should return no primitives, got %d", len(prims))
 	}
@@ -156,7 +158,7 @@ func TestP4OnRenderNoHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	pm.Activate(&p4FakeCtx{})
-	_, prims := pm.OnRender("bottom", 80, 1)
+	_, prims := 	pm.OnRender("bottom", 0, 80, 1)
 	if len(prims) != 0 {
 		t.Fatalf("no hooks should return no primitives, got %d", len(prims))
 	}
@@ -172,7 +174,7 @@ func TestP4OnRenderDirty(t *testing.T) {
 		t.Fatal(err)
 	}
 	pm.Activate(&p4FakeCtx{})
-	dirty, _ := pm.OnRender("bottom", 80, 1)
+	dirty, _ := 	pm.OnRender("bottom", 0, 80, 1)
 	if !dirty {
 		t.Fatal("hook returning true should set dirty=true")
 	}

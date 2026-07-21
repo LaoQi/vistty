@@ -5,6 +5,15 @@ import (
 	"github.com/LaoQi/vistty/terminal"
 )
 
+// ScreenInfo 描述单个屏幕的信息，供 Lua 层查询。
+type ScreenInfo struct {
+	ID      uint32
+	Name    string
+	Width   int
+	Height  int
+	Focused bool
+}
+
 // TabInfo 描述一个终端标签的信息，供插件层查询当前标签列表。
 type TabInfo struct {
 	Title  string
@@ -32,6 +41,8 @@ type PluginContext interface {
 	SwitchScreen(idx int)
 	ScreenCount() int
 	FocusScreenIdx() int
+	FocusOutputID() uint32
+	ScreenInfos() []ScreenInfo
 	ZoomIn()
 	ZoomOut()
 	ZoomReset()

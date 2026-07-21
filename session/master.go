@@ -612,6 +612,30 @@ func (m *Master) FocusScreenIdx() int {
 	return m.focusIdx + 1
 }
 
+// FocusOutputID 返回焦点屏幕的 Output.ID()。
+func (m *Master) FocusOutputID() uint32 {
+	if m.focusIdx < len(m.slaves) {
+		return m.slaves[m.focusIdx].Output().ID()
+	}
+	return 0
+}
+
+// ScreenInfos 返回所有屏幕信息列表。
+func (m *Master) ScreenInfos() []plugins.ScreenInfo {
+	out := make([]plugins.ScreenInfo, len(m.slaves))
+	for i, s := range m.slaves {
+		w, h := s.Output().Size()
+		out[i] = plugins.ScreenInfo{
+			ID:      s.Output().ID(),
+			Name:    s.Output().Name(),
+			Width:   w,
+			Height:  h,
+			Focused: i == m.focusIdx,
+		}
+	}
+	return out
+}
+
 // ZoomIn 放大字体。
 func (m *Master) ZoomIn() {
 	select {

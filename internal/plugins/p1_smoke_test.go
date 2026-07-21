@@ -343,7 +343,7 @@ func TestP1ColorParsing(t *testing.T) {
 				t.Fatal(err)
 			}
 			pm.Activate(&p4FakeCtx{})
-			_, prims := pm.OnRender("bottom", 80, 1)
+			_, prims := pm.OnRender("bottom", 0, 80, 1)
 			if len(prims) != 1 {
 				t.Fatalf("expected 1 prim, got %d", len(prims))
 			}

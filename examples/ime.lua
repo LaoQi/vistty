@@ -1,7 +1,5 @@
 local M = {}
 
-local statusbar = require("statusbar")
-
 local ime_active = false
 local ime_buf = ""
 local ime_page = 0
@@ -9,7 +7,8 @@ local ime_cands = nil
 local ime_cand_buf = ""
 local ime_preedit = ""
 local ime_preedit_buf = ""
-local ime_panel_width = 0
+local ime_widths = {}
+local statusbar_ref = nil
 
 local function cand_display_width(idx, word)
 	return vistty.display_width(tostring(idx)) + vistty.display_width(word) + 1
@@ -18,13 +17,13 @@ end
 function M.page_slice(cands, page, avail_w)
 	if avail_w <= 0 then return {}, 0 end
 	if #cands == 0 then return {}, 0 end
-	local start = 0
-	local cur_page = 0
+	local start = 1
+	local cur_page = 1
 	while cur_page < page do
 		local x = 0
 		local count = 0
-		while start + count < #cands and count < 9 do
-			local w = cand_display_width(count + 1, cands[start + count + 1].word)
+		while start + count - 1 < #cands and count < 9 do
+			local w = cand_display_width(count + 1, cands[start + count].word)
 			if x + w > avail_w and count > 0 then break end
 			x = x + w
 			count = count + 1
@@ -36,11 +35,11 @@ function M.page_slice(cands, page, avail_w)
 	local result = {}
 	local x = 0
 	local i = 0
-	while start + i < #cands and i < 9 do
-		local w = cand_display_width(i + 1, cands[start + i + 1].word)
+	while start + i - 1 < #cands and i < 9 do
+		local w = cand_display_width(i + 1, cands[start + i].word)
 		if x + w > avail_w and i > 0 then break end
 		x = x + w
-		result[#result + 1] = cands[start + i + 1]
+		result[#result + 1] = cands[start + i]
 		i = i + 1
 	end
 	return result, start
@@ -49,19 +48,19 @@ end
 function M.total_pages(cands, avail_w)
 	if avail_w <= 0 or #cands == 0 then return 0 end
 	local total = 1
-	local start = 0
-	while start < #cands do
+	local start = 1
+	while start <= #cands do
 		local x = 0
 		local count = 0
-		while start + count < #cands and count < 9 do
-			local w = cand_display_width(count + 1, cands[start + count + 1].word)
+		while start + count - 1 <= #cands and count < 9 do
+			local w = cand_display_width(count + 1, cands[start + count - 1].word)
 			if x + w > avail_w and count > 0 then break end
 			x = x + w
 			count = count + 1
 		end
 		if count == 0 then break end
 		start = start + count
-		if start < #cands then total = total + 1 end
+		if start <= #cands then total = total + 1 end
 	end
 	return total
 end
@@ -104,12 +103,12 @@ function M.candidates()
 	return ime_cands
 end
 
-function M.get_panel_width()
-	return ime_panel_width
-end
-
-function M.set_panel_width(w)
-	ime_panel_width = w
+local function get_focused_width()
+	local oid = vistty.screen.focused_output_id()
+	if oid > 0 and statusbar_ref then
+		return statusbar_ref.left_available_width(oid)
+	end
+	return 0
 end
 
 local function has_modifier(ev)
@@ -138,7 +137,22 @@ local function remove_last_char(s)
 	return s:sub(1, n - count)
 end
 
-function M.setup_key_handler()
+local function setup_toggle()
+	vistty.input.on_key(function(ev)
+		if ev.state ~= vistty.state.PRESS then return end
+		if (ev.mods % (vistty.mods.CTRL * 2)) >= vistty.mods.CTRL
+		   and ev.code == vistty.keys.SPACE then
+			if ime_active then
+				M.deactivate()
+			else
+				M.activate()
+			end
+			return true
+		end
+	end)
+end
+
+local function setup_key_handler()
 	vistty.input.on_key(function(ev)
 		if ev.state ~= vistty.state.PRESS then return end
 		if not ime_active then return end
@@ -186,7 +200,8 @@ function M.setup_key_handler()
 		for i = 1, 9 do
 			if ev.code == vistty.keys["NUM" .. i] then
 				local cands = M.candidates()
-				local avail = M.get_panel_width() - vistty.display_width(M.preedit() .. "_")
+				local pw = get_focused_width()
+				local avail = pw - vistty.display_width(M.preedit() .. "_")
 				local page_cands = M.page_slice(cands, ime_page, avail)
 				if i <= #page_cands then
 					vistty.term.send(page_cands[i].word)
@@ -198,14 +213,15 @@ function M.setup_key_handler()
 		end
 
 		if ev.code == vistty.keys.MINUS or ev.code == vistty.keys.LEFT
-		   or ev.code == vistty.keys.UP then
+			or ev.code == vistty.keys.UP then
 			if ime_page > 0 then ime_page = ime_page - 1 end
 			return true
 		end
 		if ev.code == vistty.keys.EQUAL or ev.code == vistty.keys.RIGHT
 		   or ev.code == vistty.keys.DOWN or ev.code == vistty.keys.TAB then
 			local cands = M.candidates()
-			local avail = M.get_panel_width() - vistty.display_width(M.preedit() .. "_")
+			local pw = get_focused_width()
+			local avail = pw - vistty.display_width(M.preedit() .. "_")
 			local total = M.total_pages(cands, avail)
 			if ime_page + 1 < total then
 				ime_page = ime_page + 1
@@ -217,62 +233,52 @@ function M.setup_key_handler()
 	end)
 end
 
-function M.setup_render_handler()
-	vistty.ui.enable("bottom", 1)
-	vistty.ui.on_render(function(ctx)
-		local w, h = ctx:size()
-		local rightW = statusbar.right_width(w)
-		local sepW = 2
-		local imeW = w - rightW - sepW
-		if imeW < 0 then imeW = 0 end
-		M.set_panel_width(imeW)
+function M.render(ctx, avail_w, h, oid)
+	ime_widths[oid] = avail_w
 
-		ctx:rect(0, 0, w, h, {bg=vistty.colors.DARKGRAY})
+	if ime_active then
+		local pre = M.preedit()
+		if pre == "" then
+			ctx:text(2, 0, "中", {fg=vistty.colors.CYAN})
+		else
+			ctx:text(0, 0, pre .. "_", {fg=vistty.colors.CYAN})
+			local cands = M.candidates()
+			local preW = vistty.display_width(pre .. "_")
+			local avail = avail_w - preW
+			if avail < 0 then avail = 0 end
+			local page_cands = M.page_slice(cands, ime_page, avail)
 
-		if ime_active then
-			local pre = M.preedit()
-			if pre == "" then
-				ctx:text(2, 0, "中", {fg=vistty.colors.CYAN})
-			else
-				ctx:text(0, 0, pre .. "_", {fg=vistty.colors.CYAN})
-				local cands = M.candidates()
-				local preW = vistty.display_width(pre .. "_")
-				local avail = imeW - preW
-				if avail < 0 then avail = 0 end
-				local page_cands = M.page_slice(cands, ime_page, avail)
-
-				local x = preW
-				for i, c in ipairs(page_cands) do
-					local idx = tostring(i)
-					local idxW = vistty.display_width(idx)
-					ctx:text(x, 0, idx, {fg=vistty.colors.GRAY})
+			local x = preW
+			for i, c in ipairs(page_cands) do
+				if x >= avail_w then break end
+				local idx = tostring(i)
+				local idxW = vistty.display_width(idx)
+				local wordW = vistty.display_width(c.word)
+				ctx:text(x, 0, idx, {fg=vistty.colors.GRAY})
+				if x + idxW + wordW <= avail_w then
 					ctx:text(x + idxW, 0, c.word, {fg=vistty.colors.WHITE})
-					x = x + idxW + vistty.display_width(c.word) + 1
 				end
+				x = x + idxW + wordW + 1
+			end
 
-				local total = M.total_pages(cands, avail)
-				if total > 1 then
-					local pg = "(" .. (ime_page + 1) .. "/" .. total .. ")"
-					local pgW = vistty.display_width(pg)
-					if pgW < imeW then
-						ctx:text(imeW - pgW - 1, 0, pg, {fg=vistty.colors.GRAY})
-					end
+			local total = M.total_pages(cands, avail)
+			if total > 1 then
+				local pg = "(" .. (ime_page + 1) .. "/" .. total .. ")"
+				local pgW = vistty.display_width(pg)
+				if pgW < avail_w then
+					ctx:text(avail_w - pgW - 1, 0, pg, {fg=vistty.colors.GRAY})
 				end
 			end
-		else
-			ctx:text(2, 0, "EN", {fg=vistty.colors.GRAY})
 		end
-
-		ctx:text(imeW, 0, "│", {fg="#555555"})
-
-		statusbar.render_right(ctx, w, h)
-		return true
-	end)
+	else
+		ctx:text(2, 0, "EN", {fg=vistty.colors.GRAY})
+	end
 end
 
-function M.init()
-	M.setup_key_handler()
-	M.setup_render_handler()
+function M.init(sb)
+	statusbar_ref = sb
+	setup_toggle()
+	setup_key_handler()
 end
 
 return M

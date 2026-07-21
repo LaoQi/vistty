@@ -183,9 +183,10 @@ github.com/LaoQi/vistty/
 │   ├── debug/                   # Debugf/Errorf/Warningf + 环境变量/文件配置
 │   ├── plugins/                 # gopher-lua VM + init.lua + vistty.* API
 │   │   ├── manager.go           # PluginManager + 钩子暂存/激活 + pinyin.Init 注入
-│   │   ├── context.go           # PluginContext 接口 + TabInfo + ApplyTheme
+│   │   ├── context.go           # PluginContext 接口 + TabInfo + ScreenInfo + ApplyTheme
 │   │   ├── config.go            # RunConfig + readConfig + parseLuaTheme（vistty.config.theme 解析）
 │   │   ├── api_env.go           # vistty.backend_name/backend.is_wayland/is_drm/on_activate 运行环境查询
+│   │   ├── api_screen.go        # vistty.screen.focus/prev/next/count/focused_idx/focused_output_id/list 屏幕查询
 │   │   ├── api_lifecycle.go     # vistty.on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom 生命周期钩子
 │   │   ├── api_theme.go         # vistty.theme.apply/get/default 主题 API
 │   │   └── api_*.go             # vistty.input/term/tab/screen/zoom/ui/pinyin/keybind API
@@ -204,8 +205,8 @@ github.com/LaoQi/vistty/
 │       ├── gpu/                 # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/             # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
 ├── examples/init.lua            # 插件示例配置（含拼音输入法 + StatusBar + 主题配置 + mod+J/K 滚动）
-├── examples/statusbar.lua       # StatusBar 模块：右侧固定区（CPU 温度+日期时间）+ 左侧弹性 IME 区域 + │ 分隔
-├── examples/ime.lua             # IME 模块：白名单按键捕获+自适应分页+StatusBar 分区渲染
+├── examples/statusbar.lua       # StatusBar 模块：底部面板宿主（右侧固定区 CPU 温度+日期时间 + 左侧弹性 IME provider 区域 + │ 分隔 + 多屏宽度跟踪）
+├── examples/ime.lua             # IME 模块：Ctrl+Space 切换 + 白名单按键捕获 + 自适应分页 + StatusBar left provider 注册 + 多屏宽度感知
 ├── examples/themes/             # 预设主题 Lua 文件（dracula/solarized_dark/solarized_light/gruvbox/monokai/nord/one_dark）
 ├── scripts/
 │   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）
@@ -329,7 +330,9 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - GPU glyph atlas + instanced draw shader（GLES 3.00）+ VAO 缓存 attribute 配置
 - 多屏 DRM 输出 + 独立显示模式 + 主屏选择 + 每屏独立 EGLContext + scanout buffer 跟踪 + wait-for-flip 同步（5s 超时兜底）+ 两阶段渲染（Render→Present）60fps
 - OSD 标签栏 + 多终端标签（通过 init.lua vistty.input.bind 配置快捷键）+ 面板启用/禁用时自动 resize 终端 + clip 区域越界裁剪 + CSD 模式自绘窗口控制按钮（─□✕）+ 标签栏拖拽移动窗口 + 顶部栏 CJK 双宽渲染（osdCell.w 列数倍率，对齐底部栏修复方案）+ 单标题 16 列宽截断省略号 + 水平滚动（active tab 始终可见，scroll 偏移对齐 tab 边界）
-- 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出 + 运行环境查询 vistty.backend_name()/backend.is_wayland()/is_drm() + on_activate 钩子在 Run() 内首帧前执行（避免主循环未启动时阻塞）+ PluginContext 投递方法非阻塞（tabReqCh/scaleReqCh cap=8，满时丢弃+warning）+ mod 键按后端自适应 wayland=ALT/drm=SUPER + 生命周期钩子 on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom；on_title_change 经主线程 ticker 缓冲避免 terminal 写锁内 PCall 死锁）
+- 插件系统（gopher-lua init.lua + vistty.* API + bind/bind_keys/pressed + 面板渲染 + 热重载 + vistty.exit() 退出 + 运行环境查询 vistty.backend_name()/backend.is_wayland()/is_drm() + on_activate 钩子在 Run() 内首帧前执行（避免主循环未启动时阻塞）+ PluginContext 投递方法非阻塞（tabReqCh/scaleReqCh cap=8，满时丢弃+warning）+ mod 键按后端自适应 wayland=ALT/drm=SUPER + 生命周期钩子 on_exit/on_tab_new/on_tab_close/on_tab_switch/on_screen_switch/on_title_change/on_resize/on_zoom；on_title_change 经主线程 ticker 缓冲避免 terminal 写锁内 PCall 死锁；多屏信息查询 vistty.screen.focused_output_id()/screen.list() + 渲染上下文 ctx:output_id()；OnRender 签名传递 outputID 支持多屏感知渲染）
+- StatusBar 底部面板宿主架构（statusbar.lua 启用 bottom 面板 + 注册 on_render 钩子统一布局渲染；左侧弹性 provider 区域 + 右侧固定区 CPU 温度+日期时间 + │ 分隔；register_left/unregister_left provider 注册机制 + left_available_width 多屏宽度跟踪 _left_widths[oid]；IME 作为 left provider 注册，渲染仅对 focused 屏幕激活）
+- IME 模块重构（ime.lua：Ctrl+Space 切换键移入 ime.lua 内部 setup_toggle；init(statusbar_ref) 接收 StatusBar 引用 + 通过 statusbar_ref.left_available_width(oid) 查询多屏宽度；render(ctx, avail_w, h, oid) 适配 provider 接口 + ime_widths[oid] 多屏宽度缓存；分页索引 0-based→1-based 修复；init.lua 简化为 require statusbar + statusbar.init() 一行启动）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
 - 组合词权重降级：composeFromSingleChars 组合词 weight /=100（单字百万级 weight 降至十万级以下，低于字典真实词组）；多分割方案按音节数差异指数降级 splitFactor=1/10^extraSyllables（最优分割长音节优先不降级，短音节分割组合词大幅压低，防止"大起啊哦"类噪声压过"大桥"类真实词组）

@@ -30,6 +30,8 @@ func (f *fakeCtx) PrevScreen()                                     { f.screenIdx
 func (f *fakeCtx) SwitchScreen(i int)                              { f.screenIdx = i - 1 }
 func (f *fakeCtx) ScreenCount() int                                { return 3 }
 func (f *fakeCtx) FocusScreenIdx() int                             { return f.screenIdx + 1 }
+func (f *fakeCtx) FocusOutputID() uint32                           { return 0 }
+func (f *fakeCtx) ScreenInfos() []ScreenInfo                       { return nil }
 func (f *fakeCtx) ZoomIn()                                         { f.zoomCalls = append(f.zoomCalls, 1) }
 func (f *fakeCtx) ZoomOut()                                        { f.zoomCalls = append(f.zoomCalls, -1) }
 func (f *fakeCtx) ZoomReset()                                      { f.zoomCalls = append(f.zoomCalls, 0) }

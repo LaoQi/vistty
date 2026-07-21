@@ -55,4 +55,34 @@ func registerScreen(L *lua.LState, pm *PluginManager) {
 		L.Push(lua.LNumber(pm.ctx.FocusScreenIdx()))
 		return 1
 	}))
+
+	// vistty.screen.focused_output_id() → number
+	screenT.RawSetString("focused_output_id", L.NewFunction(func(L *lua.LState) int {
+		if pm.ctx == nil {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		L.Push(lua.LNumber(pm.ctx.FocusOutputID()))
+		return 1
+	}))
+
+	// vistty.screen.list() → table {{id,name,width,height,focused}, ...}
+	screenT.RawSetString("list", L.NewFunction(func(L *lua.LState) int {
+		t := L.NewTable()
+		if pm.ctx == nil {
+			L.Push(t)
+			return 1
+		}
+		for i, si := range pm.ctx.ScreenInfos() {
+			entry := L.NewTable()
+			entry.RawSetString("id", lua.LNumber(si.ID))
+			entry.RawSetString("name", lua.LString(si.Name))
+			entry.RawSetString("width", lua.LNumber(si.Width))
+			entry.RawSetString("height", lua.LNumber(si.Height))
+			entry.RawSetString("focused", lua.LBool(si.Focused))
+			t.RawSetInt(i+1, entry)
+		}
+		L.Push(t)
+		return 1
+	}))
 }

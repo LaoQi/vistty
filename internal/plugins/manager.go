@@ -366,14 +366,14 @@ func (pm *PluginManager) mergeKeyEventTable(dst, src *lua.LTable) {
 	}
 }
 
-func (pm *PluginManager) OnRender(side string, width, height int) (dirty bool, primitives []Primitive) {
+func (pm *PluginManager) OnRender(side string, outputID uint32, width, height int) (dirty bool, primitives []Primitive) {
 	if !pm.active || pm.renderHooks == nil || pm.renderHooks.Len() == 0 {
 		return false, nil
 	}
 	if side == "top" {
 		return false, nil
 	}
-	ud := pm.newRenderContextUserdata(side, width, height)
+	ud := pm.newRenderContextUserdata(side, outputID, width, height)
 	st, _ := ud.Value.(*renderContextState)
 	pm.renderHooks.ForEach(func(_, fn lua.LValue) {
 		lfn, ok := fn.(*lua.LFunction)
@@ -398,9 +398,9 @@ func (pm *PluginManager) OnRender(side string, width, height int) (dirty bool, p
 	return dirty, primitives
 }
 
-func (pm *PluginManager) newRenderContextUserdata(side string, width, height int) *lua.LUserData {
+func (pm *PluginManager) newRenderContextUserdata(side string, outputID uint32, width, height int) *lua.LUserData {
 	ud := pm.L.NewUserData()
-	ud.Value = &renderContextState{width: width, height: height}
+	ud.Value = &renderContextState{width: width, height: height, outputID: outputID}
 	vt, _ := pm.L.GetGlobal("vistty").(*lua.LTable)
 	if vt != nil {
 		if uiT, ok := vt.RawGetString("ui").(*lua.LTable); ok {

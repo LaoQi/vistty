@@ -48,6 +48,8 @@ func (f *p6FakeCtx) PrevScreen()         { f.screenIdx-- }
 func (f *p6FakeCtx) SwitchScreen(i int)  { f.screenIdx = i - 1 }
 func (f *p6FakeCtx) ScreenCount() int    { return 3 }
 func (f *p6FakeCtx) FocusScreenIdx() int { return f.screenIdx + 1 }
+func (f *p6FakeCtx) FocusOutputID() uint32 { return 0 }
+func (f *p6FakeCtx) ScreenInfos() []ScreenInfo { return nil }
 func (f *p6FakeCtx) ZoomIn()             { f.zoomCalls = append(f.zoomCalls, 1) }
 func (f *p6FakeCtx) ZoomOut()            { f.zoomCalls = append(f.zoomCalls, -1) }
 func (f *p6FakeCtx) ZoomReset()          { f.zoomCalls = append(f.zoomCalls, 0) }
@@ -148,7 +150,7 @@ end)
 		t.Fatal("'a' should not be consumed")
 	}
 
-	dirty, prims := pm.OnRender("bottom", 80, 2)
+	dirty, prims := 	pm.OnRender("bottom", 0, 80, 2)
 	if !dirty {
 		t.Fatal("dirty should be true")
 	}
@@ -304,7 +306,7 @@ func TestP6ExampleInitLua(t *testing.T) {
 
 	// Activate 后验证 OnRender 钩子可正常调用（不 panic）
 	pm.Activate(newP6FakeCtx())
-	dirty, prims := pm.OnRender("bottom", 80, 2)
+	dirty, prims := 	pm.OnRender("bottom", 0, 80, 2)
 	if !dirty {
 		t.Fatal("example on_render should return dirty=true")
 	}
@@ -412,7 +414,7 @@ end)
 	}
 	pm.Activate(newP6FakeCtx())
 
-	dirty, prims := pm.OnRender("bottom", 80, 2)
+	dirty, prims := 	pm.OnRender("bottom", 0, 80, 2)
 	if !dirty {
 		t.Fatal("dirty should be true")
 	}
@@ -476,7 +478,7 @@ vistty.ui.on_render(function(ctx) ctx:text(0,0,"x") return true end)
 	if !consumed {
 		t.Fatal("v1 should consume all keys")
 	}
-	dirty, prims := pm.OnRender("bottom", 80, 1)
+	dirty, prims := 	pm.OnRender("bottom", 0, 80, 1)
 	if !dirty || len(prims) != 1 {
 		t.Fatalf("v1 on_render should produce dirty+1 prim: dirty=%v prims=%d", dirty, len(prims))
 	}
@@ -497,7 +499,7 @@ vistty.ui.on_render(function(ctx) ctx:text(0,0,"x") return true end)
 	if consumed2 {
 		t.Fatal("v2 should not consume (hooks cleared)")
 	}
-	dirty2, prims2 := pm.OnRender("bottom", 80, 1)
+	dirty2, prims2 := 	pm.OnRender("bottom", 0, 80, 1)
 	if dirty2 || len(prims2) != 0 {
 		t.Fatalf("v2 on_render should be empty: dirty=%v prims=%d", dirty2, len(prims2))
 	}
@@ -526,14 +528,14 @@ vistty.ui.on_render(function(ctx) ctx:text(0,0,"x") return true end)
 
 	for i := 0; i < 20; i++ {
 		_, _ = pm.OnKey(platform.KeyEvent{Code: uint16(28 + i%10), State: platform.KeyPress})
-		_, _ = pm.OnRender("bottom", 80, 1)
+		_, _ = 	pm.OnRender("bottom", 0, 80, 1)
 	}
 	if err := pm.Reload(); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
 		_, _ = pm.OnKey(platform.KeyEvent{Code: uint16(28 + i%10), State: platform.KeyPress})
-		_, _ = pm.OnRender("bottom", 80, 1)
+		_, _ = 	pm.OnRender("bottom", 0, 80, 1)
 	}
 	// runtime.KeepAlive 防止 pm 被过早 GC（主要为了显式引用 runtime 包）
 	runtime.KeepAlive(pm)
