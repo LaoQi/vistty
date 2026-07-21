@@ -356,6 +356,7 @@ func (m *Master) handleTabRequest(req tabReq) {
 		if len(s.terms) > 0 {
 			old := s.activeIdx
 			s.activeIdx = (s.activeIdx - 1 + len(s.terms)) % len(s.terms)
+			m.damageActiveScreen(s)
 			m.refreshOSD()
 			m.dirty = true
 			if m.plugins != nil && old != s.activeIdx {
@@ -366,6 +367,7 @@ func (m *Master) handleTabRequest(req tabReq) {
 		if len(s.terms) > 0 {
 			old := s.activeIdx
 			s.activeIdx = (s.activeIdx + 1) % len(s.terms)
+			m.damageActiveScreen(s)
 			m.refreshOSD()
 			m.dirty = true
 			if m.plugins != nil && old != s.activeIdx {
@@ -377,6 +379,7 @@ func (m *Master) handleTabRequest(req tabReq) {
 		if idx >= 0 && idx < len(s.terms) {
 			old := s.activeIdx
 			s.activeIdx = idx
+			m.damageActiveScreen(s)
 			m.refreshOSD()
 			m.dirty = true
 			if m.plugins != nil && old != idx {
@@ -384,6 +387,21 @@ func (m *Master) handleTabRequest(req tabReq) {
 			}
 		}
 	}
+}
+
+// damageActiveScreen 对 slave 当前 active terminal 的 screen 调用 DamageAll。
+// 切换 tab 时新 active terminal 的 cell 在上次渲染时已被 SetClean，
+// Compositor dirty 路径会跳过 Clean cell 导致 backBuf 残留前一个 terminal
+// 的内容。DamageAll 清除 Clean 位 + 标记 line dirty，强制下次 Render 全量重绘。
+// 在 terminal 写锁下调用，避免与 pty-read goroutine 的 executeSequences 竞争。
+func (m *Master) damageActiveScreen(s *Slave) {
+	t := s.ActiveTerm()
+	if t == nil {
+		return
+	}
+	t.Lock()
+	t.Screen().DamageAll()
+	t.Unlock()
 }
 
 func (m *Master) newTab(s *Slave) {
@@ -432,6 +450,7 @@ func (m *Master) closeTab(s *Slave) {
 func (m *Master) handleTermExit(t *terminal.Terminal) {
 	closeIdx := -1
 	closeTitle := t.Title()
+	var affectedSlave *Slave
 	for _, s := range m.slaves {
 		for i, term := range s.terms {
 			if term == t {
@@ -440,6 +459,7 @@ func (m *Master) handleTermExit(t *terminal.Terminal) {
 				if s.activeIdx >= len(s.terms) && len(s.terms) > 0 {
 					s.activeIdx = len(s.terms) - 1
 				}
+				affectedSlave = s
 				break
 			}
 		}
@@ -457,6 +477,11 @@ func (m *Master) handleTermExit(t *terminal.Terminal) {
 	if len(m.terms) == 0 {
 		m.signalClose()
 		return
+	}
+	// 关闭 tab 后 active tab 可能切换到另一个之前渲染过的 terminal，
+	// 其 cell 已 Clean，dirty 路径会跳过导致 backBuf 残留被关闭 tab 的内容。
+	if affectedSlave != nil {
+		m.damageActiveScreen(affectedSlave)
 	}
 	m.refreshOSD()
 	m.dirty = true

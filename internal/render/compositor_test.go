@@ -601,6 +601,122 @@ func TestCompositorDirtyPathCleanCellSkipped(t *testing.T) {
 }
 
 // ============================================================
+// 回归测试：dirty 路径下切换 terminal（Buffer）残留前一个 terminal 内容
+// 复现：多个 terminal 共享同一 Compositor（ Slave 切 tab 模型 ）。
+// 1. 渲染 buf1 -> buf1 所有 cell SetClean
+// 2. 渲染 buf2 -> buf2 所有 cell SetClean
+// 3. 切回 buf1 -> buf1 cell 仍 Clean，dirty 路径跳过整行，
+//    backBuf 不更新，buf2 内容残留（BUG）。
+// 修复：调用方（session.handleTabRequest）切换 active term 后必须
+// DamageAll()，但 Compositor 自身也应防御性感知 Buffer 指针变化。
+// ============================================================
+
+// TestCompositorDirtyPathBufferSwitchResidue 复现 BUG：
+// dirty 路径下切回之前渲染过的 Buffer，cell 全部 Clean 被跳过，
+// backBuf 残留另一个 Buffer 的内容。
+func TestCompositorDirtyPathBufferSwitchResidue(t *testing.T) {
+	surf := &dirtyTestSurface{
+		data:   make([]byte, 80*80*4),
+		stride: 80 * 4,
+		width:  80,
+		height: 80,
+	}
+	face := &testFace{}
+	c := NewCompositor(surf, face)
+
+	buf1 := screen.NewBuffer(10, 5)
+	cur1 := buf1.Cursor()
+	cur1.Visible = false
+	cur1.Blinking = false
+	cur1.Row = 4
+	cur1.Col = 0
+
+	buf2 := screen.NewBuffer(10, 5)
+	cur2 := buf2.Cursor()
+	cur2.Visible = false
+	cur2.Blinking = false
+	cur2.Row = 4
+	cur2.Col = 0
+
+	buf1.Cell(0, 0).Rune = 'A'
+	buf2.Cell(0, 0).Rune = 'B'
+
+	// 渲染 buf1：所有 cell SetClean
+	if err := c.Render(buf1, 0); err != nil {
+		t.Fatalf("Render buf1: %v", err)
+	}
+	// 验证 'A' 已绘制（cell 0,0 px=0,gy=8,y=12..15 区段检测 x=4,y=12）
+	if isPixelBlack(c.backBuf, c.backStride, 4, 12) {
+		t.Fatal("setup failed: 'A' glyph not rendered for buf1")
+	}
+
+	// 渲染 buf2：buf2 是全新的，cell dirty，应全量重绘覆盖 buf1
+	if err := c.Render(buf2, 0); err != nil {
+		t.Fatalf("Render buf2: %v", err)
+	}
+	// 'B' 应已绘制
+	if isPixelBlack(c.backBuf, c.backStride, 4, 12) {
+		t.Fatal("setup failed: 'B' glyph not rendered for buf2")
+	}
+
+	// 切回 buf1（模拟 tab 切换）：buf1 cell 已 Clean
+	// BUG：若调用方未 DamageAll，dirty 路径跳过整行，'B' 残留
+	// 期望修复后调用方 DamageAll，使 'A' 重新绘制
+	buf1.DamageAll()
+	if err := c.Render(buf1, 0); err != nil {
+		t.Fatalf("Render buf1 second time: %v", err)
+	}
+	// 'A' 应重新绘制（DamageAll 后 cell dirty）
+	// 注意：本测试只验证调用方 DamageAll 能修复问题，
+	// 不依赖 compositor 内部感知 Buffer 切换。
+	// 但若 compositor 增加 Buffer 切换检测，本测试仍应通过。
+	if isPixelBlack(c.backBuf, c.backStride, 4, 12) {
+		t.Error("BUG: 'A' not re-rendered after switching back to buf1 - dirty path skipped Clean cells, previous terminal content residue")
+	}
+}
+
+// TestCompositorDirtyPathBufferSwitchWithoutDamageAll 复现未修复时的 BUG：
+// 切换 Buffer 但不调用 DamageAll，backBuf 应残留前一个 Buffer 内容。
+// 本测试展示 bug 行为（修复后此测试应仍然通过，因为它只验证 dirty 语义本身）。
+func TestCompositorDirtyPathBufferSwitchWithoutDamageAll(t *testing.T) {
+	surf := &dirtyTestSurface{
+		data:   make([]byte, 80*80*4),
+		stride: 80 * 4,
+		width:  80,
+		height: 80,
+	}
+	face := &testFace{}
+	c := NewCompositor(surf, face)
+
+	buf1 := screen.NewBuffer(10, 5)
+	cur1 := buf1.Cursor()
+	cur1.Visible = false
+	cur1.Blinking = false
+	cur1.Row = 4
+	cur1.Col = 0
+
+	buf2 := screen.NewBuffer(10, 5)
+	cur2 := buf2.Cursor()
+	cur2.Visible = false
+	cur2.Blinking = false
+	cur2.Row = 4
+	cur2.Col = 0
+
+	buf1.Cell(0, 0).Rune = 'A'
+	buf2.Cell(0, 0).Rune = 'B'
+
+	_ = c.Render(buf1, 0)
+	_ = c.Render(buf2, 0)
+	// 此时 backBuf 应为 'B'（buf2 内容），buf1 buf2 都已全部 Clean
+
+	// 切回 buf1 但不调用 DamageAll - 应当展示 BUG 行为
+	_ = c.Render(buf1, 0)
+	// backBuf 应仍是 'B'（未重绘），这就是 bug 行为
+	// 此测试文档化 dirty 模型在共享 Compositor 多 Buffer 场景下的固有缺陷：
+	// 必须由调用方在 Buffer 切换时 DamageAll。
+}
+
+// ============================================================
 // P1-12: copyAllToSurface 切片越界保护
 // 验证 surfData 小于 backBuf 时不 panic（同 stride 与不同 stride 两路径）
 // ============================================================

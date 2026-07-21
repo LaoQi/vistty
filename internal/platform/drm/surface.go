@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 )
 
@@ -116,6 +117,9 @@ func (s *DRMSurface) Swap() error {
 	}
 	s.mu.Unlock()
 
+	// 异步模型（与 GBM 一致）：仅等待"上一帧" flip 完成，提交本帧后立即返回。
+	// 同步等待本帧 flip 会在内核丢失 flip 事件时阻塞 5s，导致主 select
+	// 无法消费 keyEvCh，表现为"无输入"。
 	if s.flipPending {
 		s.waitForFlip()
 		s.flipPending = false
@@ -139,8 +143,6 @@ func (s *DRMSurface) Swap() error {
 
 	s.current = backIdx
 	s.flipPending = true
-	s.waitForFlip()
-	s.flipPending = false
 
 	return nil
 }
@@ -150,6 +152,7 @@ func (s *DRMSurface) waitForFlip() {
 	case <-s.flipCh:
 	case <-s.done:
 	case <-time.After(5 * time.Second):
+		debug.Warningf("DRM Swap: flip 超时 crtc=%d，跳过等待（内核可能未发送 flip complete 事件）", s.crtcID)
 	}
 }
 

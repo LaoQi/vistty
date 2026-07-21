@@ -52,8 +52,17 @@ func newDRMInput() (*DRMInput, error) {
 		return nil, fmt.Errorf("list evdev devices: %w", err)
 	}
 
+	opened := 0
 	for _, p := range paths {
-		_ = i.openDevice(p.Path)
+		if err := i.openDevice(p.Path); err != nil {
+			debug.Warningf("input: open %s failed: %v", p.Path, err)
+			continue
+		}
+		opened++
+	}
+
+	if opened == 0 {
+		debug.Errorf("input: no input device opened (found %d candidates). Ensure user is in 'input' group or run with sudo: usermod -aG input $USER", len(paths))
 	}
 
 	go i.watchLoop()
