@@ -114,19 +114,14 @@ func run() error {
 			if beErr != nil {
 				debug.Warningf("auto: DRM backend init failed: %v, trying wayland", beErr)
 			} else {
-				if drm.IsNvidiaDRM(drmBackend.FD()) {
-					debug.Warningf("auto: nvidia-drm detected, skipping GBM (atomic modesetting unreliable), using drm (dumb buffer)")
-					backendName = "drm"
+				gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
+				if gbmErr == nil {
+					drmBackend.SetGBMProvider(gbmDev)
+					debug.Debugf("auto: GBM initialized, using drm-gbm")
+					backendName = "drm-gbm"
 				} else {
-					gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
-					if gbmErr == nil {
-						drmBackend.SetGBMProvider(gbmDev)
-						debug.Debugf("auto: GBM initialized, using drm-gbm")
-						backendName = "drm-gbm"
-					} else {
-						debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)", gbmErr)
-						backendName = "drm"
-					}
+					debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)", gbmErr)
+					backendName = "drm"
 				}
 				backend = drmBackend
 			}
@@ -149,11 +144,6 @@ func run() error {
 		if err != nil {
 			pm.Close()
 			return fmt.Errorf("drm-gbm: failed to create DRM backend: %w", err)
-		}
-		if drm.IsNvidiaDRM(drmBackend.FD()) {
-			drmBackend.Close()
-			pm.Close()
-			return fmt.Errorf("drm-gbm: nvidia-drm does not support reliable atomic modesetting, use -backend drm for dumb buffer")
 		}
 		gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 		if gbmErr != nil {

@@ -317,7 +317,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw 渲染
 - Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪 + 自绘 CSD 装饰）；两阶段 resize（onConfigure 仅记 pending 尺寸 + 投递 ResizeEvent，buffer 替换延迟到渲染线程 Data() 持锁 applyResizeLocked 执行，消除 use-after-munmap 竞争）；wl_buffer.release 跟踪（released *bool 共享指针 + onRelease 回调，Swap 未释放则跳帧防撕裂）；dispatch 动态扩容 inBuf（>8KB 消息不误判连接关闭）+ MSG_CTRUNC 检查；SOCK_CLOEXEC
-- 自动后端探测（drm-gbm → drm → wayland）；nvidia-drm 驱动检测（IsNvidiaDRM），auto 模式跳过 GBM 直接使用 dumb buffer（nvidia-open atomic modesetting 不可靠），显式 drm-gbm 时拒绝启动并提示
+- 自动后端探测（drm-gbm → drm → wayland）
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）+ 文本属性（Bold/Italic/Underline/CrossedOut/Dim/Blink/Reverse）；DECSTBM 缺省参数重置（ESC[r/ESC[3r 正确解释）；parser 硬化（Params[32]int + curParam 65535 钳制 + OSC/DCS data 64KB 上限防 DoS + feedUTF8 非法续字节重派发 + ANSI SM/RM 区分 Private）；PtyWrite 异步写队列（writeCh cap=64 + ptyWriteLoop 独立 goroutine，持锁调用方不阻塞，满时丢弃+warning，nil writeCh 回退同步写供测试）
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中左移均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径；移除 render 层 blendGlyphItalic 位移与 shader italic 分支；italicAtlas 独立缓存，UploadGlyph 以 (rune,italic) 为 key
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
