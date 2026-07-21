@@ -127,7 +127,7 @@ func (m *Master) Run() error {
 			}
 			if err := m.renderFrame(); err != nil {
 				renderErrCount++
-				debug.Errorf("Run: render error (%d/%d): %v\n", renderErrCount, maxRenderErrors, err)
+				debug.Errorf("Run: render error (%d/%d): %v", renderErrCount, maxRenderErrors, err)
 				if renderErrCount >= maxRenderErrors {
 					m.signalClose()
 					goto exit
@@ -158,7 +158,7 @@ func (m *Master) Run() error {
 		case <-m.renderReqCh:
 			if err := m.renderFrame(); err != nil {
 				renderErrCount++
-				debug.Errorf("Run: render request error (%d/%d): %v\n", renderErrCount, maxRenderErrors, err)
+				debug.Errorf("Run: render request error (%d/%d): %v", renderErrCount, maxRenderErrors, err)
 				if renderErrCount >= maxRenderErrors {
 					m.signalClose()
 					goto exit
@@ -317,7 +317,7 @@ func (m *Master) renderIndependent() error {
 		err := s.Compositor().Render(t.Screen(), t.ScrollOffset())
 		t.RUnlock()
 		if err != nil {
-			debug.Errorf("renderIndependent: slave %s render failed: %v\n", s.Output().Name(), err)
+			debug.Errorf("renderIndependent: slave %s render failed: %v", s.Output().Name(), err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -326,7 +326,7 @@ func (m *Master) renderIndependent() error {
 	}
 	for _, s := range m.slaves {
 		if err := s.Compositor().Present(); err != nil {
-			debug.Errorf("renderIndependent: slave %s present failed: %v\n", s.Output().Name(), err)
+			debug.Errorf("renderIndependent: slave %s present failed: %v", s.Output().Name(), err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -407,7 +407,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	}
 	newFace, err := s.FaceCache().GetFace(newSize)
 	if err != nil {
-		debug.Errorf("handleScale: face cache get failed: %v\n", err)
+		debug.Errorf("handleScale: face cache get failed: %v", err)
 		return
 	}
 	m.opts.FontSize = newSize
@@ -435,7 +435,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 	}
 	s.ResizeTerms(cols, rows)
 	if err := m.renderFrame(); err != nil {
-		debug.Errorf("handleScale: render error: %v\n", err)
+		debug.Errorf("handleScale: render error: %v", err)
 	}
 	m.dirty = false
 	if m.plugins != nil {

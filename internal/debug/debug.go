@@ -188,7 +188,7 @@ func Errorf(format string, args ...any) {
 	errMu.Lock()
 	defer errMu.Unlock()
 	for _, w := range errWriters {
-		io.WriteString(w, ts+msg)
+		io.WriteString(w, ts+msg+"\n")
 	}
 }
 

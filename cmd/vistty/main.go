@@ -20,7 +20,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		debug.Errorf("fatal: %v\n", err)
+		debug.Errorf("fatal: %v", err)
 		os.Exit(1)
 	}
 }
@@ -110,19 +110,23 @@ func run() error {
 	case "auto":
 		fd, probeErr := drm.ProbeDetailed()
 		if probeErr == nil {
-			debug.Debugf("auto: DRM probe succeeded, trying drm-gbm\n")
 			drmBackend, beErr := drm.NewDRMBackendFromFD(fd, resolvedTty)
 			if beErr != nil {
-				debug.Warningf("auto: DRM backend init failed: %v, trying wayland\n", beErr)
+				debug.Warningf("auto: DRM backend init failed: %v, trying wayland", beErr)
 			} else {
-				gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
-				if gbmErr == nil {
-					drmBackend.SetGBMProvider(gbmDev)
-					debug.Debugf("auto: GBM initialized, using drm-gbm\n")
-					backendName = "drm-gbm"
-				} else {
-					debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)\n", gbmErr)
+				if drm.IsNvidiaDRM(drmBackend.FD()) {
+					debug.Warningf("auto: nvidia-drm detected, skipping GBM (atomic modesetting unreliable), using drm (dumb buffer)")
 					backendName = "drm"
+				} else {
+					gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
+					if gbmErr == nil {
+						drmBackend.SetGBMProvider(gbmDev)
+						debug.Debugf("auto: GBM initialized, using drm-gbm")
+						backendName = "drm-gbm"
+					} else {
+						debug.Warningf("auto: GBM init failed: %v, using drm (dumb buffer)", gbmErr)
+						backendName = "drm"
+					}
 				}
 				backend = drmBackend
 			}
@@ -130,7 +134,7 @@ func run() error {
 		if backend == nil && wayland.Probe() {
 			debug.Debugf("auto: Wayland probe succeeded, using wayland backend\n")
 			if resolvedTty != "" {
-				debug.Warningf("-tty is ignored by wayland backend\n")
+			debug.Warningf("-tty is ignored by wayland backend")
 			}
 			backend, err = wayland.NewWaylandBackend()
 			backendName = "wayland"
@@ -145,6 +149,11 @@ func run() error {
 		if err != nil {
 			pm.Close()
 			return fmt.Errorf("drm-gbm: failed to create DRM backend: %w", err)
+		}
+		if drm.IsNvidiaDRM(drmBackend.FD()) {
+			drmBackend.Close()
+			pm.Close()
+			return fmt.Errorf("drm-gbm: nvidia-drm does not support reliable atomic modesetting, use -backend drm for dumb buffer")
 		}
 		gbmDev, gbmErr := gbm.NewGBMDevice(drmBackend.FD())
 		if gbmErr != nil {
@@ -163,7 +172,7 @@ func run() error {
 		backend = drmBackend
 	case "wayland":
 		if resolvedTty != "" {
-			debug.Warningf("-tty is ignored by wayland backend\n")
+			debug.Warningf("-tty is ignored by wayland backend")
 		}
 		backend, err = wayland.NewWaylandBackend()
 	default:

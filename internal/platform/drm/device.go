@@ -47,6 +47,14 @@ func GetVersion(fd int) (name, desc, date string, major, minor, patch int, err e
 	return
 }
 
+func IsNvidiaDRM(fd int) bool {
+	name, _, _, _, _, _, err := GetVersion(fd)
+	if err != nil {
+		return false
+	}
+	return name == "nvidia-drm"
+}
+
 func ListDevices() []string {
 	matches, _ := filepath.Glob("/dev/dri/card*")
 	return matches

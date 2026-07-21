@@ -42,6 +42,7 @@ type surfaceAtomicInfo struct {
 	aConn  connProps
 
 	modeBlobID  uint32
+	mode        *drm.ModeInfoPublic
 	modesetDone bool
 }
 
@@ -100,7 +101,7 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 		}
 	}
 	if !found {
-		return 0, fmt.Errorf("CRTC %d not found in resources", crtcID)
+		return 0, fmt.Errorf("CRTC %d not found in resources (available: %v)", crtcID, res.CrtcIDs)
 	}
 
 	planeIDs, err := drm.GetPlaneResources(c.fd)
@@ -129,7 +130,7 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 
 		for i, p := range propIDs {
 			if p == typePropID && i < len(propValues) {
-				debug.Debugf("findPrimaryPlane: plane %d type=%d for CRTC %d\n", pid, propValues[i], crtcID)
+				debug.Debugf("findPrimaryPlane: plane %d type=%d for CRTC %d (crtcIndex=%d possibleCrtcs=0x%x)", pid, propValues[i], crtcID, crtcIndex, plane.PossibleCrtcs)
 				if propValues[i] == drm.PlaneTypePrimary {
 					return pid, nil
 				}
@@ -137,7 +138,7 @@ func (c *AtomicCommitor) findPrimaryPlane(crtcID uint32) (uint32, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("no primary plane found for CRTC %d", crtcID)
+	return 0, fmt.Errorf("no primary plane found for CRTC %d (crtcIndex=%d)", crtcID, crtcIndex)
 }
 
 func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int, mode *drm.ModeInfoPublic) (*surfaceAtomicInfo, error) {
@@ -222,9 +223,12 @@ func (c *AtomicCommitor) Register(crtcID, connectorID uint32, width, height int,
 			return nil, fmt.Errorf("create mode blob: %w", err)
 		}
 		info.modeBlobID = blobID
+		info.mode = mode
 	}
 
 	c.infos[crtcID] = info
+	debug.Debugf("GBM atomic register: crtc=%d conn=%d plane=%d modeBlob=%d %dx%d",
+		crtcID, connectorID, planeID, info.modeBlobID, width, height)
 	return info, nil
 }
 
@@ -284,7 +288,51 @@ func (c *AtomicCommitor) CommitSingle(info *surfaceAtomicInfo, fbID uint32, mode
 
 		flags := drm.AtomicFlagPageFlipEvent | drm.AtomicFlagAllowModeset
 		if err := drm.AtomicCommit(c.fd, flags, objects, 0); err != nil {
-			return fmt.Errorf("atomic modeset commit: %w", err)
+			debug.Debugf("GBM atomic modeset failed: crtc=%d conn=%d plane=%d fbID=%d modeBlob=%d flags=0x%x: %v",
+				info.crtcID, info.connectorID, info.planeID, fbID, info.modeBlobID, flags, err)
+			for i, obj := range objects {
+				for _, p := range obj.Props {
+					debug.Debugf("  obj[%d] id=%d prop=%d value=%d", i, obj.ID, p.ID, p.Value)
+				}
+			}
+
+			disableObjs := []drm.AtomicObject{
+				{
+					ID: info.crtcID,
+					Props: []drm.AtomicProp{
+						{ID: info.cProps.active, Value: 0},
+						{ID: info.cProps.modeID, Value: 0},
+					},
+				},
+				{
+					ID: info.connectorID,
+					Props: []drm.AtomicProp{
+						{ID: info.aConn.crtcID, Value: 0},
+					},
+				},
+				{
+					ID: info.planeID,
+					Props: []drm.AtomicProp{
+						{ID: info.pProps.fbID, Value: 0},
+						{ID: info.pProps.crtcID, Value: 0},
+						{ID: info.pProps.srcX, Value: 0},
+						{ID: info.pProps.srcY, Value: 0},
+						{ID: info.pProps.srcW, Value: 0},
+						{ID: info.pProps.srcH, Value: 0},
+						{ID: info.pProps.crtcX, Value: 0},
+						{ID: info.pProps.crtcY, Value: 0},
+						{ID: info.pProps.crtcW, Value: 0},
+						{ID: info.pProps.crtcH, Value: 0},
+					},
+				},
+			}
+			if disErr := drm.AtomicCommit(c.fd, drm.AtomicFlagAllowModeset, disableObjs, 0); disErr != nil {
+				debug.Debugf("GBM atomic disable also failed: %v", disErr)
+			}
+
+			if err2 := drm.AtomicCommit(c.fd, flags, objects, 0); err2 != nil {
+				return fmt.Errorf("atomic modeset commit (after disable): %w (first attempt: %v)", err2, err)
+			}
 		}
 		info.modesetDone = true
 	} else {

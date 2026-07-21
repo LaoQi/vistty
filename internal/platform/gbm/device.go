@@ -149,7 +149,7 @@ func (d *GBMDevice) CreateContext() (uintptr, error) {
 		if eglContext == 0 || eglContext == gl.EGL_NO_CONTEXT {
 			return 0, fmt.Errorf("eglCreateContext failed (tried ES3 and ES2)")
 		}
-		debug.Warningf("GBM: GLES 3.0 context failed, fallback to 2.0\n")
+		debug.Warningf("GBM: GLES 3.0 context failed, fallback to 2.0")
 	}
 	return eglContext, nil
 }

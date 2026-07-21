@@ -32,7 +32,7 @@ func TestErrorfWritesToWriters(t *testing.T) {
 	errWriters = []io.Writer{&buf}
 	errMu.Unlock()
 
-	Errorf("render error: %v\n", "page flip failed")
+	Errorf("render error: %v", "page flip failed")
 	got := buf.String()
 	if !strings.Contains(got, "render error: page flip failed\n") {
 		t.Fatalf("expected render error in output, got %q", got)
@@ -48,7 +48,7 @@ func TestErrorfTimestamp(t *testing.T) {
 	errWriters = []io.Writer{&buf}
 	errMu.Unlock()
 
-	Errorf("boom\n")
+	Errorf("boom")
 	got := buf.String()
 	if !strings.HasPrefix(got, "20") {
 		t.Fatalf("expected timestamp prefix, got %q", got)
@@ -68,7 +68,7 @@ func TestConfigureErrorFile(t *testing.T) {
 		t.Fatalf("ConfigureError: %v", err)
 	}
 
-	Errorf("file only error\n")
+	Errorf("file only error")
 
 	if errFile == nil {
 		t.Fatal("expected errFile to be opened")
@@ -106,7 +106,7 @@ func TestWarningfPrefix(t *testing.T) {
 	errWriters = []io.Writer{&buf}
 	errMu.Unlock()
 
-	Warningf("vt manager: %v\n", "no such device")
+	Warningf("vt manager: %v", "no such device")
 	got := buf.String()
 	if !strings.Contains(got, "WARNING: vt manager: no such device\n") {
 		t.Fatalf("expected WARNING prefix, got %q", got)

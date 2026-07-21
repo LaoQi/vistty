@@ -54,7 +54,7 @@ type VTManager struct {
 func newVTManager(callbacks VTCallbacks, ttyPath string) (*VTManager, error) {
 	ttyFd, err := syscallOpenTty(ttyPath)
 	if err != nil {
-		debug.Warningf("vt manager: %v; running without VT switch support\n", err)
+		debug.Warningf("vt manager: %v; running without VT switch support", err)
 		return nil, nil
 	}
 
@@ -89,11 +89,11 @@ func (v *VTManager) signalLoop() {
 			case syscall.SIGUSR2:
 				v.callbacks.OnDeactivate()
 				if err := vtIoctl(v.ttyFd, ioctlVtReldis, 0); err != nil {
-					debug.Warningf("vt: VT_RELDISP ioctl failed: %v\n", err)
+					debug.Warningf("vt: VT_RELDISP ioctl failed: %v", err)
 				}
 			case syscall.SIGUSR1:
 				if err := vtIoctl(v.ttyFd, ioctlVtAcqdis, 0); err != nil {
-					debug.Warningf("vt: VT_ACTIVATE ioctl failed: %v\n", err)
+					debug.Warningf("vt: VT_ACTIVATE ioctl failed: %v", err)
 				}
 				v.callbacks.OnActivate()
 			}
@@ -135,7 +135,7 @@ func (v *VTManager) Close() error {
 		signal.Stop(v.sigCh)
 		v.wg.Wait()
 		if err := v.SetTextMode(); err != nil {
-			debug.Warningf("vt: SetTextMode on close failed: %v\n", err)
+			debug.Warningf("vt: SetTextMode on close failed: %v", err)
 		}
 		syscall.Close(v.ttyFd)
 	})

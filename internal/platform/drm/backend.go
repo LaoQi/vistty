@@ -235,7 +235,7 @@ func (b *DRMBackend) Close() error {
 				// 的 SetCrtc（无法点亮原控制台）。失败记日志而非吞掉，
 				// 便于诊断原 Console 不恢复的问题。
 				if err := SetCrtc(int(b.fd.Fd()), saved.ID, saved.FbID, saved.X, saved.Y, mode, []uint32{out.connID}); err != nil {
-					debug.Warningf("DRM: restore crtc %d failed: %v\n", saved.ID, err)
+					debug.Warningf("DRM: restore crtc %d failed: %v", saved.ID, err)
 				}
 			}
 		}

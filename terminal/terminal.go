@@ -380,7 +380,7 @@ func (t *Terminal) cleanup() {
 			select {
 			case <-ch:
 			case <-time.After(2 * time.Second):
-				debug.Errorf("cleanup: SIGTERM timeout, sending SIGKILL\n")
+				debug.Errorf("cleanup: SIGTERM timeout, sending SIGKILL")
 				t.ptyCmd.Signal(syscall.SIGKILL)
 				<-ch
 			}
@@ -404,7 +404,7 @@ func (t *Terminal) PtyReadLoop() {
 				if err == io.EOF {
 					debug.Debugf("PtyReadLoop: EOF, child process exited\n")
 				} else {
-					debug.Errorf("PtyReadLoop: read error: %v\n", err)
+					debug.Errorf("PtyReadLoop: read error: %v", err)
 				}
 			}
 			select {
@@ -1262,14 +1262,14 @@ func (t *Terminal) PtyWrite(b []byte) {
 			return
 		}
 		if _, err := t.hostWriter.Write(b); err != nil {
-			debug.Warningf("PtyWrite: direct write error: %v\n", err)
+			debug.Warningf("PtyWrite: direct write error: %v", err)
 		}
 		return
 	}
 	select {
 	case t.writeCh <- b:
 	default:
-		debug.Warningf("pty write queue full, dropping %d bytes\n", len(b))
+		debug.Warningf("pty write queue full, dropping %d bytes", len(b))
 	}
 }
 
@@ -1282,7 +1282,7 @@ func (t *Terminal) ptyWriteLoop() {
 		case b := <-t.writeCh:
 			if t.hostWriter != nil {
 				if _, err := t.hostWriter.Write(b); err != nil {
-					debug.Warningf("ptyWriteLoop: write error: %v\n", err)
+					debug.Warningf("ptyWriteLoop: write error: %v", err)
 				}
 			}
 		case <-t.done:

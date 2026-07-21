@@ -317,7 +317,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw 渲染
 - Wayland wl_shm CPU 渲染后端（自研 wl.go 协议层，含 zxdg_decoration_manager_v1 SSD/CSD 协议 + DecoMode 状态跟踪 + 自绘 CSD 装饰）；两阶段 resize（onConfigure 仅记 pending 尺寸 + 投递 ResizeEvent，buffer 替换延迟到渲染线程 Data() 持锁 applyResizeLocked 执行，消除 use-after-munmap 竞争）；wl_buffer.release 跟踪（released *bool 共享指针 + onRelease 回调，Swap 未释放则跳帧防撕裂）；dispatch 动态扩容 inBuf（>8KB 消息不误判连接关闭）+ MSG_CTRUNC 检查；SOCK_CLOEXEC
-- 自动后端探测（drm-gbm → drm → wayland）
+- 自动后端探测（drm-gbm → drm → wayland）；nvidia-drm 驱动检测（IsNvidiaDRM），auto 模式跳过 GBM 直接使用 dumb buffer（nvidia-open atomic modesetting 不可靠），显式 drm-gbm 时拒绝启动并提示
 - xterm-256 兼容转义序列（CSI/OSC/ESC/SGR，含 OSC 10/11 默认颜色）+ 文本属性（Bold/Italic/Underline/CrossedOut/Dim/Blink/Reverse）；DECSTBM 缺省参数重置（ESC[r/ESC[3r 正确解释）；parser 硬化（Params[32]int + curParam 65535 钳制 + OSC/DCS data 64KB 上限防 DoS + feedUTF8 非法续字节重派发 + ANSI SM/RM 区分 Private）；PtyWrite 异步写队列（writeCh cap=64 + ptyWriteLoop 独立 goroutine，持锁调用方不阻塞，满时丢弃+warning，nil writeCh 回退同步写供测试）
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中左移均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径；移除 render 层 blendGlyphItalic 位移与 shader italic 分支；italicAtlas 独立缓存，UploadGlyph 以 (rune,italic) 为 key
 - 斜体渲染：font 层 ShearGlyph(slope=0.1, align=0.5) 预生成斜体字形（顶部向右、双线性插值抗锯齿、居中对齐左右均衡溢出），CPU/GPU 统一走正常 BlendGlyph/atlas 路径，italicAtlas 独立缓存；移除 render 层位移与 shader italic 分支
@@ -334,13 +334,14 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 组合词权重降级：composeFromSingleChars 组合词 weight /=100（单字百万级 weight 降至十万级以下，低于字典真实词组）；多分割方案按音节数差异指数降级 splitFactor=1/10^extraSyllables（最优分割长音节优先不降级，短音节分割组合词大幅压低，防止"大起啊哦"类噪声压过"大桥"类真实词组）
 - 拼音字典内存优化：dict.bin 紧凑索引替代 map[string][]dictEntry 展开（dictIndex: 解压 buf 常驻 + keyOffsets/keyRanges 二分查找 + unsafe.String 零复制 word），HeapAlloc 94.2MB→23.7MB，加载峰值 170MB→30MB；Lookup 值类型数组（map[string]int+[]seen）消除 *seen 指针逃逸
 - 动态缩放（通过 init.lua bind 配置）+ dirty 跳帧 + 光标时间戳闪烁
-- 错误日志文件（~/.local/share/vistty/error.log）
+- 错误日志文件（~/.local/share/vistty/error.log）；Errorf 统一追加换行符，调用方无需手动加 \n；无 EV_KEY 能力输入设备日志降级为 Debugf
 - VT 管理 + TTY 绑定 + SIGKILL 子进程退出死锁修复；退出时 CRTC 恢复带原 connector ID（SetCrtc 不再传 nil connectors）+ 错误日志；DRM/evdev/tty 打开路径统一 O_CLOEXEC（防 fd 泄漏子进程）；GBM/EGL/GLES Loader Close()（purego.Dlclose）+ init 失败逐级回滚
 - 输入设备热插拔（DRM: inotify + epoll 监听 /dev/input + ready channel 同步 Close 与 watchLoop 避免 fd 复用竞态 + IN_Q_OVERFLOW 溢出重扫；Wayland: wl_seat.capabilities 动态创建/释放 keyboard/pointer）
 - 两阶段关闭 + Close 幅等 + 渲染错误容错
 - GBM flip 超时兜底（channel+select+time.After 5s，防止内核 flip 事件丢失导致 Swap 永久阻塞）；超时分支模拟 onFlipComplete 轮转三缓冲（releaseBO=scanout; scanout=committed; committed=nil），避免 committed 帧覆盖泄漏 BO+FB；VT 切换 SetActive(false) 清 flipPending 同轮转，消除切回首帧 5s 卡顿
 - DRM EventReader 有状态事件读取（缓存残差 buffer 逐个解析，防止多屏同时 flip 完成时事件丢失）
 - GBM active/closed 统一 commitMu 保护（消除跨锁 data race）
+- GBM atomic commit modeset 失败时 disable-then-enable 重试（先 ACTIVE=0/MODE_ID=0/FB_ID=0 disable CRTC+connector+plane，再重新 enable）+ 诊断日志（crtc/conn/plane/fbID/modeBlob/flags + 每个 property ID/value）；surfaceAtomicInfo 保存 mode *ModeInfoPublic 供 legacy 回退
 - 版本信息（internal/version 包：ldflags 注入 git describe --tags --always --dirty + ReadBuildInfo VCS fallback；-version 命令行查询 + vistty.version()/version_info() Lua API；scripts/build.sh 构建脚本）
 - BSU 同步更新（DECSET 2026）：TUI 应用重绘期间合并渲染不触发 dirty，1 秒超时兜底（timer goroutine 独立加锁+幂等+锁外回调 OnRenderRequest→renderReqCh）+ DECRQM ?2026$p 响应 ?2026;Ps$y（vte parseCSIPrivate 补 case 'p' 路由 DSR）；enable/disable 锁内调用（Go RWMutex 不可重入），syncUpdateExpired timer 回调独立加锁
 - Damage Tracking 双层 dirty（参考 foot render.c）：screen 层 cell AttrClean=1<<7 位 + line dirty 字段 + Buffer DamageRows/View/All/Line/DamageCell API；terminal 所有写操作标记 damage（executeSequences 光标移动统一 DamageCursor 旧行+新行、execPrint 仅触碰 cell 用 DamageCell 替代 DamageLine 消除 O(cols²)、eraseChars/deleteChars/insertChars DamageLine、alt screen/Resize/SetScrollOffset/SetTheme DamageAll）；buffer 写操作 ScrollUp/ScrollDown/Clear/ClearAll/ClearRect 自动 damage；compositor CPU 路径（useDirty=!directRender，DRM dumb）逐 cell 背景清除（非 Clean cell 清 bg+绘字形，Clean cell 跳过保留上一帧像素，修复光标移动整行擦除 bug），Wayland directRender 路径全量（buffer 切换安全）；tab 切换时 damageActiveScreen 对新 active terminal 调用 DamageAll（清除 Clean 位+标记 line dirty，强制全量重绘，防止 backBuf 残留前一个 terminal 内容；覆盖 tabPrev/tabNext/tabSwitch + handleTermExit 场景）；GPU 路径保持全量 instances（Clear 重绘需全部 cell）+ gpuDisabled 永久禁用标志（BeginFrame 失败后不重试）；光标行总是渲染（光标闪烁 blinkOff 不残影）；InsertLines/DeleteLines 以 [cursor.Row, scrollBot] 为区域不进 history（xterm IL/DL 语义）

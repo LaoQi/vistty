@@ -416,7 +416,7 @@ func (s *wlSurface) attach(buf *wlBuffer, x, y int32) {
 	putU32(payload[4:8], uint32(x))
 	putU32(payload[8:12], uint32(y))
 	if err := s.c.writeMsg(s.id, 1, payload, nil); err != nil { // attach: opcode 1
-		debug.Warningf("wayland: wl_surface.attach write failed: %v\n", err)
+		debug.Warningf("wayland: wl_surface.attach write failed: %v", err)
 	}
 }
 
@@ -427,13 +427,13 @@ func (s *wlSurface) damage(x, y, w, h int32) {
 	putU32(payload[8:12], uint32(w))
 	putU32(payload[12:16], uint32(h))
 	if err := s.c.writeMsg(s.id, 2, payload, nil); err != nil { // damage: opcode 2
-		debug.Warningf("wayland: wl_surface.damage write failed: %v\n", err)
+		debug.Warningf("wayland: wl_surface.damage write failed: %v", err)
 	}
 }
 
 func (s *wlSurface) commit() {
 	if err := s.c.writeMsg(s.id, 6, nil, nil); err != nil { // commit: opcode 6
-		debug.Warningf("wayland: wl_surface.commit write failed: %v\n", err)
+		debug.Warningf("wayland: wl_surface.commit write failed: %v", err)
 	}
 }
 

@@ -61,7 +61,6 @@ type GBMSurface struct {
 	crtcID      uint32
 	connectorID uint32
 
-	// active/closed 由 commitMu 保护，避免跨锁读写 closed 的 data race。
 	active bool
 	closed bool
 
@@ -223,7 +222,7 @@ func (s *GBMSurface) initGL() error {
 	if gles.HasInstancedDraw() {
 		s.gpu = gpu.NewRenderer(s.device.glesLoader, s.device.eglLoader, s.device.eglDisplay, s.eglSurface, s.eglContext, s.width, s.height)
 		if err := s.gpu.Init(); err != nil {
-			debug.Warningf("GBM: GPU instanced draw init failed: %v, fallback to CPU\n", err)
+			debug.Warningf("GBM: GPU instanced draw init failed: %v, fallback to CPU", err)
 			s.gpu = nil
 		}
 	}
@@ -439,7 +438,7 @@ func (s *GBMSurface) waitForFlipComplete() bool {
 	case <-s.closedCh:
 		return false
 	case <-time.After(s.flipTimeout):
-		debug.Warningf("GBM Swap: flip 超时 crtc=%d，跳过本帧等待（内核可能未发送 flip complete 事件）\n", s.crtcID)
+		debug.Warningf("GBM Swap: flip 超时 crtc=%d，跳过本帧等待（内核可能未发送 flip complete 事件）", s.crtcID)
 		s.commitMu.Lock()
 		// 模拟 onFlipComplete：flip 事件可能丢失，假设 flip 已完成。
 		// 轮转 releaseBO->scanout->committed，避免下一帧 Swap 的

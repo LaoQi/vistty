@@ -55,7 +55,11 @@ func newDRMInput() (*DRMInput, error) {
 	opened := 0
 	for _, p := range paths {
 		if err := i.openDevice(p.Path); err != nil {
-			debug.Warningf("input: open %s failed: %v", p.Path, err)
+			if !strings.Contains(err.Error(), "no EV_KEY capability") {
+				debug.Warningf("input: open %s failed: %v", p.Path, err)
+			} else {
+				debug.Debugf("input: skipping %s: %v", p.Path, err)
+			}
 			continue
 		}
 		opened++
