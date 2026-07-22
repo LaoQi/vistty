@@ -19,11 +19,11 @@ function M.page_slice(cands, page, avail_w)
 	if avail_w <= 0 then return {}, 0 end
 	if #cands == 0 then return {}, 0 end
 	local start = 1
-	local cur_page = 1
+	local cur_page = 0
 	while cur_page < page do
 		local x = 0
 		local count = 0
-		while start + count - 1 < #cands and count < 9 do
+		while start + count <= #cands and count < 9 do
 			local c = cands[start + count]
 			if not c or not c.word then break end
 			local w = cand_display_width(count + 1, c.word)
@@ -38,7 +38,7 @@ function M.page_slice(cands, page, avail_w)
 	local result = {}
 	local x = 0
 	local i = 0
-	while start + i - 1 < #cands and i < 9 do
+	while start + i <= #cands and i < 9 do
 		local c = cands[start + i]
 		if not c or not c.word then break end
 		local w = cand_display_width(i + 1, c.word)
@@ -54,11 +54,11 @@ function M.total_pages(cands, avail_w)
 	if avail_w <= 0 or #cands == 0 then return 0 end
 	local total = 1
 	local start = 1
-	while start <= #cands do
+	while true do
 		local x = 0
 		local count = 0
-		while start + count - 1 <= #cands and count < 9 do
-			local c = cands[start + count - 1]
+		while start + count <= #cands and count < 9 do
+			local c = cands[start + count]
 			if not c or not c.word then break end
 			local w = cand_display_width(count + 1, c.word)
 			if x + w > avail_w and count > 0 then break end
@@ -67,7 +67,8 @@ function M.total_pages(cands, avail_w)
 		end
 		if count == 0 then break end
 		start = start + count
-		if start <= #cands then total = total + 1 end
+		if start > #cands then break end
+		total = total + 1
 	end
 	return total
 end

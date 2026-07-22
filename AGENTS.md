@@ -335,6 +335,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - IME 模块重构（ime.lua：Ctrl+Space 切换键移入 ime.lua 内部 setup_toggle；init(statusbar_ref) 接收 StatusBar 引用 + 通过 statusbar_ref.left_available_width(oid) 查询多屏宽度；render(ctx, avail_w, h, oid) 适配 provider 接口 + ime_widths[oid] 多屏宽度缓存；分页索引 0-based→1-based 修复；init.lua 简化为 require statusbar + statusbar.init() 一行启动）
 - 中文拼音输入法（pinyin 顶层包 + 包级查询函数 Lookup/FormatPreedit/Split/SplitFuzzy + go:embed rime-ice 词库 + 底部单行候选词面板 + Lua 层交互状态管理+自适应分页）
 - 拼音候选词空值防御：Lookup 过滤 readWord 空字符串候选词；composeFromSingleChars 某音节 findKey miss 时 continue 跳过而非整体 return nil，build 递归跳过空 perSyllable；api_pinyin Lookup 空结果返回 Lua nil 而非空 table；ime.lua candidates() 用 `result or {}` 处理 nil；cand_display_width/page_slice/total_pages/render 全链路 nil 防御（候选词对象/word 字段缺失时 break 或 fallback）；NUM 键超出 page 范围不清空 ime_buf
+- 拼音分页索引修复：page_slice cur_page 从 0 开始与 ime_page(0-based) 一致（之前 cur_page=1 导致 page=1 时跳页循环不执行，第1/2页内容相同）；total_pages 循环条件 cands[start+count] 统一 Lua 1-based 索引（之前 cands[start+count-1] 在 count=0 时访问 cands[0]=nil 触发 break 导致 total_pages 返回 0/1 无法翻页）
 - SplitFuzzy 宽松切分：前缀推断（如 "n"→na/ni/...）+ 尾部未完成音节补全（如 "nih"→ni+h*），补全候选词权重×0.5 降级
 - 组合词权重降级：composeFromSingleChars 组合词 weight /=100（单字百万级 weight 降至十万级以下，低于字典真实词组）；多分割方案按音节数差异指数降级 splitFactor=1/10^extraSyllables（最优分割长音节优先不降级，短音节分割组合词大幅压低，防止"大起啊哦"类噪声压过"大桥"类真实词组）
 - 拼音字典内存优化：dict.bin 紧凑索引替代 map[string][]dictEntry 展开（dictIndex: 解压 buf 常驻 + keyOffsets/keyRanges 二分查找 + unsafe.String 零复制 word），HeapAlloc 94.2MB→23.7MB，加载峰值 170MB→30MB；Lookup 值类型数组（map[string]int+[]seen）消除 *seen 指针逃逸
