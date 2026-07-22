@@ -675,6 +675,7 @@ func (m *Master) Exit() {
 }
 
 func (m *Master) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {
+	m.opts.Theme = &term
 	for _, t := range m.terms {
 		t.SetTheme(&term)
 	}

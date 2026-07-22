@@ -81,6 +81,7 @@ func run() error {
 	opts.FallbackFontPath = runCfg.FallbackFontPath
 	opts.FontSize = runCfg.FontSize
 	opts.Primary = runCfg.Primary
+	opts.Theme = runCfg.TermTheme
 
 	if *recordPath != "" {
 		f, err := os.Create(*recordPath)
