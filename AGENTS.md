@@ -203,8 +203,9 @@ github.com/LaoQi/vistty/
 │       ├── gl/                  # GLES + EGL purego dlopen
 │       ├── gpu/                 # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/             # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
-├── examples/init.lua            # 插件示例配置（含拼音输入法 + 底部状态栏 + 主题配置）
-├── examples/ime.lua             # IME 模块：状态管理+自适应分页+按键处理+渲染
+├── examples/init.lua            # 插件示例配置（含拼音输入法 + StatusBar + 主题配置 + mod+J/K 滚动）
+├── examples/statusbar.lua       # StatusBar 模块：右侧固定区（CPU 温度+日期时间）+ 左侧弹性 IME 区域 + │ 分隔
+├── examples/ime.lua             # IME 模块：白名单按键捕获+自适应分页+StatusBar 分区渲染
 ├── examples/themes/             # 预设主题 Lua 文件（dracula/solarized_dark/solarized_light/gruvbox/monokai/nord/one_dark）
 ├── scripts/
 │   ├── gbm-bench.sh             # GBM 实机性能测试脚本（编译→启动→监控→报告）

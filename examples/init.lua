@@ -63,6 +63,12 @@ vistty.input.bind_keys({
 	if super() then vistty.tab.switch(n); return true end
 end)
 
+vistty.input.bind(vistty.keys.J, function()
+	if super() then vistty.term.scroll_by(-1); return true end
+end)
+vistty.input.bind(vistty.keys.K, function()
+	if super() then vistty.term.scroll_by(1); return true end
+end)
 vistty.input.bind(vistty.keys.R, function()
 	if super() then vistty.reload(); return true end
 end)
@@ -70,6 +76,7 @@ vistty.input.bind(vistty.keys.Q, function()
 	if super() then vistty.exit(); return true end
 end)
 
+local statusbar = require("statusbar")
 local ime = require("ime")
 
 vistty.input.on_key(function(ev)

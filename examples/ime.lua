@@ -1,5 +1,7 @@
 local M = {}
 
+local statusbar = require("statusbar")
+
 local ime_active = false
 local ime_buf = ""
 local ime_page = 0
@@ -195,12 +197,13 @@ function M.setup_key_handler()
 			end
 		end
 
-		if ev.code == vistty.keys.MINUS or ev.code == vistty.keys.LEFT then
+		if ev.code == vistty.keys.MINUS or ev.code == vistty.keys.LEFT
+		   or ev.code == vistty.keys.UP then
 			if ime_page > 0 then ime_page = ime_page - 1 end
 			return true
 		end
 		if ev.code == vistty.keys.EQUAL or ev.code == vistty.keys.RIGHT
-		   or ev.code == vistty.keys.TAB then
+		   or ev.code == vistty.keys.DOWN or ev.code == vistty.keys.TAB then
 			local cands = M.candidates()
 			local avail = M.get_panel_width() - vistty.display_width(M.preedit() .. "_")
 			local total = M.total_pages(cands, avail)
@@ -211,14 +214,6 @@ function M.setup_key_handler()
 			end
 			return true
 		end
-
-		local cands = M.candidates()
-		if #cands > 0 then
-			vistty.term.send(cands[1].word)
-		end
-		ime_buf = ""
-		ime_page = 0
-		return false
 	end)
 end
 
@@ -226,7 +221,12 @@ function M.setup_render_handler()
 	vistty.ui.enable("bottom", 1)
 	vistty.ui.on_render(function(ctx)
 		local w, h = ctx:size()
-		M.set_panel_width(w)
+		local rightW = statusbar.right_width(w)
+		local sepW = 2
+		local imeW = w - rightW - sepW
+		if imeW < 0 then imeW = 0 end
+		M.set_panel_width(imeW)
+
 		ctx:rect(0, 0, w, h, {bg=vistty.colors.DARKGRAY})
 
 		if ime_active then
@@ -237,7 +237,8 @@ function M.setup_render_handler()
 				ctx:text(0, 0, pre .. "_", {fg=vistty.colors.CYAN})
 				local cands = M.candidates()
 				local preW = vistty.display_width(pre .. "_")
-				local avail = w - preW
+				local avail = imeW - preW
+				if avail < 0 then avail = 0 end
 				local page_cands = M.page_slice(cands, ime_page, avail)
 
 				local x = preW
@@ -252,13 +253,19 @@ function M.setup_render_handler()
 				local total = M.total_pages(cands, avail)
 				if total > 1 then
 					local pg = "(" .. (ime_page + 1) .. "/" .. total .. ")"
-					ctx:text(w - vistty.display_width(pg) - 1, 0, pg, {fg=vistty.colors.GRAY})
+					local pgW = vistty.display_width(pg)
+					if pgW < imeW then
+						ctx:text(imeW - pgW - 1, 0, pg, {fg=vistty.colors.GRAY})
+					end
 				end
 			end
 		else
-			ctx:text(2, 0, os.date("%H:%M:%S"), {fg="#64C8FF"})
-			ctx:text(w - 10, 0, "tabs:" .. vistty.tab.count(), {fg=vistty.colors.GOLD})
+			ctx:text(2, 0, "EN", {fg=vistty.colors.GRAY})
 		end
+
+		ctx:text(imeW, 0, "│", {fg="#555555"})
+
+		statusbar.render_right(ctx, w, h)
 		return true
 	end)
 end
