@@ -130,15 +130,13 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 | goroutine | 职责 |
 |-----------|------|
-| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/mouseEv/exit）；两阶段渲染：Render 所有 slave → Present 所有 slave |
+| main | Run() LockOSThread，渲染主循环（seqCh/ticker.Render/resize/scale/tabReq/mouseEv/exit/signal）；两阶段渲染：Render 所有 slave → Present 所有 slave |
 | backend-loop | backend.Run()（DRM: 空操作; Wayland: dispatch 事件循环） |
 | pty-read | PTY stdout → Read → FeedInto → seqCh |
-| seq-relay | Terminal.SeqCh() → unifiedSeqCh 中继 |
-| exit-watch | Terminal.EofCh()/Done() → m.exitCh |
+| seq-relay+exit | Terminal.SeqCh()/EofCh()/Done() → unifiedSeqCh / m.exitCh |
 | input | InputSource 事件 → terminal |
 | input-watch | inotify 监听 /dev/input 热插拔 — 仅 DRM |
 | resize-fanin | reflect.Select 扇入所有 slave 的 ResizeEvents — 多屏 |
-| signal | SIGINT/SIGTERM/SIGHUP/SIGQUIT → Close() |
 | drm-event | DRM fd 事件读取（Page Flip 完成）— 仅 DRM；用 EventReader 缓存残差防多事件丢失 |
 | vt-signal | SIGUSR1/2 VT 切换 — 仅 DRM |
 
@@ -146,7 +144,7 @@ PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
 
 | 触发源 | 路径 |
 |--------|------|
-| 信号 | signalLoop → signalClose() → wg.Wait() → backend.Stop() → input.Close() → cleanup() |
+| 信号 | sigCh（主循环内）→ signalClose() → wg.Wait() → backend.Stop() → input.Close() → cleanup() |
 | Wayland 窗口关闭 | toplevel close → backend.Done() → signalClose() → 两阶段关闭 |
 | PTY 退出 | exit-watch → handleTermExit 移除标签 → 无剩余 terminal 时 signalClose() |
 | Close() 幂等 | sync.Once 保护，重复调用安全 |

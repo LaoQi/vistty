@@ -57,9 +57,12 @@ func (m *Master) Run() error {
 		m.startTerminalGoroutines(t)
 	}
 
-	m.wg.Add(2)
+	m.wg.Add(1)
 	go m.inputLoop()
-	go m.signalLoop()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	defer signal.Stop(sigCh)
 
 	ticker := time.NewTicker(m.frameInterval)
 	defer ticker.Stop()
@@ -179,6 +182,9 @@ func (m *Master) Run() error {
 			m.handleMouse(ev)
 		case exited := <-tec:
 			m.handleTermExit(exited)
+		case <-sigCh:
+			m.signalClose()
+			goto exit
 		case <-m.done:
 			goto exit
 		case <-m.backend.Done():
@@ -546,18 +552,6 @@ func (m *Master) setFocus(idx int) {
 	case m.renderReqCh <- struct{}{}:
 	case <-m.done:
 	default:
-	}
-}
-
-func (m *Master) signalLoop() {
-	defer m.wg.Done()
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
-	defer signal.Stop(ch)
-	select {
-	case <-ch:
-		m.signalClose()
-	case <-m.done:
 	}
 }
 

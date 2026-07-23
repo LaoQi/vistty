@@ -231,13 +231,14 @@ func (m *Master) bindTerminalCallbacks(s *Slave, term *terminal.Terminal) {
 }
 
 func (m *Master) startTerminalGoroutines(t *terminal.Terminal) {
-	m.wg.Add(3)
+	m.wg.Add(2)
 	go func() {
 		defer m.wg.Done()
 		t.PtyReadLoop()
 	}()
 	go func() {
 		defer m.wg.Done()
+		exitSent := false
 		for {
 			select {
 			case seqs, ok := <-t.SeqCh():
@@ -246,27 +247,33 @@ func (m *Master) startTerminalGoroutines(t *terminal.Terminal) {
 				}
 				select {
 				case m.seqRelay <- seqMsg{term: t, seqs: seqs}:
+				case <-t.Done():
+					terminal.ReturnSeqPool(seqs)
+					return
 				case <-m.done:
+					terminal.ReturnSeqPool(seqs)
 					return
 				}
+			case <-t.EofCh():
+				if !exitSent {
+					exitSent = true
+					select {
+					case m.exitCh <- t:
+					case <-m.done:
+						return
+					}
+				}
 			case <-t.Done():
+				if !exitSent {
+					select {
+					case m.exitCh <- t:
+					case <-m.done:
+					}
+				}
 				return
 			case <-m.done:
 				return
 			}
-		}
-	}()
-	go func() {
-		defer m.wg.Done()
-		select {
-		case <-t.EofCh():
-		case <-t.Done():
-		case <-m.done:
-			return
-		}
-		select {
-		case m.exitCh <- t:
-		case <-m.done:
 		}
 	}()
 }
