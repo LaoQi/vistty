@@ -13,6 +13,10 @@ func registerPinyin(L *lua.LState, pm *PluginManager) {
 	pyT.RawSetString("lookup", L.NewFunction(func(L *lua.LState) int {
 		input := L.CheckString(1)
 		cands := pinyin.Lookup(input)
+		if len(cands) == 0 {
+			L.Push(lua.LNil)
+			return 1
+		}
 		t := L.NewTable()
 		for i, c := range cands {
 			ct := L.NewTable()

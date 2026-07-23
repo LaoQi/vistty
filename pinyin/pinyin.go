@@ -48,6 +48,9 @@ func Lookup(input string) []Candidate {
 			for i := uint32(0); i < count; i++ {
 				wordOff, ew := globalDict.readEntry(start + i)
 				word := globalDict.readWord(wordOff)
+				if word == "" {
+					continue
+				}
 				w := int(ew)
 				if partial != "" {
 					w = int(float64(w) * fuzzyWeightFactor)
@@ -141,15 +144,21 @@ func composeFromSingleChars(split []string) []*seen {
 	for i, syl := range split {
 		start, count, ok := globalDict.findKey(syl)
 		if !ok || count == 0 {
-			return nil
+			continue
 		}
 		topOff, topWeight := globalDict.readEntry(start)
 		topWord := globalDict.readWord(topOff)
+		if topWord == "" {
+			continue
+		}
 		for j := uint32(1); j < count; j++ {
 			wordOff, w := globalDict.readEntry(start + j)
 			if w > topWeight {
-				topWeight = w
-				topWord = globalDict.readWord(wordOff)
+				cand := globalDict.readWord(wordOff)
+				if cand != "" {
+					topWeight = w
+					topWord = cand
+				}
 			}
 		}
 		var cands []charCand
@@ -157,7 +166,7 @@ func composeFromSingleChars(split []string) []*seen {
 		for j := uint32(0); j < count; j++ {
 			wordOff, w := globalDict.readEntry(start + j)
 			word := globalDict.readWord(wordOff)
-			if len([]rune(word)) != 1 || word == topWord {
+			if word == "" || len([]rune(word)) != 1 || word == topWord {
 				continue
 			}
 			cands = append(cands, charCand{word: word, weight: int(w)})
@@ -185,6 +194,10 @@ func composeFromSingleChars(split []string) []*seen {
 				weight: minW / 100,
 				code:   strings.Join(split, " "),
 			})
+			return
+		}
+		if len(perSyllable[i]) == 0 {
+			build(i+1, word, minW)
 			return
 		}
 		for _, c := range perSyllable[i] {
