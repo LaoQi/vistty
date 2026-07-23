@@ -540,3 +540,155 @@ vistty.ui.on_render(function(ctx) ctx:text(0,0,"x") return true end)
 	// runtime.KeepAlive 防止 pm 被过早 GC（主要为了显式引用 runtime 包）
 	runtime.KeepAlive(pm)
 }
+
+// TestP6ReloadRebuildsVM 验证 Reload 重建 Lua 虚拟机：
+// 旧 VM 的全局状态在新 VM 中不存在，require 缓存被清除。
+func TestP6ReloadRebuildsVM(t *testing.T) {
+	dir, err := os.MkdirTemp("", "vistty-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	mmodPath := filepath.Join(dir, "mymod.lua")
+	if err := os.WriteFile(mmodPath, []byte(`local M = {}; M.value = "v1"; return M`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initPath := filepath.Join(dir, "init.lua")
+	initSrc := `
+local mod = require("mymod")
+vistty._modval = mod.value
+vistty.input.on_key(function(ev)
+	if ev.code == vistty.keys.F1 then return true end
+end)
+`
+	if err := os.WriteFile(initPath, []byte(initSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := NewPluginManager(initPath)
+	defer pm.Close()
+
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pm.Activate(newP6FakeCtx())
+
+	if v := pm.L.GetField(pm.L.GetGlobal("vistty"), "_modval"); v == lua.LNil {
+		t.Fatal("_modval should be set from require")
+	} else if s, ok := v.(lua.LString); !ok || string(s) != "v1" {
+		t.Fatalf("_modval expected 'v1', got %v", v)
+	}
+
+	consumed, _ := pm.OnKey(platform.KeyEvent{Code: 59, State: platform.KeyPress})
+	if !consumed {
+		t.Fatal("F1 should be consumed before reload")
+	}
+
+	if err := os.WriteFile(mmodPath, []byte(`local M = {}; M.value = "v2"; return M`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pm.Reload(); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	if v := pm.L.GetField(pm.L.GetGlobal("vistty"), "_modval"); v == lua.LNil {
+		t.Fatal("_modval should be set after reload")
+	} else if s, ok := v.(lua.LString); !ok || string(s) != "v2" {
+		t.Fatalf("_modval expected 'v2' after reload (require cache cleared), got %v", v)
+	}
+
+	consumed2, _ := pm.OnKey(platform.KeyEvent{Code: 59, State: platform.KeyPress})
+	if !consumed2 {
+		t.Fatal("F1 should still be consumed after reload (same init.lua)")
+	}
+}
+
+// TestP6ReloadErrorRollback 验证 Reload 失败时回滚到旧 VM：
+// 旧钩子仍可正常触发。
+func TestP6ReloadErrorRollback(t *testing.T) {
+	f, err := os.CreateTemp("", "init*.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString(`vistty.input.on_key(function(ev) return true end)`); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	defer os.Remove(path)
+
+	pm := NewPluginManager(path)
+	defer pm.Close()
+
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pm.Activate(newP6FakeCtx())
+
+	consumed, _ := pm.OnKey(platform.KeyEvent{Code: 28, State: platform.KeyPress})
+	if !consumed {
+		t.Fatal("v1 should consume all keys")
+	}
+
+	oldL := pm.L
+
+	if err := os.WriteFile(path, []byte(`invalid lua syntax {{{`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pm.Reload(); err == nil {
+		t.Fatal("Reload with invalid lua should return error")
+	}
+
+	if pm.L != oldL {
+		t.Fatal("Reload failure should restore old LState")
+	}
+
+	consumed2, _ := pm.OnKey(platform.KeyEvent{Code: 28, State: platform.KeyPress})
+	if !consumed2 {
+		t.Fatal("old hooks should still work after rollback")
+	}
+}
+
+// TestP6ReloadRequestDeferred 验证 vistty.reload() 设置延迟标记而非立即执行。
+func TestP6ReloadRequestDeferred(t *testing.T) {
+	src := `
+vistty.input.on_key(function(ev)
+	if ev.code == vistty.keys.F1 then
+		vistty.reload()
+		return true
+	end
+end)
+`
+	f := writeTemp(t, src)
+	pm := NewPluginManager(f)
+	defer pm.Close()
+
+	if _, err := pm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pm.Activate(newP6FakeCtx())
+
+	if pm.reloadRequested {
+		t.Fatal("reloadRequested should be false initially")
+	}
+
+	consumed, _ := pm.OnKey(platform.KeyEvent{Code: 59, State: platform.KeyPress})
+	if !consumed {
+		t.Fatal("F1 should be consumed")
+	}
+
+	if !pm.reloadRequested {
+		t.Fatal("vistty.reload() should set reloadRequested flag")
+	}
+
+	if !pm.ConsumeReloadRequest() {
+		t.Fatal("ConsumeReloadRequest should return true")
+	}
+	if pm.ConsumeReloadRequest() {
+		t.Fatal("ConsumeReloadRequest should return false on second call")
+	}
+}

@@ -107,6 +107,12 @@ func (m *Master) Run() error {
 			}
 		case <-ticker.C:
 			m.tickCount++
+			if m.plugins != nil && m.plugins.ConsumeReloadRequest() {
+				if err := m.ReloadPlugins(); err != nil {
+					debug.Errorf("Run: plugin reload error: %v", err)
+				}
+				m.dirty = true
+			}
 			if m.osdDirty {
 				m.refreshOSD()
 				m.osdDirty = false

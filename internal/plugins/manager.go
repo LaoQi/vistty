@@ -42,31 +42,40 @@ type PluginManager struct {
 	active            bool
 	currentTheme      *terminal.Theme
 	currentOSDTheme   *ui.OSDTheme
+	reloadRequested   bool
 }
 
 func NewPluginManager(initPath string) *PluginManager {
-	L := lua.NewState()
 	pm := &PluginManager{
-		L:                 L,
-		initPath:          initPath,
-		keyHooks:          L.NewTable(),
-		renderHooks:       L.NewTable(),
-		activateHooks:     L.NewTable(),
-		exitHooks:         L.NewTable(),
-		tabNewHooks:       L.NewTable(),
-		tabCloseHooks:     L.NewTable(),
-		tabSwitchHooks:    L.NewTable(),
-		screenSwitchHooks: L.NewTable(),
-		titleChangeHooks:  L.NewTable(),
-		resizeHooks:       L.NewTable(),
-		zoomHooks:         L.NewTable(),
-		panels:            make(map[string]int),
-		active:            false,
+		initPath:    initPath,
+		active:      false,
+		panels:      make(map[string]int),
+		pressedKeys: make(map[uint16]bool),
 	}
 	pinyin.Init()
+	pm.initLState(lua.NewState())
+	return pm
+}
+
+func (pm *PluginManager) initLState(L *lua.LState) {
+	pm.L = L
+	pm.keyHooks = L.NewTable()
+	pm.renderHooks = L.NewTable()
+	pm.activateHooks = L.NewTable()
+	pm.exitHooks = L.NewTable()
+	pm.tabNewHooks = L.NewTable()
+	pm.tabCloseHooks = L.NewTable()
+	pm.tabSwitchHooks = L.NewTable()
+	pm.screenSwitchHooks = L.NewTable()
+	pm.titleChangeHooks = L.NewTable()
+	pm.resizeHooks = L.NewTable()
+	pm.zoomHooks = L.NewTable()
+	pm.panels = make(map[string]int)
+	pm.bindings = nil
+	pm.pressedKeys = make(map[uint16]bool)
 	registerAPIs(L, pm)
-	if initPath != "" {
-		if dir, err := filepath.Abs(filepath.Dir(initPath)); err == nil {
+	if pm.initPath != "" {
+		if dir, err := filepath.Abs(filepath.Dir(pm.initPath)); err == nil {
 			pkg := L.GetField(L.Get(lua.EnvironIndex), "package")
 			if t, ok := pkg.(*lua.LTable); ok {
 				cur := L.GetField(t, "path")
@@ -80,7 +89,6 @@ func NewPluginManager(initPath string) *PluginManager {
 			}
 		}
 	}
-	return pm
 }
 
 func (pm *PluginManager) Load() (*RunConfig, error) {
@@ -186,28 +194,49 @@ func (pm *PluginManager) FireZoom(size float64) {
 }
 
 func (pm *PluginManager) Reload() error {
-	pm.keyHooks = pm.L.NewTable()
-	pm.renderHooks = pm.L.NewTable()
-	pm.activateHooks = pm.L.NewTable()
-	pm.exitHooks = pm.L.NewTable()
-	pm.tabNewHooks = pm.L.NewTable()
-	pm.tabCloseHooks = pm.L.NewTable()
-	pm.tabSwitchHooks = pm.L.NewTable()
-	pm.screenSwitchHooks = pm.L.NewTable()
-	pm.titleChangeHooks = pm.L.NewTable()
-	pm.resizeHooks = pm.L.NewTable()
-	pm.zoomHooks = pm.L.NewTable()
-	pm.panels = make(map[string]int)
-	pm.bindings = nil
-	pm.pressedKeys = make(map[uint16]bool)
-	pm.active = false
+	oldL := pm.L
+	oldKeyHooks := pm.keyHooks
+	oldRenderHooks := pm.renderHooks
+	oldActivateHooks := pm.activateHooks
+	oldExitHooks := pm.exitHooks
+	oldTabNewHooks := pm.tabNewHooks
+	oldTabCloseHooks := pm.tabCloseHooks
+	oldTabSwitchHooks := pm.tabSwitchHooks
+	oldScreenSwitchHooks := pm.screenSwitchHooks
+	oldTitleChangeHooks := pm.titleChangeHooks
+	oldResizeHooks := pm.resizeHooks
+	oldZoomHooks := pm.zoomHooks
+	oldPanels := pm.panels
+	oldBindings := pm.bindings
+	oldPressedKeys := pm.pressedKeys
+	oldActive := pm.active
 
-	registerAPIs(pm.L, pm)
+	pm.initLState(lua.NewState())
+	pm.active = false
 
 	cfg, err := pm.Load()
 	if err != nil {
+		pm.L.Close()
+		pm.L = oldL
+		pm.keyHooks = oldKeyHooks
+		pm.renderHooks = oldRenderHooks
+		pm.activateHooks = oldActivateHooks
+		pm.exitHooks = oldExitHooks
+		pm.tabNewHooks = oldTabNewHooks
+		pm.tabCloseHooks = oldTabCloseHooks
+		pm.tabSwitchHooks = oldTabSwitchHooks
+		pm.screenSwitchHooks = oldScreenSwitchHooks
+		pm.titleChangeHooks = oldTitleChangeHooks
+		pm.resizeHooks = oldResizeHooks
+		pm.zoomHooks = oldZoomHooks
+		pm.panels = oldPanels
+		pm.bindings = oldBindings
+		pm.pressedKeys = oldPressedKeys
+		pm.active = oldActive
 		return err
 	}
+	oldL.Close()
+
 	if pm.ctx != nil {
 		if cfg != nil && cfg.TermTheme != nil {
 			pm.ctx.ApplyTheme(*cfg.TermTheme, *cfg.OSDTheme)
@@ -215,6 +244,18 @@ func (pm *PluginManager) Reload() error {
 		pm.Activate(pm.ctx)
 	}
 	return nil
+}
+
+func (pm *PluginManager) RequestReload() {
+	pm.reloadRequested = true
+}
+
+func (pm *PluginManager) ConsumeReloadRequest() bool {
+	if pm.reloadRequested {
+		pm.reloadRequested = false
+		return true
+	}
+	return false
 }
 
 func (pm *PluginManager) Close() {

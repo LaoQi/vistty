@@ -189,11 +189,10 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 
 	// vistty.log(msg)
 	vt.RawSetString("log", L.NewFunction(luaVisttyLog))
-	// vistty.reload() — 闭包捕获 pm
+	// vistty.reload() — 延迟重载：设置标记，由主循环在 Lua 调用栈清空后执行实际重建。
+	// 直接在 Lua 调用栈内销毁 LState 会导致 UB，故采用延迟模式。
 	vt.RawSetString("reload", L.NewFunction(func(L *lua.LState) int {
-		if err := pm.Reload(); err != nil {
-			L.RaiseError("vistty.reload: %v", err)
-		}
+		pm.RequestReload()
 		return 0
 	}))
 	// vistty.exit() — 请求退出主循环（幂等）
