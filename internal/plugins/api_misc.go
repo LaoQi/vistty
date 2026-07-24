@@ -202,6 +202,12 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 		}
 		return 0
 	}))
+	vt.RawSetString("request_render", L.NewFunction(func(L *lua.LState) int {
+		if pm.ctx != nil {
+			pm.ctx.RequestRender()
+		}
+		return 0
+	}))
 	// vistty.input.on_key(fn) — 闭包捕获 pm
 	inputT := L.NewTable()
 	vt.RawSetString("input", inputT)

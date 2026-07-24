@@ -65,6 +65,7 @@ func (f *p6FakeCtx) DisablePanel(s string) {
 	}
 }
 func (f *p6FakeCtx) ReloadPlugins() error                            { return nil }
+func (f *p6FakeCtx) RequestRender()                                  {}
 func (f *p6FakeCtx) Exit()                                           {}
 func (f *p6FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 

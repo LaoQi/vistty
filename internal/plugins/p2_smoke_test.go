@@ -38,6 +38,7 @@ func (f *fakeCtx) ZoomReset()                                      { f.zoomCalls
 func (f *fakeCtx) EnablePanel(s string, n int)                     {}
 func (f *fakeCtx) DisablePanel(s string)                           {}
 func (f *fakeCtx) ReloadPlugins() error                            { return nil }
+func (f *fakeCtx) RequestRender()                                  {}
 func (f *fakeCtx) Exit()                                           {}
 func (f *fakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 

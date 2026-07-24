@@ -238,6 +238,9 @@ func (t *Terminal) SetScrollOffset(n int) {
 	}
 	t.scrollOffset = n
 	t.screen.DamageAll()
+	if t.opts.OnRenderRequest != nil {
+		t.opts.OnRenderRequest()
+	}
 }
 
 func (t *Terminal) Active() bool {

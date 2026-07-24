@@ -305,7 +305,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 插件系统（gopher-lua + vistty.* API + 热重载 + 生命周期钩子 + 多屏感知）
 - StatusBar 底部面板宿主 + IME left provider
 - 中文拼音输入法（Lookup/FormatPreedit/Split/SplitFuzzy + rime-ice 词库 + 自适应分页）
-- 动态缩放 + dirty 跳帧 + 光标闪烁
+- 动态缩放 + dirty 跳帧 + 光标闪烁 + 插件/IME 主动请求渲染（vistty.request_render + PluginContext.RequestRender）
 - VT 管理 + 输入热插拔 + 两阶段关闭 + Close 幂等
 - GBM flip 超时兜底 + EventReader + atomic commit modeset 重试
 - BSU 同步更新（DECSET 2026）

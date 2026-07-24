@@ -24,6 +24,9 @@ func registerUI(L *lua.LState, pm *PluginManager) {
 			L.RaiseError("vistty.ui.enable: invalid side %q", side)
 		}
 		pm.panels[side] = lines
+		if pm.ctx != nil {
+			pm.ctx.RequestRender()
+		}
 		return 0
 	}))
 
@@ -34,6 +37,9 @@ func registerUI(L *lua.LState, pm *PluginManager) {
 			L.RaiseError("vistty.ui.disable: invalid side %q", side)
 		}
 		delete(pm.panels, side)
+		if pm.ctx != nil {
+			pm.ctx.RequestRender()
+		}
 		return 0
 	}))
 

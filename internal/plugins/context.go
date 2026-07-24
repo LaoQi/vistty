@@ -50,5 +50,6 @@ type PluginContext interface {
 	DisablePanel(side string)
 	ApplyTheme(term terminal.Theme, osd ui.OSDTheme)
 	ReloadPlugins() error
+	RequestRender()
 	Exit()
 }

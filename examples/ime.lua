@@ -156,6 +156,7 @@ local function setup_toggle()
 			else
 				M.activate()
 			end
+			vistty.request_render()
 			return true
 		end
 	end)
@@ -170,6 +171,7 @@ local function setup_key_handler()
 		if is_lower_letter(ev) then
 			ime_buf = ime_buf .. string.char(ev.rune)
 			ime_page = 0
+			vistty.request_render()
 			return true
 		end
 
@@ -178,12 +180,14 @@ local function setup_key_handler()
 		if ev.code == vistty.keys.BACKSPACE then
 			ime_buf = remove_last_char(ime_buf)
 			ime_page = 0
+			vistty.request_render()
 			return true
 		end
 
 		if ev.code == vistty.keys.ESCAPE then
 			ime_buf = ""
 			ime_page = 0
+			vistty.request_render()
 			return true
 		end
 
@@ -191,6 +195,7 @@ local function setup_key_handler()
 			vistty.term.send(ime_buf)
 			ime_buf = ""
 			ime_page = 0
+			vistty.request_render()
 			return true
 		end
 
@@ -203,6 +208,7 @@ local function setup_key_handler()
 			end
 			ime_buf = ""
 			ime_page = 0
+			vistty.request_render()
 			return true
 		end
 
@@ -217,6 +223,7 @@ local function setup_key_handler()
 					ime_buf = ""
 					ime_page = 0
 				end
+				vistty.request_render()
 				return true
 			end
 		end
@@ -224,6 +231,7 @@ local function setup_key_handler()
 		if ev.code == vistty.keys.MINUS or ev.code == vistty.keys.LEFT
 			or ev.code == vistty.keys.UP then
 			if ime_page > 0 then ime_page = ime_page - 1 end
+			vistty.request_render()
 			return true
 		end
 		if ev.code == vistty.keys.EQUAL or ev.code == vistty.keys.RIGHT
@@ -237,6 +245,7 @@ local function setup_key_handler()
 			else
 				ime_page = 0
 			end
+			vistty.request_render()
 			return true
 		end
 	end)

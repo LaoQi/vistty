@@ -165,17 +165,7 @@ func (m *Master) Run() error {
 		case req := <-m.scaleReqCh:
 			m.handleScale(req)
 		case <-m.renderReqCh:
-			if err := m.renderFrame(); err != nil {
-				renderErrCount++
-				debug.Errorf("Run: render request error (%d/%d): %v", renderErrCount, maxRenderErrors, err)
-				if renderErrCount >= maxRenderErrors {
-					m.signalClose()
-					goto exit
-				}
-			} else {
-				renderErrCount = 0
-			}
-			m.dirty = false
+			m.dirty = true
 		case req := <-m.tabReqCh:
 			m.handleTabRequest(req)
 		case ev := <-m.mouseEvCh:

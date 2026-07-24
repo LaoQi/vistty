@@ -133,6 +133,7 @@ func registerTerm(L *lua.LState, pm *PluginManager) {
 		if t := pm.ctx.FocusTerm(); t != nil {
 			t.Resize(cols, rows)
 		}
+		pm.ctx.RequestRender()
 		return 0
 	}))
 

@@ -34,6 +34,7 @@ func (f *p3FakeCtx) ZoomReset()                                      {}
 func (f *p3FakeCtx) EnablePanel(s string, n int)                     {}
 func (f *p3FakeCtx) DisablePanel(s string)                           {}
 func (f *p3FakeCtx) ReloadPlugins() error                            { return nil }
+func (f *p3FakeCtx) RequestRender()                                  {}
 func (f *p3FakeCtx) Exit()                                           {}
 func (f *p3FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
 

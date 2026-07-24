@@ -705,6 +705,16 @@ func (m *Master) Exit() {
 	m.signalClose()
 }
 
+// RequestRender 请求下一帧渲染。通过 renderReqCh 投递（cap=1，非阻塞），
+// 消费方设 m.dirty=true，由主 ticker 在下一帧（≤16ms）渲染。
+// channel 线程安全，可在任意 goroutine 调用。
+func (m *Master) RequestRender() {
+	select {
+	case m.renderReqCh <- struct{}{}:
+	default:
+	}
+}
+
 func (m *Master) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {
 	m.opts.Theme = &term
 	for _, t := range m.terms {
