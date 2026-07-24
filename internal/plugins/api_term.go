@@ -67,6 +67,20 @@ func registerTerm(L *lua.LState, pm *PluginManager) {
 		return 0
 	}))
 
+	// vistty.term.history_len() → number
+	termT.RawSetString("history_len", L.NewFunction(func(L *lua.LState) int {
+		if pm.ctx == nil {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		if t := pm.ctx.FocusTerm(); t != nil {
+			L.Push(lua.LNumber(t.HistoryLen()))
+		} else {
+			L.Push(lua.LNumber(0))
+		}
+		return 1
+	}))
+
 	// vistty.term.cols() → number
 	termT.RawSetString("cols", L.NewFunction(func(L *lua.LState) int {
 		if pm.ctx == nil {

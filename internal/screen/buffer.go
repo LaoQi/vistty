@@ -33,8 +33,11 @@ func nextPow2(n int) int {
 	return int(v) + 1
 }
 
-func NewBuffer(cols, rows int) *Buffer {
+func NewBuffer(cols, rows, scrollback int) *Buffer {
 	capacity := nextPow2(rows)
+	if scrollback < 0 {
+		scrollback = 0
+	}
 	b := &Buffer{
 		cols:      cols,
 		rows:      rows,
@@ -43,7 +46,7 @@ func NewBuffer(cols, rows int) *Buffer {
 		scrollTop: 0,
 		scrollBot: rows - 1,
 		cursor:    NewCursor(),
-		history:   NewHistory(1000),
+		history:   NewHistory(scrollback),
 		eraseCell: NewCell(),
 	}
 	b.lines = make([]*Line, capacity)

@@ -8,13 +8,14 @@ local theme = require("themes.xterm")
 -- pcall(function() theme = require("themes.dracula") end)
 
 vistty.config = {
-	backend   = "auto",
-	shell     = "/bin/bash",
-	font      = "",
-	fontsize  = 24,
-	primary   = "",
-	error_log = "",
-	theme     = theme,
+	backend    = "auto",
+	shell      = "/bin/bash",
+	font       = "",
+	fontsize   = 24,
+	scrollback = 10000,
+	primary    = "",
+	error_log  = "",
+	theme      = theme,
 }
 
 -- 当前运行后端的默认 mod 键：wayland 用 ALT，drm/drm-gbm 用 SUPER。

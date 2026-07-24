@@ -18,6 +18,7 @@ type RunConfig struct {
 	FontPath         string
 	FallbackFontPath string
 	FontSize         float64
+	Scrollback       int
 	Primary          string
 	ErrorLog         string
 	TermTheme        *terminal.Theme
@@ -43,6 +44,7 @@ func DefaultRunConfig() *RunConfig {
 		FontPath:         "",
 		FallbackFontPath: "",
 		FontSize:         14,
+		Scrollback:       10000,
 		Primary:          "",
 		ErrorLog:         "",
 	}
@@ -73,6 +75,10 @@ func (pm *PluginManager) readConfig() (*RunConfig, error) {
 	cfg.FontPath = getString(pm.L, ct, "font", cfg.FontPath)
 	cfg.FallbackFontPath = getString(pm.L, ct, "fallback_font", cfg.FallbackFontPath)
 	cfg.FontSize = getNumber(pm.L, ct, "fontsize", cfg.FontSize)
+	cfg.Scrollback = int(getNumber(pm.L, ct, "scrollback", float64(cfg.Scrollback)))
+	if cfg.Scrollback < 0 {
+		cfg.Scrollback = 0
+	}
 	cfg.Primary = getString(pm.L, ct, "primary", cfg.Primary)
 	cfg.ErrorLog = getString(pm.L, ct, "error_log", cfg.ErrorLog)
 

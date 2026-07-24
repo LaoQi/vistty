@@ -80,8 +80,8 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, e
 		rows = 24
 	}
 
-	buf := screen.NewBuffer(cols, rows)
-	altBuf := screen.NewBuffer(cols, rows)
+	buf := screen.NewBuffer(cols, rows, 1000)
+	altBuf := screen.NewBuffer(cols, rows, 0)
 	altBuf.SetAltScreen(true)
 	compositor := render.NewCompositor(surface, face)
 	parser := vte.NewParser()

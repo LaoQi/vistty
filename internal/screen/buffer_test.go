@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewBuffer(t *testing.T) {
-	b := NewBuffer(80, 24)
+	b := NewBuffer(80, 24, 0)
 	if b.Cols() != 80 || b.Rows() != 24 {
 		t.Errorf("expected 80x24, got %dx%d", b.Cols(), b.Rows())
 	}
@@ -16,7 +16,7 @@ func TestNewBuffer(t *testing.T) {
 }
 
 func TestBufferCell(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	c := b.Cell(0, 0)
 	if c == nil {
 		t.Fatal("Cell(0,0) returned nil")
@@ -34,7 +34,7 @@ func TestBufferCell(t *testing.T) {
 }
 
 func TestBufferLine(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	if b.Line(-1) != nil || b.Line(5) != nil {
 		t.Error("out-of-bounds Line should return nil")
 	}
@@ -44,7 +44,7 @@ func TestBufferLine(t *testing.T) {
 }
 
 func TestBufferScrollUp(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	for i := 0; i < 5; i++ {
 		b.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -69,7 +69,7 @@ func TestBufferScrollUp(t *testing.T) {
 }
 
 func TestBufferScrollDown(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	for i := 0; i < 5; i++ {
 		b.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -85,7 +85,7 @@ func TestBufferScrollDown(t *testing.T) {
 }
 
 func TestBufferScrollRegion(t *testing.T) {
-	b := NewBuffer(10, 24)
+	b := NewBuffer(10, 24, 0)
 	for i := 0; i < 24; i++ {
 		b.Cell(i, 0).Rune = rune('a' + i%26)
 	}
@@ -112,7 +112,7 @@ func TestBufferScrollRegion(t *testing.T) {
 }
 
 func TestBufferSetScrollRegionInvalid(t *testing.T) {
-	b := NewBuffer(10, 24)
+	b := NewBuffer(10, 24, 0)
 	b.SetScrollRegion(10, 5)
 	if b.scrollTop != 0 || b.scrollBot != 23 {
 		t.Error("invalid scroll region should not change settings")
@@ -120,7 +120,7 @@ func TestBufferSetScrollRegionInvalid(t *testing.T) {
 }
 
 func TestBufferResizeShrink(t *testing.T) {
-	b := NewBuffer(80, 24)
+	b := NewBuffer(80, 24, 0)
 	for i := 0; i < 24; i++ {
 		b.Cell(i, 0).Rune = rune('A' + i%26)
 	}
@@ -137,7 +137,7 @@ func TestBufferResizeShrink(t *testing.T) {
 }
 
 func TestBufferResizeGrow(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	b.Cell(0, 0).Rune = 'X'
 	b.Resize(20, 10)
 	if b.Cols() != 20 || b.Rows() != 10 {
@@ -152,7 +152,7 @@ func TestBufferResizeGrow(t *testing.T) {
 }
 
 func TestBufferClear(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	b.Cell(0, 0).Rune = 'Z'
 	b.Clear()
 	if b.Cell(0, 0).Rune != ' ' {
@@ -161,7 +161,7 @@ func TestBufferClear(t *testing.T) {
 }
 
 func TestBufferClearRect(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	for i := 0; i < 5; i++ {
 		for j := 0; j < 10; j++ {
 			b.Cell(i, j).Rune = 'X'
@@ -181,7 +181,7 @@ func TestBufferClearRect(t *testing.T) {
 }
 
 func TestBufferScrollUpZero(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	b.Cell(0, 0).Rune = 'A'
 	b.ScrollUp(0)
 	if b.Cell(0, 0).Rune != 'A' {
@@ -190,7 +190,7 @@ func TestBufferScrollUpZero(t *testing.T) {
 }
 
 func TestBufferScrollDownZero(t *testing.T) {
-	b := NewBuffer(10, 5)
+	b := NewBuffer(10, 5, 0)
 	b.Cell(0, 0).Rune = 'A'
 	b.ScrollDown(0)
 	if b.Cell(0, 0).Rune != 'A' {
@@ -199,7 +199,7 @@ func TestBufferScrollDownZero(t *testing.T) {
 }
 
 func TestScrollUpPushesToHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	for col := 0; col < 10; col++ {
 		cell := buf.Cell(0, col)
 		if cell != nil {
@@ -221,7 +221,7 @@ func TestScrollUpPushesToHistory(t *testing.T) {
 }
 
 func TestScrollUpMultipleLines(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	for row := 0; row < 5; row++ {
 		for col := 0; col < 10; col++ {
 			cell := buf.Cell(row, col)
@@ -256,7 +256,7 @@ func TestHistoryPushTruncate(t *testing.T) {
 }
 
 func TestScrollTop(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	if buf.ScrollTop() != 0 {
 		t.Errorf("expected scrollTop 0, got %d", buf.ScrollTop())
 	}
@@ -267,7 +267,7 @@ func TestScrollTop(t *testing.T) {
 }
 
 func TestBufferCellNilLine(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 0)
 	cell := buf.Cell(100, 100)
 	if cell != nil {
 		t.Error("expected nil for out-of-bounds")
@@ -285,7 +285,7 @@ func TestBufferConcurrentIndependentInstances(t *testing.T) {
 	for g := 0; g < goroutines; g++ {
 		go func() {
 			defer wg.Done()
-			b := NewBuffer(20, 10)
+			b := NewBuffer(20, 10, 0)
 			for i := 0; i < 100; i++ {
 				cell := b.Cell(i%10, i%20)
 				if cell != nil {
@@ -299,7 +299,7 @@ func TestBufferConcurrentIndependentInstances(t *testing.T) {
 }
 
 func TestBufferScrollUpHistoryConsistency(t *testing.T) {
-	buf := NewBuffer(5, 3)
+	buf := NewBuffer(5, 3, 100)
 	for r := 0; r < 3; r++ {
 		for c := 0; c < 5; c++ {
 			cell := buf.Cell(r, c)
@@ -323,7 +323,7 @@ func TestBufferScrollUpHistoryConsistency(t *testing.T) {
 }
 
 func TestBufferScrollBot(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	if buf.ScrollBot() != 23 {
 		t.Errorf("expected scrollBot 23, got %d", buf.ScrollBot())
 	}
@@ -334,7 +334,7 @@ func TestBufferScrollBot(t *testing.T) {
 }
 
 func TestLineFeedScrollsInRegion(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(0, 22)
 	for i := 0; i < 23; i++ {
 		buf.Cell(i, 0).Rune = rune('a' + i%26)
@@ -358,7 +358,7 @@ func TestLineFeedScrollsInRegion(t *testing.T) {
 }
 
 func TestLineFeedFullScreenScroll(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	buf.Cell(0, 0).Rune = 'A'
 	buf.cursor.Row = 4
 	buf.LineFeed()
@@ -371,7 +371,7 @@ func TestLineFeedFullScreenScroll(t *testing.T) {
 }
 
 func TestLineFeedMidRegionNoScroll(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(0, 22)
 	buf.cursor.Row = 10
 	buf.LineFeed()
@@ -381,7 +381,7 @@ func TestLineFeedMidRegionNoScroll(t *testing.T) {
 }
 
 func TestLineFeedBelowRegionClamps(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(0, 22)
 	buf.cursor.Row = 23
 	buf.LineFeed()
@@ -391,7 +391,7 @@ func TestLineFeedBelowRegionClamps(t *testing.T) {
 }
 
 func TestReverseIndexScrollsInRegion(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(5, 20)
 	for i := 5; i <= 20; i++ {
 		buf.Cell(i, 0).Rune = rune('a' + (i-5)%26)
@@ -410,7 +410,7 @@ func TestReverseIndexScrollsInRegion(t *testing.T) {
 }
 
 func TestReverseIndexMidRegionNoScroll(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(5, 20)
 	buf.cursor.Row = 10
 	buf.ReverseIndex()
@@ -420,7 +420,7 @@ func TestReverseIndexMidRegionNoScroll(t *testing.T) {
 }
 
 func TestAltScreenNoHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 0)
 	buf.SetAltScreen(true)
 	for i := 0; i < 5; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
@@ -432,7 +432,7 @@ func TestAltScreenNoHistory(t *testing.T) {
 }
 
 func TestMainScreenPushesHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	buf.Cell(0, 0).Rune = 'A'
 	buf.ScrollUp(1)
 	if buf.History().Len() != 1 {
@@ -441,7 +441,7 @@ func TestMainScreenPushesHistory(t *testing.T) {
 }
 
 func TestClearAllClearsHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	buf.Cell(0, 0).Rune = 'A'
 	buf.ScrollUp(1)
 	if buf.History().Len() != 1 {
@@ -457,7 +457,7 @@ func TestClearAllClearsHistory(t *testing.T) {
 }
 
 func TestClearKeepsHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	buf.Cell(0, 0).Rune = 'A'
 	buf.ScrollUp(1)
 	buf.Clear()
@@ -467,7 +467,7 @@ func TestClearKeepsHistory(t *testing.T) {
 }
 
 func TestScrollDownNoHistoryFullScreen(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 0)
 	for i := 0; i < 5; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -478,7 +478,7 @@ func TestScrollDownNoHistoryFullScreen(t *testing.T) {
 }
 
 func TestScrollDownNoHistoryRegion(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(2, 10)
 	for i := 2; i <= 10; i++ {
 		buf.Cell(i, 0).Rune = rune('a' + i)
@@ -490,7 +490,7 @@ func TestScrollDownNoHistoryRegion(t *testing.T) {
 }
 
 func TestScrollUpRegionNoHistory(t *testing.T) {
-	buf := NewBuffer(10, 24)
+	buf := NewBuffer(10, 24, 0)
 	buf.SetScrollRegion(2, 5)
 	for i := 2; i <= 5; i++ {
 		buf.Cell(i, 0).Rune = rune('a' + i)
@@ -502,7 +502,7 @@ func TestScrollUpRegionNoHistory(t *testing.T) {
 }
 
 func TestScrollUpFullScreenHistory(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 100)
 	for i := 0; i < 5; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -513,7 +513,7 @@ func TestScrollUpFullScreenHistory(t *testing.T) {
 }
 
 func TestInsertLines(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -531,7 +531,7 @@ func TestInsertLines(t *testing.T) {
 }
 
 func TestDeleteLines(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -549,7 +549,7 @@ func TestDeleteLines(t *testing.T) {
 }
 
 func TestInsertLinesOutsideRegionNoop(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	buf.SetScrollRegion(2, 7)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
@@ -569,7 +569,7 @@ func TestInsertLinesOutsideRegionNoop(t *testing.T) {
 }
 
 func TestInsertLinesInRegionPreservesOutside(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	buf.SetScrollRegion(2, 7)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
@@ -585,7 +585,7 @@ func TestInsertLinesInRegionPreservesOutside(t *testing.T) {
 }
 
 func TestDeleteLinesInRegionPreservesOutside(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	buf.SetScrollRegion(2, 7)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
@@ -601,7 +601,7 @@ func TestDeleteLinesInRegionPreservesOutside(t *testing.T) {
 }
 
 func TestInsertLinesClampN(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -616,7 +616,7 @@ func TestInsertLinesClampN(t *testing.T) {
 }
 
 func TestDeleteLinesClampN(t *testing.T) {
-	buf := NewBuffer(10, 10)
+	buf := NewBuffer(10, 10, 0)
 	for i := 0; i < 10; i++ {
 		buf.Cell(i, 0).Rune = rune('0' + i)
 	}
@@ -631,7 +631,7 @@ func TestDeleteLinesClampN(t *testing.T) {
 }
 
 func TestDamageCellMarksDirty(t *testing.T) {
-	buf := NewBuffer(10, 5)
+	buf := NewBuffer(10, 5, 0)
 	line := buf.Line(0)
 	line.SetDirty(false)
 	for c := 0; c < 10; c++ {

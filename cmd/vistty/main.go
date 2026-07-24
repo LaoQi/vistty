@@ -80,6 +80,7 @@ func run() error {
 	opts.FontPath = runCfg.FontPath
 	opts.FallbackFontPath = runCfg.FallbackFontPath
 	opts.FontSize = runCfg.FontSize
+	opts.Scrollback = runCfg.Scrollback
 	opts.Primary = runCfg.Primary
 	opts.Theme = runCfg.TermTheme
 

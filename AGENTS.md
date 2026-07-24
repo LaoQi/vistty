@@ -184,7 +184,7 @@ github.com/LaoQi/vistty/
 │       ├── gpu/                # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
 │       └── wayland/            # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
 ├── examples/                   # init.lua + statusbar.lua + ime.lua + themes/ 预设主题
-├── scripts/                    # build.sh + gen-dict-*.sh + gen-font-subset.sh + gbm-bench.sh + gbm-check.sh + htop-init.lua
+├── scripts/                    # build.sh + quick-update.sh + gen-dict-*.sh + gen-font-subset.sh + gbm-bench.sh + gbm-check.sh + htop-init.lua
 ├── .github/workflows/release.yml # CI Release（v* tag 触发）
 ├── reference/                  # 参考项目源码（foot 终端克隆，已 gitignore）
 └── work_docs/                  # 开发过程文档（implementation-changelog.md 等）
@@ -295,6 +295,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - xterm-256 兼容转义序列 + 文本属性 + parser 硬化 + PtyWrite 异步写队列
 - 斜体渲染（ShearGlyph 预生成 + italicAtlas 独立缓存）
 - CJK 双宽 + scroll region + alternate screen + deferred wrap
+- 可配置 scrollback（Lua scrollback 配置项 + NewBuffer 签名 + term.history_len() API + Shift+PageUp/Down 半页滚动）
 - Emoji 彩色渲染（CBDT format17 + 紧凑索引 + CPU/GPU 双路径，仅单 rune，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC + NerdFont PUA fallback + Block Elements 合成 + FaceCache
 - 终端配色主题系统（Lua 配置 + 7 预设 + OSC 10/11/12 + 字段级 fallback）

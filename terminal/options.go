@@ -10,8 +10,9 @@ import (
 type Options struct {
 	Shell            string
 	FontPath         string
-	FallbackFontPath string // path to fallback font; empty uses built-in NerdFont subset
+	FallbackFontPath string
 	FontSize         float64
+	Scrollback       int
 	RepeatDelay      time.Duration
 	RepeatRate       time.Duration
 	OnTitle          func(string)
@@ -29,6 +30,7 @@ func DefaultOptions() Options {
 		FontPath:         "",
 		FallbackFontPath: "",
 		FontSize:         14,
+		Scrollback:       10000,
 		RepeatDelay:      250 * time.Millisecond,
 		RepeatRate:       33 * time.Millisecond,
 	}

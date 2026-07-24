@@ -101,8 +101,8 @@ func New(opts Options, cols, rows int) (*Terminal, error) {
 	if rows <= 0 {
 		rows = 24
 	}
-	buf := screen.NewBuffer(cols, rows)
-	altBuf := screen.NewBuffer(cols, rows)
+	buf := screen.NewBuffer(cols, rows, opts.Scrollback)
+	altBuf := screen.NewBuffer(cols, rows, 0)
 	altBuf.SetAltScreen(true)
 	parser := vte.NewParser()
 
@@ -221,7 +221,21 @@ func (t *Terminal) ScrollOffset() int {
 	return t.scrollOffset
 }
 
+func (t *Terminal) HistoryLen() int {
+	return t.screen.History().Len()
+}
+
 func (t *Terminal) SetScrollOffset(n int) {
+	histLen := t.screen.History().Len()
+	if n > histLen {
+		n = histLen
+	}
+	if n < 0 {
+		n = 0
+	}
+	if t.scrollOffset == n {
+		return
+	}
 	t.scrollOffset = n
 	t.screen.DamageAll()
 }
@@ -1219,15 +1233,18 @@ func (t *Terminal) HandleKey(ev platform.KeyEvent) {
 		if ev.Mods&platform.ModShift != 0 {
 			switch ev.Code {
 			case 104:
-				histLen := t.screen.History().Len()
-				if t.scrollOffset < histLen {
-					t.SetScrollOffset(t.scrollOffset + 1)
+				step := t.rows / 2
+				if step < 1 {
+					step = 1
 				}
+				t.SetScrollOffset(t.scrollOffset + step)
 				return
 			case 109:
-				if t.scrollOffset > 0 {
-					t.SetScrollOffset(t.scrollOffset - 1)
+				step := t.rows / 2
+				if step < 1 {
+					step = 1
 				}
+				t.SetScrollOffset(t.scrollOffset - step)
 				return
 			}
 		}

@@ -62,7 +62,7 @@ func TestCompositorRenderNoDirty(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	err := c.Render(buf, 0)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
@@ -79,7 +79,7 @@ func TestCompositorRenderWithScrollOffset(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	err := c.Render(buf, 0)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
@@ -176,7 +176,7 @@ func clearBuffer(buf *screen.Buffer) {
 
 func TestRenderGPUASCIICell(t *testing.T) {
 	c, surf := newGPUCompositor()
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	clearBuffer(buf)
 	// 光标默认在 (0,0) 且 Blinking=true → 首帧不可见，不干扰断言
 	buf.Cell(0, 0).Rune = 'A'
@@ -223,7 +223,7 @@ func TestRenderGPUASCIICell(t *testing.T) {
 
 func TestRenderGPUEmptyRuneNoUpload(t *testing.T) {
 	c, surf := newGPUCompositor()
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	clearBuffer(buf)
 	cell := buf.Cell(0, 0)
 	cell.Rune = 0 // 无字符
@@ -247,7 +247,7 @@ func TestRenderGPUEmptyRuneNoUpload(t *testing.T) {
 func TestRenderGPUUploadFailDegraded(t *testing.T) {
 	c, surf := newGPUCompositor()
 	surf.uploadOK = false // UploadGlyph 恒返回 ok=false
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	buf.Cell(0, 0).Rune = 'A'
 
 	if err := c.Render(buf, 0); err != nil {
@@ -275,7 +275,7 @@ func TestCompositorGPUDisabledPermanent(t *testing.T) {
 	surf := newFakeGPUSurface(80, 32)
 	surf.beginFrameErr = fmt.Errorf("synthetic EGL failure")
 	c := NewCompositor(surf, &testFace{})
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	clearBuffer(buf)
 	buf.Cell(0, 0).Rune = 'A'
 
@@ -302,7 +302,7 @@ func TestCompositorGPUDisabledPermanent(t *testing.T) {
 
 func TestRenderGPUAttrsAndBold(t *testing.T) {
 	c, surf := newGPUCompositor()
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	cell := buf.Cell(0, 0)
 	cell.Rune = 'A'
 	cell.Attr = screen.AttrUnderline | screen.AttrCrossedOut | screen.AttrItalic | screen.AttrBold | screen.AttrReverse
@@ -337,7 +337,7 @@ func TestRenderGPUAttrsAndBold(t *testing.T) {
 
 func TestRenderGPUDoubleWidth(t *testing.T) {
 	c, surf := newGPUCompositor()
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	cell := buf.Cell(0, 0)
 	cell.Rune = '中'
 	cell.Width = 2
@@ -362,7 +362,7 @@ func TestRenderGPUDoubleWidth(t *testing.T) {
 func TestRenderGPUCursor(t *testing.T) {
 	c, surf := newGPUCompositor()
 	c.SetCursorColor(screen.Color{R: 255, G: 0, B: 0})
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	cur := buf.Cursor()
 	cur.Row = 0
 	cur.Col = 0
@@ -390,7 +390,7 @@ func TestRenderGPUCursor(t *testing.T) {
 
 func TestRenderGPUHasBgLogic(t *testing.T) {
 	c, surf := newGPUCompositor()
-	buf := screen.NewBuffer(10, 2)
+	buf := screen.NewBuffer(10, 2, 0)
 	// cell(0,0): 非默认背景 → HasBg=1
 	c0 := buf.Cell(0, 0)
 	c0.Rune = 'A'
@@ -473,7 +473,7 @@ func TestCompositorDirtyPathPreservesGlyphOnCursorMove(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	cur := buf.Cursor()
 	cur.Visible = true
 	cur.Blinking = false
@@ -523,7 +523,7 @@ func TestCompositorDirtyPathRedrawsCursorCell(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	cur := buf.Cursor()
 	cur.Visible = false
 	cur.Blinking = false
@@ -563,7 +563,7 @@ func TestCompositorDirtyPathCleanCellSkipped(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	cur := buf.Cursor()
 	cur.Visible = false
 	cur.Blinking = false
@@ -624,14 +624,14 @@ func TestCompositorDirtyPathBufferSwitchResidue(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf1 := screen.NewBuffer(10, 5)
+	buf1 := screen.NewBuffer(10, 5, 0)
 	cur1 := buf1.Cursor()
 	cur1.Visible = false
 	cur1.Blinking = false
 	cur1.Row = 4
 	cur1.Col = 0
 
-	buf2 := screen.NewBuffer(10, 5)
+	buf2 := screen.NewBuffer(10, 5, 0)
 	cur2 := buf2.Cursor()
 	cur2.Visible = false
 	cur2.Blinking = false
@@ -688,14 +688,14 @@ func TestCompositorDirtyPathBufferSwitchWithoutDamageAll(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf1 := screen.NewBuffer(10, 5)
+	buf1 := screen.NewBuffer(10, 5, 0)
 	cur1 := buf1.Cursor()
 	cur1.Visible = false
 	cur1.Blinking = false
 	cur1.Row = 4
 	cur1.Col = 0
 
-	buf2 := screen.NewBuffer(10, 5)
+	buf2 := screen.NewBuffer(10, 5, 0)
 	cur2 := buf2.Cursor()
 	cur2.Visible = false
 	cur2.Blinking = false
@@ -731,7 +731,7 @@ func TestCopyAllToSurfaceSmallSurfaceSameStride(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	if err := c.Render(buf, 0); err != nil {
 		t.Fatalf("Render same-stride small surface failed: %v", err)
 	}
@@ -747,7 +747,7 @@ func TestCopyAllToSurfaceSmallSurfaceDiffStride(t *testing.T) {
 	face := &testFace{}
 	c := NewCompositor(surf, face)
 
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	if err := c.Render(buf, 0); err != nil {
 		t.Fatalf("Render diff-stride small surface failed: %v", err)
 	}
@@ -782,7 +782,7 @@ func TestCompositorZeroMetricsWidth(t *testing.T) {
 	if c.metrics.Height != 16 {
 		t.Errorf("metrics.Height=%d want 16 (guard should set default)", c.metrics.Height)
 	}
-	buf := screen.NewBuffer(10, 5)
+	buf := screen.NewBuffer(10, 5, 0)
 	if err := c.Render(buf, 0); err != nil {
 		t.Fatalf("Render with zero metrics failed: %v", err)
 	}
