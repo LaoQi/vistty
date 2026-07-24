@@ -259,9 +259,9 @@ function M.render(ctx, avail_w, h, oid)
 		if pre == "" then
 			ctx:text(2, 0, "中", {fg=vistty.colors.CYAN})
 		else
-			ctx:text(0, 0, pre .. "_", {fg=vistty.colors.CYAN})
+			ctx:text(2, 0, pre .. "_", {fg=vistty.colors.CYAN})
 			local cands = M.candidates()
-			local preW = vistty.display_width(pre .. "_")
+			local preW = vistty.display_width(pre .. "_") + 2
 			local avail = avail_w - preW
 			if avail < 0 then avail = 0 end
 			local page_cands = M.page_slice(cands, ime_page, avail)
@@ -274,7 +274,7 @@ function M.render(ctx, avail_w, h, oid)
 				local idx = tostring(i)
 				local idxW = vistty.display_width(idx)
 				local wordW = vistty.display_width(word)
-				ctx:text(x, 0, idx, {fg=vistty.colors.GRAY})
+				ctx:text(x, 0, idx, {fg=vistty.colors.GREEN})
 				if x + idxW + wordW <= avail_w then
 					ctx:text(x + idxW, 0, word, {fg=vistty.colors.WHITE})
 				end

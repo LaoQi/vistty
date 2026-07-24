@@ -436,10 +436,7 @@ func (m *Master) handleScaleIndependent(req scaleReq) {
 		rows = 24
 	}
 	s.ResizeTerms(cols, rows)
-	if err := m.renderFrame(); err != nil {
-		debug.Errorf("handleScale: render error: %v", err)
-	}
-	m.dirty = false
+	m.dirty = true
 	if m.plugins != nil {
 		m.plugins.FireZoom(newSize)
 	}
