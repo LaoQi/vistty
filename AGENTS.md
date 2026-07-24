@@ -113,11 +113,13 @@ type Backend interface {
 ```
 PTY stdout → vte.Parser → []Sequence → screen.Buffer 操作
                                                               ↓
-输入事件 ← InputSource → terminal → PTY stdin           render.Compositor
+输入事件 ← InputSource → plugins.OnKey → FocusStack → InputTarget     render.Compositor
                                                               ↓
                                                font.Atlas → alpha混合 → backBuf
                                                               ↓
-                                               OSD.RenderCPU/RenderGPU 叠加标签栏
+                                                TabBar+StatusBar (Overlay) → Insets 偏移 → backBuf
+                                                               ↓
+                                                FloatingOverlay (Dialog/Toast) → Pass2 alpha blend
                                                               ↓
                                                backBuf → Surface.Data()
                                                               ↓
@@ -172,8 +174,9 @@ github.com/LaoQi/vistty/
 │   ├── plugins/                # gopher-lua VM + vistty.* API（manager/context/config + api_*.go）
 │   ├── vte/                    # 转义序列解析器（xterm-256 兼容）
 │   ├── screen/                 # cell/line/buffer(环形)/history/cursor/selection
-│   ├── render/                 # compositor/draw/cursor/overlay
-│   ├── ui/                     # osd + theme（OSD 标签栏 + 插件面板 + CSD）
+│   ├── panel/                  # PanelPrimitive 公共类型（plugins/ui/session 共享）
+│   ├── render/                 # compositor/draw/cursor/overlay（Overlay+FloatingOverlay+Pass2）
+│   ├── ui/                     # tabbar + statusbar + dialog + toast + inputfield（Overlay/FloatingOverlay/CSD）
 │   ├── version/                # ldflags 注入 + ReadBuildInfo VCS fallback
 │   ├── perf/replay/            # 三级归因 benchmark
 │   └── platform/
@@ -181,7 +184,7 @@ github.com/LaoQi/vistty/
 │       ├── drm/                # DRM/KMS 后端（ioctl 封装：dumb/flip/mmap/event/atomic/property/plane）
 │       ├── gbm/                # GBM GPU 后端（device/surface/atomic + purego dlopen）
 │       ├── gl/                 # GLES + EGL purego dlopen
-│       ├── gpu/                # GPU instanced draw 核心（renderer/shader/atlas，后端无关）
+│       ├── gpu/                # GPU instanced draw 核心（renderer/shader/atlas/BgA alpha，后端无关）
 │       └── wayland/            # Wayland 后端（backend/surface/input/keymap + 自研 wl.go）
 ├── examples/                   # init.lua + statusbar.lua + ime.lua + themes/ 预设主题
 ├── scripts/                    # build.sh + quick-update.sh + gen-dict-*.sh + gen-font-subset.sh + gbm-bench.sh + gbm-check.sh + htop-init.lua
@@ -201,7 +204,8 @@ terminal → screen, vte, render, platform, font, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
 plugins → terminal, platform, ui, pinyin, version, debug（不依赖 session，通过 PluginContext 依赖倒置）
 render → font, platform (Surface 接口)
-ui → render (Overlay/GlyphProvider/GPUGlyphUploader 接口), font, platform, runeutil
+ui → render (Overlay/FloatingOverlay/GlyphProvider/GPUGlyphUploader 接口), font, panel, platform, runeutil
+panel → 无内部依赖（PanelPrimitive 公共类型）
 platform/drm → platform (Surface/GBMProvider 接口), go-evdev, golang.org/x/sys/unix (inotify/epoll), debug
 platform/gbm → platform (GBMProvider/Surface/Output), platform/gl, platform/gpu, debug
 platform/gpu → platform/gl, platform (CellInstance/GPURenderer), debug
@@ -301,9 +305,11 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 终端配色主题系统（Lua 配置 + 7 预设 + OSC 10/11/12 + 字段级 fallback）
 - GPU glyph atlas + instanced draw（GLES 3.00）
 - 多屏 DRM 输出 + 每屏独立 EGLContext + 两阶段渲染 60fps
-- OSD 标签栏 + 多终端标签 + CSD 自绘 + 水平滚动
+- TabBar 顶部标签栏 + StatusBar 底部面板 + 多终端标签 + CSD 自绘 + 水平滚动
+- FloatingOverlay 浮层体系（Dialog/Toast）+ GPU BgA alpha + Pass2 GL_BLEND 渲染
+- InputTarget 焦点栈 + vistty.input.commit() IME 输出解耦
 - 插件系统（gopher-lua + vistty.* API + 热重载 + 生命周期钩子 + 多屏感知）
-- StatusBar 底部面板宿主 + IME left provider
+- StatusBar 底部面板宿主 + IME vistty.input.commit() 解耦
 - 中文拼音输入法（Lookup/FormatPreedit/Split/SplitFuzzy + rime-ice 词库 + 自适应分页）
 - 动态缩放 + dirty 跳帧 + 光标闪烁 + 插件/IME 主动请求渲染（vistty.request_render + PluginContext.RequestRender）
 - VT 管理 + 输入热插拔 + 两阶段关闭 + Close 幂等

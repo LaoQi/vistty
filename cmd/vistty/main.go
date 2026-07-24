@@ -13,6 +13,7 @@ import (
 	"github.com/LaoQi/vistty/internal/platform/gbm"
 	"github.com/LaoQi/vistty/internal/platform/wayland"
 	"github.com/LaoQi/vistty/internal/plugins"
+	"github.com/LaoQi/vistty/internal/ui"
 	"github.com/LaoQi/vistty/internal/version"
 	"github.com/LaoQi/vistty/session"
 	"github.com/LaoQi/vistty/terminal"
@@ -201,7 +202,15 @@ func run() error {
 	pm.SetBackendName(backendName)
 
 	if runCfg.TermTheme != nil {
-		m.ApplyTheme(*runCfg.TermTheme, *runCfg.OSDTheme)
+		tbTheme := ui.DefaultTabBarTheme
+		sbTheme := ui.DefaultStatusBarTheme
+		if runCfg.TabBarTheme != nil {
+			tbTheme = *runCfg.TabBarTheme
+		}
+		if runCfg.StatusBarTheme != nil {
+			sbTheme = *runCfg.StatusBarTheme
+		}
+		m.ApplyTheme(*runCfg.TermTheme, tbTheme, sbTheme)
 	}
 
 	if prof.fps {

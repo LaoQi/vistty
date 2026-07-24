@@ -14,7 +14,7 @@ type CellInstance struct {
 	FgB            float32
 	BgR, BgG       float32 // 背景色
 	BgB            float32
-	HasBg          float32 // 1.0=非默认背景, 0.0=默认
+	BgA            float32
 	AttrFlags      float32 // bit0=underline, bit1=crossedOut
 	IsColor        float32 // 1.0=彩色字形(emoji)，fragment 采样 RGBA 跳过前景色着色
 }
@@ -31,6 +31,7 @@ type GPURenderer interface {
 	UploadColorGlyph(r rune, rgba []byte, w, h int) (u0, v0, u1, v1 float32, ok bool)
 	// DrawInstances 用 instanced draw 渲染所有 cell。
 	DrawInstances(instances []CellInstance, screenW, screenH int, bgColor [3]float32) error
+	DrawInstancesBlended(instances []CellInstance, screenW, screenH int, bgColor [3]float32) error
 	// BeginFrame 确保本帧 GL context 已 current。每帧调用一次，
 	// 后续 UploadGlyph/DrawInstances 不再各自 MakeCurrent。
 	BeginFrame() error

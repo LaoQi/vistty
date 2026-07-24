@@ -464,13 +464,24 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 		inst := instances[0]
 		px := make([]byte, 4)
 		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, px)
-		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) hasBg=%v centerPx=(%d,%d,%d,%d)\n",
+		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) bgA=%v centerPx=(%d,%d,%d,%d)\n",
 			len(instances), c.atlasUni, c.atlasTex, drawErr,
 			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
 			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,
-			inst.FgR, inst.FgG, inst.FgB, inst.HasBg, px[0], px[1], px[2], px[3])
+			inst.FgR, inst.FgG, inst.FgB, inst.BgA, px[0], px[1], px[2], px[3])
 	}
 	return nil
+}
+
+func (c *Renderer) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
+	if !c.gpuReady {
+		return fmt.Errorf("gpu: renderer not initialized")
+	}
+	c.gles.Enable(glLib.GL_BLEND)
+	c.gles.BlendFunc(glLib.GL_SRC_ALPHA, glLib.GL_ONE_MINUS_SRC_ALPHA)
+	err := c.DrawInstances(instances, screenW, screenH, bgColor)
+	c.gles.Disable(glLib.GL_BLEND)
+	return err
 }
 
 // Close 释放 GPU 资源（program/atlas/VBO）。调用方需保证 EGL context 已 current。

@@ -48,8 +48,12 @@ type PluginContext interface {
 	ZoomReset()
 	EnablePanel(side string, lines int)
 	DisablePanel(side string)
-	ApplyTheme(term terminal.Theme, osd ui.OSDTheme)
+	ApplyTheme(term terminal.Theme, tb ui.TabBarTheme, sb ui.StatusBarTheme)
 	ReloadPlugins() error
 	RequestRender()
+	CommitText(text string)
+	ShowToast(message string, level int, durationMs int)
+	ShowDialog(title string, inputPlaceholder string, buttons []string) int
+	CloseDialog(id int) (int, string, bool)
 	Exit()
 }

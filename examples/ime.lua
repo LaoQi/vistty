@@ -192,7 +192,7 @@ local function setup_key_handler()
 		end
 
 		if ev.code == vistty.keys.ENTER then
-			vistty.term.send(ime_buf)
+			vistty.input.commit(ime_buf)
 			ime_buf = ""
 			ime_page = 0
 			vistty.request_render()
@@ -202,9 +202,9 @@ local function setup_key_handler()
 		if ev.code == vistty.keys.SPACE then
 			local cands = M.candidates()
 			if #cands > 0 and cands[1] and cands[1].word then
-				vistty.term.send(cands[1].word)
+				vistty.input.commit(cands[1].word)
 			else
-				vistty.term.send(ime_buf)
+				vistty.input.commit(ime_buf)
 			end
 			ime_buf = ""
 			ime_page = 0
@@ -219,7 +219,7 @@ local function setup_key_handler()
 				local avail = pw - vistty.display_width(M.preedit() .. "_")
 				local page_cands = M.page_slice(cands, ime_page, avail)
 				if i <= #page_cands and page_cands[i] and page_cands[i].word then
-					vistty.term.send(page_cands[i].word)
+					vistty.input.commit(page_cands[i].word)
 					ime_buf = ""
 					ime_page = 0
 				end

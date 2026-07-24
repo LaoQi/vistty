@@ -177,7 +177,7 @@ func TestShaderVertexInstanceAttrNames(t *testing.T) {
 		6:  "i_glyphUV",
 		7:  "i_fg",
 		8:  "i_bg",
-		9:  "i_hasBg",
+		9:  "i_bgA",
 		10: "i_attrFlags",
 		11: "i_isColor",
 	}
@@ -238,7 +238,7 @@ func TestCellInstanceLayoutContract(t *testing.T) {
 		{6, 4, 32, unsafe.Offsetof(ci.GlyphU0), "GlyphU0"},
 		{7, 3, 48, unsafe.Offsetof(ci.FgR), "FgR"},
 		{8, 3, 60, unsafe.Offsetof(ci.BgR), "BgR"},
-		{9, 1, 72, unsafe.Offsetof(ci.HasBg), "HasBg"},
+		{9, 1, 72, unsafe.Offsetof(ci.BgA), "BgA"},
 		{10, 1, 76, unsafe.Offsetof(ci.AttrFlags), "AttrFlags"},
 		{11, 1, 80, unsafe.Offsetof(ci.IsColor), "IsColor"},
 	}

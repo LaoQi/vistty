@@ -26,3 +26,12 @@ type Overlay interface {
 	RenderCPU(buf []byte, stride, width, height int)
 	RenderGPU(instances *[]platform.CellInstance, width, height int)
 }
+
+type FloatingOverlay interface {
+	SetGlyphProvider(GlyphProvider)
+	SetGPUGlyphUploader(GPUGlyphUploader)
+	RenderCPU(buf []byte, stride, width, height int)
+	RenderGPU(instances *[]platform.CellInstance, width, height int)
+	ZOrder() int
+	Close()
+}

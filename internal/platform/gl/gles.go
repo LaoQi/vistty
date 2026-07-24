@@ -39,6 +39,10 @@ const (
 	GL_TEXTURE_HEIGHT     = 0x1001
 	GL_UNPACK_ALIGNMENT   = 0x0CF5
 
+	GL_BLEND               = 0x0BE2
+	GL_SRC_ALPHA           = 0x0302
+	GL_ONE_MINUS_SRC_ALPHA = 0x0303
+
 	GL_TRIANGLES      = 0x0004
 	GL_TRIANGLE_STRIP = 0x0005
 
@@ -110,6 +114,9 @@ type GLESLoader struct {
 	genVertexArrays    func(n int32, arrays unsafe.Pointer)
 	bindVertexArray    func(array uint32)
 	deleteVertexArrays func(n int32, arrays unsafe.Pointer)
+	enable             func(cap uint32)
+	disable            func(cap uint32)
+	blendFunc          func(sfactor uint32, dfactor uint32)
 }
 
 func LoadGLES() (*GLESLoader, error) {
@@ -182,6 +189,9 @@ func LoadGLES() (*GLESLoader, error) {
 		{"glGenVertexArrays", &l.genVertexArrays, true},
 		{"glBindVertexArray", &l.bindVertexArray, true},
 		{"glDeleteVertexArrays", &l.deleteVertexArrays, true},
+		{"glEnable", &l.enable, false},
+		{"glDisable", &l.disable, false},
+		{"glBlendFunc", &l.blendFunc, false},
 	}
 
 	var errs []error
@@ -536,4 +546,16 @@ func (l *GLESLoader) DeleteVertexArrays(n int32, arrays []uint32) {
 
 func (l *GLESLoader) HasVAO() bool {
 	return l.genVertexArrays != nil && l.bindVertexArray != nil && l.deleteVertexArrays != nil
+}
+
+func (l *GLESLoader) Enable(cap uint32) {
+	l.enable(cap)
+}
+
+func (l *GLESLoader) Disable(cap uint32) {
+	l.disable(cap)
+}
+
+func (l *GLESLoader) BlendFunc(sfactor, dfactor uint32) {
+	l.blendFunc(sfactor, dfactor)
 }

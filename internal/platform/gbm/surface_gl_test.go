@@ -207,7 +207,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
 			BgR: 0, BgG: 0, BgB: 0,
-			HasBg: 0,
+			BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -237,7 +237,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
 			BgR: 0, BgG: 0, BgB: 0,
-			HasBg: 0,
+			BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -259,7 +259,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
 			BgR: 0, BgG: 0, BgB: 0,
-			HasBg: 0,
+			BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -299,7 +299,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphU0:   u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
 			BgR: 0, BgG: 0, BgB: 0,
-			HasBg: 0,
+			BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -341,7 +341,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphW: 8, GlyphH: 16,
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
-			BgR: 0, BgG: 0, BgB: 0, HasBg: 0,
+			BgR: 0, BgG: 0, BgB: 0, BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -363,7 +363,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphW: 7, GlyphH: 11,
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
-			BgR: 0, BgG: 0, BgB: 0, HasBg: 0,
+			BgR: 0, BgG: 0, BgB: 0, BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -385,7 +385,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphW: 7, GlyphH: 11,
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
-			BgR: 0, BgG: 0, BgB: 0, HasBg: 0,
+			BgR: 0, BgG: 0, BgB: 0, BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -420,7 +420,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphW: 7, GlyphH: 11,
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
-			BgR: 0, BgG: 0, BgB: 0, HasBg: 0,
+			BgR: 0, BgG: 0, BgB: 0, BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)
@@ -443,7 +443,7 @@ func TestGBMGL(t *testing.T) {
 			GlyphW: 8, GlyphH: 11,
 			GlyphU0: u0, V0: v0, GlyphU1: u1, V1: v1,
 			FgR: 1.0, FgG: 0, FgB: 0,
-			BgR: 0, BgG: 0, BgB: 0, HasBg: 0,
+			BgR: 0, BgG: 0, BgB: 0, BgA: 0,
 		}
 		if err := s.DrawInstances([]platform.CellInstance{inst}, 80, 32, [3]float32{0, 0, 0}); err != nil {
 			t.Fatalf("DrawInstances: %v", err)

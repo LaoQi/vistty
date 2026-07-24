@@ -65,9 +65,10 @@ type Master struct {
 	seqRelay chan seqMsg
 	exitCh   chan *terminal.Terminal
 
-	keyEvCh   chan platform.KeyEvent
-	mouseEvCh chan platform.MouseEvent
-	plugins   *plugins.PluginManager
+	keyEvCh    chan platform.KeyEvent
+	mouseEvCh  chan platform.MouseEvent
+	plugins    *plugins.PluginManager
+	focusStack []InputTarget
 
 	done        chan struct{}
 	closeOnce   sync.Once
@@ -289,6 +290,33 @@ func (m *Master) focusTerm() *terminal.Terminal {
 		return m.slaves[m.focusIdx].ActiveTerm()
 	}
 	return nil
+}
+
+func (m *Master) PushFocus(target InputTarget) {
+	m.focusStack = append(m.focusStack, target)
+}
+
+func (m *Master) PopFocus(target InputTarget) {
+	for i := len(m.focusStack) - 1; i >= 0; i-- {
+		if m.focusStack[i] == target {
+			m.focusStack = append(m.focusStack[:i], m.focusStack[i+1:]...)
+			return
+		}
+	}
+}
+
+func (m *Master) CurrentInputTarget() InputTarget {
+	if len(m.focusStack) > 0 {
+		return m.focusStack[len(m.focusStack)-1]
+	}
+	return m.focusTerm()
+}
+
+func (m *Master) CommitText(text string) {
+	target := m.CurrentInputTarget()
+	if target != nil {
+		target.CommitText(text)
+	}
 }
 
 func (m *Master) EnableFPSLogging() {
@@ -715,19 +743,86 @@ func (m *Master) RequestRender() {
 	}
 }
 
-func (m *Master) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {
+func (m *Master) ApplyTheme(term terminal.Theme, tbTheme ui.TabBarTheme, sbTheme ui.StatusBarTheme) {
 	m.opts.Theme = &term
 	for _, t := range m.terms {
 		t.SetTheme(&term)
 	}
 	for _, s := range m.slaves {
-		if s.osd != nil {
-			s.osd.SetTheme(osd)
+		if s.tabBar != nil {
+			s.tabBar.SetTheme(tbTheme)
+		}
+		if s.statusBar != nil {
+			s.statusBar.SetTheme(sbTheme)
 		}
 	}
 	m.osdDirty = true
 	m.dirty = true
 }
 
-// 编译期断言：Master 实现 plugins.PluginContext 接口。
+func (m *Master) ShowToast(message string, level int, durationMs int) {
+	s := m.slaves[m.focusIdx]
+	if s == nil {
+		return
+	}
+	face := s.Face()
+	var tl ui.ToastLevel
+	switch level {
+	case 1:
+		tl = ui.ToastWarn
+	case 2:
+		tl = ui.ToastError
+	default:
+		tl = ui.ToastInfo
+	}
+	t := ui.NewToast(face, message, tl, time.Duration(durationMs)*time.Millisecond)
+	comp := s.Compositor()
+	comp.AddFloatingOverlay(t)
+	t.SetGlyphProvider(comp)
+	t.SetGPUGlyphUploader(comp)
+	m.dirty = true
+}
+
+func (m *Master) ShowDialog(title string, inputPlaceholder string, buttons []string) int {
+	s := m.slaves[m.focusIdx]
+	if s == nil {
+		return -1
+	}
+	face := s.Face()
+	var input *ui.InputField
+	if inputPlaceholder != "" {
+		input = ui.NewInputField(inputPlaceholder)
+	}
+	d := ui.NewDialog(face, title, input, buttons)
+	comp := s.Compositor()
+	comp.AddFloatingOverlay(d)
+	d.SetGlyphProvider(comp)
+	d.SetGPUGlyphUploader(comp)
+	m.PushFocus(d)
+	m.dirty = true
+	return 0
+}
+
+func (m *Master) CloseDialog(id int) (int, string, bool) {
+	s := m.slaves[m.focusIdx]
+	if s == nil {
+		return 0, "", false
+	}
+	comp := s.Compositor()
+	for _, fo := range comp.FloatingOverlays() {
+		if dlg, ok := fo.(*ui.Dialog); ok {
+			result := int(dlg.Result())
+			var text string
+			if dlg.InputField() != nil {
+				text = dlg.InputField().Text()
+			}
+			comp.RemoveFloatingOverlay(dlg)
+			m.PopFocus(dlg)
+			m.dirty = true
+			return result, text, true
+		}
+	}
+	return 0, "", false
+}
+
 var _ plugins.PluginContext = (*Master)(nil)

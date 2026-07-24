@@ -33,8 +33,12 @@ func (f *p4FakeCtx) EnablePanel(s string, n int)                     {}
 func (f *p4FakeCtx) DisablePanel(s string)                           {}
 func (f *p4FakeCtx) ReloadPlugins() error                            { return nil }
 func (f *p4FakeCtx) RequestRender()                                  {}
+func (f *p4FakeCtx) CommitText(string)                               {}
+func (f *p4FakeCtx) ShowToast(string, int, int)                      {}
+func (f *p4FakeCtx) ShowDialog(string, string, []string) int         { return -1 }
+func (f *p4FakeCtx) CloseDialog(int) (int, string, bool)             { return 0, "", false }
 func (f *p4FakeCtx) Exit()                                           {}
-func (f *p4FakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
+func (f *p4FakeCtx) ApplyTheme(term terminal.Theme, tb ui.TabBarTheme, sb ui.StatusBarTheme) {}
 
 // TestP4CtxTextRectOpts 验证 ctx:text/ctx:rect 的 opts 参数解析（fg/bg/bold）。
 func TestP4CtxTextRectOpts(t *testing.T) {

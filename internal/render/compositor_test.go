@@ -138,6 +138,12 @@ func (f *fakeGPUSurface) DrawInstances(instances []platform.CellInstance, screen
 	return nil
 }
 
+func (f *fakeGPUSurface) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
+	f.drawnInst = append(f.drawnInst[:0], instances...)
+	f.drawCount++
+	return nil
+}
+
 func (f *fakeGPUSurface) BeginFrame() error {
 	if f.beginFrameErr != nil {
 		return f.beginFrameErr
@@ -212,9 +218,9 @@ func TestRenderGPUASCIICell(t *testing.T) {
 	if inst.FgR != 255.0/255 || inst.FgG != 255.0/255 || inst.FgB != 255.0/255 {
 		t.Errorf("fg=(%v,%v,%v) want default white", inst.FgR, inst.FgG, inst.FgB)
 	}
-	// bg=default black → HasBg=0
-	if inst.HasBg != 0 {
-		t.Errorf("HasBg=%v want 0 (default bg)", inst.HasBg)
+	// bg=default black → BgA=0
+	if inst.BgA != 0 {
+		t.Errorf("BgA=%v want 0 (default bg)", inst.BgA)
 	}
 	if inst.CellW != 8 || inst.CellH != 16 {
 		t.Errorf("cell size=%v×%v want 8×16", inst.CellW, inst.CellH)
@@ -323,15 +329,15 @@ func TestRenderGPUAttrsAndBold(t *testing.T) {
 	if inst.GlyphOffX != 0 {
 		t.Errorf("Bold+Italic GlyphOffX=%v want 0 (italic XOffset=-1 + bold +1)", inst.GlyphOffX)
 	}
-	// Reverse: fg/bg 交换。原 fg=白(255), bg=黑(0) → 交换后 fg=黑, bg=白, HasBg=1
+	// Reverse: fg/bg 交换。原 fg=白(255), bg=黑(0) → 交换后 fg=黑, bg=白, BgA=1
 	if inst.FgR != 0 {
 		t.Errorf("Reverse fg.R=%v want 0 (swapped from bg)", inst.FgR)
 	}
 	if inst.BgR != 255.0/255 {
 		t.Errorf("Reverse bg.R=%v want 255/255 (swapped from fg)", inst.BgR)
 	}
-	if inst.HasBg != 1 {
-		t.Errorf("Reverse HasBg=%v want 1", inst.HasBg)
+	if inst.BgA != 1 {
+		t.Errorf("Reverse BgA=%v want 1", inst.BgA)
 	}
 }
 
@@ -377,8 +383,8 @@ func TestRenderGPUCursor(t *testing.T) {
 	if !ok {
 		t.Fatal("no instance at cursor cell")
 	}
-	if inst.HasBg != 1 {
-		t.Errorf("cursor cell HasBg=%v want 1", inst.HasBg)
+	if inst.BgA != 1 {
+		t.Errorf("cursor cell BgA=%v want 1", inst.BgA)
 	}
 	if inst.BgR != 1.0 {
 		t.Errorf("cursor bg.R=%v want 1.0 (cursor color red)", inst.BgR)
@@ -388,14 +394,14 @@ func TestRenderGPUCursor(t *testing.T) {
 	}
 }
 
-func TestRenderGPUHasBgLogic(t *testing.T) {
+func TestRenderGPUBgALogic(t *testing.T) {
 	c, surf := newGPUCompositor()
 	buf := screen.NewBuffer(10, 2, 0)
-	// cell(0,0): 非默认背景 → HasBg=1
+	// cell(0,0): 非默认背景 → BgA=1
 	c0 := buf.Cell(0, 0)
 	c0.Rune = 'A'
 	c0.Bg = screen.Color{R: 255, G: 0, B: 0}
-	// cell(0,1): 默认背景 → HasBg=0
+	// cell(0,1): 默认背景 → BgA=0
 	c1 := buf.Cell(0, 1)
 	c1.Rune = 'B'
 	c1.Bg = screen.Color{IsDefault: true}
@@ -407,15 +413,15 @@ func TestRenderGPUHasBgLogic(t *testing.T) {
 	if !ok {
 		t.Fatal("no instance at (0,0)")
 	}
-	if inst0.HasBg != 1 {
-		t.Errorf("non-default bg: HasBg=%v want 1", inst0.HasBg)
+	if inst0.BgA != 1 {
+		t.Errorf("non-default bg: BgA=%v want 1", inst0.BgA)
 	}
 	inst1, ok := findInst(surf, 8, 0)
 	if !ok {
 		t.Fatal("no instance at (8,0)")
 	}
-	if inst1.HasBg != 0 {
-		t.Errorf("default bg: HasBg=%v want 0", inst1.HasBg)
+	if inst1.BgA != 0 {
+		t.Errorf("default bg: BgA=%v want 0", inst1.BgA)
 	}
 }
 

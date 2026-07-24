@@ -11,6 +11,7 @@ import (
 
 	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/debug"
+	"github.com/LaoQi/vistty/internal/panel"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/plugins"
 	"github.com/LaoQi/vistty/internal/ui"
@@ -214,11 +215,15 @@ func (m *Master) renderPlugins() {
 	}
 	panels := m.plugins.EnabledPanels()
 	for _, s := range m.slaves {
-		osd := s.OSD()
-		if osd == nil {
+		sb := s.StatusBar()
+		if sb == nil {
 			continue
 		}
-		osd.SetPanelLines(panels)
+		if lines, ok := panels["bottom"]; ok && lines > 0 {
+			sb.SetLines(lines)
+		} else {
+			sb.SetLines(0)
+		}
 		metrics := s.Face().Metrics()
 		if metrics.Width <= 0 || metrics.Height <= 0 {
 			continue
@@ -244,17 +249,17 @@ func (m *Master) renderPlugins() {
 		}
 		top, bottom, left, right := s.Insets()
 		surfW, surfH := s.Surface().Size()
-		for _, side := range []string{"bottom", "left", "right"} {
+		for _, side := range []string{"bottom"} {
 			w, h := pluginPanelCellSize(side, surfW, surfH, top, bottom, left, right, metrics)
 			if w <= 0 || h <= 0 {
-				osd.SetPluginPanel(side, nil)
+				sb.SetPrimitives(nil)
 				continue
 			}
 			dirty, prims := m.plugins.OnRender(side, s.Output().ID(), w, h)
 			if dirty {
 				m.dirty = true
 			}
-			osd.SetPluginPanel(side, toUIPrimitives(prims))
+			sb.SetPrimitives(toPanelPrimitives(prims))
 		}
 	}
 }
@@ -284,13 +289,13 @@ func pluginPanelCellSize(side string, surfW, surfH, top, bottom, left, right int
 
 // toUIPrimitives 将 plugins.Primitive 转换为 ui.PanelPrimitive。
 // session 包同时 import plugins 和 ui，无循环依赖。
-func toUIPrimitives(prims []plugins.Primitive) []ui.PanelPrimitive {
+func toPanelPrimitives(prims []plugins.Primitive) []panel.Primitive {
 	if len(prims) == 0 {
 		return nil
 	}
-	out := make([]ui.PanelPrimitive, len(prims))
+	out := make([]panel.Primitive, len(prims))
 	for i, p := range prims {
-		out[i] = ui.PanelPrimitive{
+		out[i] = panel.Primitive{
 			Kind: p.Kind,
 			X:    p.X,
 			Y:    p.Y,
@@ -519,8 +524,9 @@ func (m *Master) handleKey(ev platform.KeyEvent) {
 	if ev.State != platform.KeyPress {
 		return
 	}
-	if ft := m.focusTerm(); ft != nil {
-		ft.HandleKey(ev)
+	target := m.CurrentInputTarget()
+	if target != nil {
+		target.HandleKey(ev)
 	}
 }
 
@@ -550,12 +556,12 @@ func (m *Master) handleMouse(ev platform.MouseEvent) {
 	if s == nil {
 		return
 	}
-	osd := s.OSD()
-	if osd == nil {
+	tb := s.TabBar()
+	if tb == nil {
 		return
 	}
 	surfW, _ := s.Surface().Size()
-	hit := osd.HitTestTabBar(ev.X, ev.Y, surfW)
+	hit := tb.HitTestTabBar(ev.X, ev.Y, surfW)
 	switch hit {
 	case ui.TabBarCsdClose:
 		m.signalClose()

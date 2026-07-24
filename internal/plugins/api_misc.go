@@ -4,27 +4,17 @@ import (
 	"fmt"
 
 	"github.com/LaoQi/vistty/internal/debug"
+	"github.com/LaoQi/vistty/internal/panel"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/runeutil"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Primitive 是 OnRender 钩子中由 Lua 端 ctx:text / ctx:rect
-// 产生的图元描述。P1 阶段先定义结构骨架，P4 阶段由 ctx 的
-// text/rect metatable 方法填充并收集。
-type Primitive struct {
-	Kind   int // 0=text, 1=rect
-	X, Y   int
-	W, H   int
-	Text   string
-	Fg, Bg [4]uint8 // RGBA
-	Bold   bool
-}
+type Primitive = panel.Primitive
 
-// 图元类型常量。
 const (
-	PrimText = 0
-	PrimRect = 1
+	PrimText = panel.PrimText
+	PrimRect = panel.PrimRect
 )
 
 // keysTable 是 vistty.keys 常量表，值为 evdev scancode（Linux input-event-codes.h）。
@@ -138,6 +128,8 @@ func registerAPIs(L *lua.LState, pm *PluginManager) {
 	registerLifecycle(L, pm)
 	registerTheme(L, pm)
 	registerVersion(L, pm)
+	registerInputAPI(L, pm)
+	registerDialogAPI(L, pm)
 }
 
 // ensureVisttyTable 确保全局 vistty 表存在并返回它。

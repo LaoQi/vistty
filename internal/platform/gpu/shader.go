@@ -12,7 +12,7 @@ layout(location=5) in vec2 i_glyphSize; // glyph draw size
 layout(location=6) in vec4 i_glyphUV;   // atlas UV (u0,v0,u1,v1)
 layout(location=7) in vec3 i_fg;
 layout(location=8) in vec3 i_bg;
-layout(location=9) in float i_hasBg;
+layout(location=9) in float i_bgA;
 layout(location=10) in float i_attrFlags;
 layout(location=11) in float i_isColor;
 uniform vec2 u_resolution;
@@ -20,7 +20,7 @@ out vec2 v_tex;
 out vec2 v_cellUV;
 out vec3 v_fg;
 out vec3 v_bg;
-out float v_hasBg;
+out float v_bgA;
 out float v_attrFlags;
 out vec2 v_glyphCoord;
 out float v_hasGlyph;
@@ -39,7 +39,7 @@ void main() {
     v_cellSize = i_cellSize;
     v_fg = i_fg;
     v_bg = i_bg;
-    v_hasBg = i_hasBg;
+    v_bgA = i_bgA;
     v_attrFlags = i_attrFlags;
     v_isColor = i_isColor;
     // UV 退化 (u0>=u1 或 v0>=v1) 表示无字形（空字符 UV=0），避免采样 atlas (0,0) 残留
@@ -53,7 +53,7 @@ in vec2 v_tex;
 in vec2 v_cellUV;
 in vec3 v_fg;
 in vec3 v_bg;
-in float v_hasBg;
+in float v_bgA;
 in float v_attrFlags;
 in vec2 v_glyphCoord;
 in float v_hasGlyph;
@@ -77,7 +77,7 @@ void main() {
             glyphColor = v_fg;
         }
     }
-    vec3 bg = mix(u_defBg, v_bg, v_hasBg);
+    vec3 bg = mix(u_defBg, v_bg, v_bgA);
     vec3 color = mix(bg, glyphColor, alpha);
     // underline (bit 0)：cell 底部精确 1px
     float hasUL = mod(floor(v_attrFlags), 2.0);
@@ -93,6 +93,7 @@ void main() {
         color = v_fg;
         alpha = 1.0;
     }
-    fragColor = vec4(color, 1.0);
+    float finalAlpha = max(v_bgA, alpha);
+    fragColor = vec4(color, finalAlpha);
 }
 `

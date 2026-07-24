@@ -17,7 +17,8 @@ type Slave struct {
 	compositor *render.Compositor
 	faceCache  font.FaceCacheProvider
 	face       font.Face
-	osd        *ui.OSD
+	tabBar     *ui.TabBar
+	statusBar  *ui.StatusBar
 
 	prevTop     int
 	prevBottom  int
@@ -82,12 +83,16 @@ func (s *Slave) InitIndependent(fontData, fallbackFontData []byte, fontSize floa
 	s.faceCache = fc
 	s.face = face
 	s.compositor = render.NewCompositor(s.surface, face)
-	s.osd = ui.NewOSD(face, ui.DefaultOSDTheme)
-	s.compositor.SetOverlay(s.osd)
-	s.osd.SetGlyphProvider(s.compositor)
-	s.osd.SetGPUGlyphUploader(s.compositor)
+	s.tabBar = ui.NewTabBar(face, ui.DefaultTabBarTheme)
+	s.statusBar = ui.NewStatusBar(face, ui.DefaultStatusBarTheme)
+	s.compositor.AddOverlay(s.tabBar)
+	s.compositor.AddOverlay(s.statusBar)
+	s.tabBar.SetGlyphProvider(s.compositor)
+	s.tabBar.SetGPUGlyphUploader(s.compositor)
+	s.statusBar.SetGlyphProvider(s.compositor)
+	s.statusBar.SetGPUGlyphUploader(s.compositor)
 	if s.surface.DecoMode() != 2 {
-		s.osd.SetCSDMode(true)
+		s.tabBar.SetCSDMode(true)
 		s.prevCsdMode = true
 	}
 	return nil
@@ -103,8 +108,11 @@ func (s *Slave) Face() font.Face {
 
 func (s *Slave) SetFace(f font.Face) {
 	s.face = f
-	if s.osd != nil {
-		s.osd.UpdateFace(f)
+	if s.tabBar != nil {
+		s.tabBar.UpdateFace(f)
+	}
+	if s.statusBar != nil {
+		s.statusBar.UpdateFace(f)
 	}
 }
 
@@ -113,10 +121,15 @@ func (s *Slave) FaceCache() font.FaceCacheProvider {
 }
 
 func (s *Slave) Insets() (top, bottom, left, right int) {
-	if s.osd == nil {
-		return 0, 0, 0, 0
+	if s.tabBar != nil {
+		t, _, _, _ := s.tabBar.Insets()
+		top = t
 	}
-	return s.osd.Insets()
+	if s.statusBar != nil {
+		_, b, _, _ := s.statusBar.Insets()
+		bottom = b
+	}
+	return
 }
 
 func (s *Slave) CheckInsetsChanged() bool {
@@ -128,7 +141,7 @@ func (s *Slave) CheckInsetsChanged() bool {
 	s.prevLeft = left
 	s.prevRight = right
 	if csdMode != s.prevCsdMode {
-		s.osd.SetCSDMode(csdMode)
+		s.tabBar.SetCSDMode(csdMode)
 	}
 	s.prevCsdMode = csdMode
 	return changed
@@ -142,7 +155,7 @@ func (s *Slave) ResizeTerms(cols, rows int) {
 }
 
 func (s *Slave) UpdateTabs() {
-	if s.osd == nil || len(s.terms) == 0 {
+	if s.tabBar == nil || len(s.terms) == 0 {
 		return
 	}
 	tabs := make([]ui.Tab, len(s.terms))
@@ -152,11 +165,15 @@ func (s *Slave) UpdateTabs() {
 			Active: i == s.activeIdx,
 		}
 	}
-	s.osd.SetTabs(tabs, s.activeIdx)
+	s.tabBar.SetTabs(tabs, s.activeIdx)
 }
 
-func (s *Slave) OSD() *ui.OSD {
-	return s.osd
+func (s *Slave) TabBar() *ui.TabBar {
+	return s.tabBar
+}
+
+func (s *Slave) StatusBar() *ui.StatusBar {
+	return s.statusBar
 }
 
 func (s *Slave) CsdMode() bool {

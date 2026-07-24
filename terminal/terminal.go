@@ -1276,6 +1276,10 @@ func (t *Terminal) HandleKey(ev platform.KeyEvent) {
 	}
 }
 
+func (t *Terminal) CommitText(text string) {
+	t.PtyWrite([]byte(text))
+}
+
 func (t *Terminal) PtyWrite(b []byte) {
 	if t.writeCh == nil {
 		if t.hostWriter == nil {

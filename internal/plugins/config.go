@@ -22,7 +22,8 @@ type RunConfig struct {
 	Primary          string
 	ErrorLog         string
 	TermTheme        *terminal.Theme
-	OSDTheme         *ui.OSDTheme
+	TabBarTheme      *ui.TabBarTheme
+	StatusBarTheme   *ui.StatusBarTheme
 }
 
 func DefaultInitPath() string {
@@ -85,11 +86,13 @@ func (pm *PluginManager) readConfig() (*RunConfig, error) {
 	themeVal := pm.L.GetField(ct, "theme")
 	if themeVal != lua.LNil {
 		if tt, ok := themeVal.(*lua.LTable); ok {
-			termTheme, osdTheme := parseLuaTheme(pm.L, tt)
+			termTheme, tbTheme, sbTheme := parseLuaTheme(pm.L, tt)
 			cfg.TermTheme = &termTheme
-			cfg.OSDTheme = &osdTheme
+			cfg.TabBarTheme = &tbTheme
+			cfg.StatusBarTheme = &sbTheme
 			pm.currentTheme = &termTheme
-			pm.currentOSDTheme = &osdTheme
+			pm.currentTabBarTheme = &tbTheme
+			pm.currentStatusBarTheme = &sbTheme
 		}
 	}
 
@@ -132,16 +135,18 @@ func getBool(L *lua.LState, t *lua.LTable, key string, def bool) bool {
 	return def
 }
 
-func parseLuaTheme(L *lua.LState, t *lua.LTable) (terminal.Theme, ui.OSDTheme) {
+func parseLuaTheme(L *lua.LState, t *lua.LTable) (terminal.Theme, ui.TabBarTheme, ui.StatusBarTheme) {
 	dt := terminal.DefaultTheme
-	ot := ui.DefaultOSDTheme
+	tbt := ui.DefaultTabBarTheme
+	sbt := ui.DefaultStatusBarTheme
 	term := terminal.Theme{
 		DefFg:       dt.DefFg,
 		DefBg:       dt.DefBg,
 		CursorColor: dt.CursorColor,
 		Palette:     dt.Palette,
 	}
-	osd := ot
+	tb := tbt
+	sb := sbt
 
 	if v := L.GetField(t, "fg"); v != lua.LNil {
 		term.DefFg = luaColorToScreenColor(L, v)
@@ -166,33 +171,33 @@ func parseLuaTheme(L *lua.LState, t *lua.LTable) (terminal.Theme, ui.OSDTheme) {
 	if ov := L.GetField(t, "osd"); ov != lua.LNil {
 		if ot2, ok := ov.(*lua.LTable); ok {
 			if v := L.GetField(ot2, "bar_bg"); v != lua.LNil {
-				osd.BarBg = luaColorToArray3(L, v)
+				tb.BarBg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "active_bg"); v != lua.LNil {
-				osd.ActiveBg = luaColorToArray3(L, v)
+				tb.ActiveBg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "inactive_bg"); v != lua.LNil {
-				osd.InactiveBg = luaColorToArray3(L, v)
+				tb.InactiveBg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "active_fg"); v != lua.LNil {
-				osd.ActiveFg = luaColorToArray3(L, v)
+				tb.ActiveFg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "inactive_fg"); v != lua.LNil {
-				osd.InactiveFg = luaColorToArray3(L, v)
+				tb.InactiveFg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "csd_btn_bg"); v != lua.LNil {
-				osd.CsdBtnBg = luaColorToArray3(L, v)
+				tb.CsdBtnBg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "csd_close_bg"); v != lua.LNil {
-				osd.CsdCloseBg = luaColorToArray3(L, v)
+				tb.CsdCloseBg = luaColorToArray3(L, v)
 			}
 			if v := L.GetField(ot2, "csd_btn_fg"); v != lua.LNil {
-				osd.CsdBtnFg = luaColorToArray3(L, v)
+				tb.CsdBtnFg = luaColorToArray3(L, v)
 			}
 		}
 	}
 
-	return term, osd
+	return term, tb, sb
 }
 
 func luaColorToScreenColor(L *lua.LState, v lua.LValue) screen.Color {

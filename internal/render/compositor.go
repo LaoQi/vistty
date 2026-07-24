@@ -37,7 +37,8 @@ type Compositor struct {
 	gpu              platform.GPURenderer
 	gpuDisabled      bool
 	instances        []platform.CellInstance
-	overlay          Overlay
+	overlays         []Overlay
+	floatingOverlays []FloatingOverlay
 	originX          int
 	originY          int
 	prevScrollOffset int
@@ -149,8 +150,34 @@ func (c *Compositor) getGlyph(r rune, italic bool) (*font.Glyph, error) {
 	return g, nil
 }
 
-func (c *Compositor) SetOverlay(o Overlay) {
-	c.overlay = o
+func (c *Compositor) AddOverlay(o Overlay) {
+	c.overlays = append(c.overlays, o)
+}
+
+func (c *Compositor) RemoveOverlay(o Overlay) {
+	for i := range c.overlays {
+		if c.overlays[i] == o {
+			c.overlays = append(c.overlays[:i], c.overlays[i+1:]...)
+			return
+		}
+	}
+}
+
+func (c *Compositor) AddFloatingOverlay(fo FloatingOverlay) {
+	c.floatingOverlays = append(c.floatingOverlays, fo)
+}
+
+func (c *Compositor) RemoveFloatingOverlay(fo FloatingOverlay) {
+	for i := range c.floatingOverlays {
+		if c.floatingOverlays[i] == fo {
+			c.floatingOverlays = append(c.floatingOverlays[:i], c.floatingOverlays[i+1:]...)
+			return
+		}
+	}
+}
+
+func (c *Compositor) FloatingOverlays() []FloatingOverlay {
+	return c.floatingOverlays
 }
 
 func (c *Compositor) OverlayGlyph(r rune) *font.Glyph {
@@ -230,8 +257,17 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		}
 	}
 
-	if c.overlay != nil {
-		top, _, left, _ := c.overlay.Insets()
+	if len(c.overlays) > 0 {
+		var top, left int
+		for _, o := range c.overlays {
+			t, _, l, _ := o.Insets()
+			if t > top {
+				top = t
+			}
+			if l > left {
+				left = l
+			}
+		}
 		c.originX = left
 		c.originY = top
 	} else {
@@ -385,8 +421,12 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 		}
 	}
 
-	if c.overlay != nil {
-		c.overlay.RenderCPU(c.backBuf, c.backStride, c.backWidth, c.backHeight)
+	for _, o := range c.overlays {
+		o.RenderCPU(c.backBuf, c.backStride, c.backWidth, c.backHeight)
+	}
+
+	for _, fo := range c.floatingOverlays {
+		fo.RenderCPU(c.backBuf, c.backStride, c.backWidth, c.backHeight)
 	}
 
 	if !c.directRender {
@@ -405,8 +445,17 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 		return err
 	}
 
-	if c.overlay != nil {
-		top, _, left, _ := c.overlay.Insets()
+	if len(c.overlays) > 0 {
+		var top, left int
+		for _, o := range c.overlays {
+			t, _, l, _ := o.Insets()
+			if t > top {
+				top = t
+			}
+			if l > left {
+				left = l
+			}
+		}
 		c.originX = left
 		c.originY = top
 	} else {
@@ -469,36 +518,36 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			bg := resolveBg(cell.Bg, dc)
 			fgR, fgG, fgB := float32(fg.R)/255, float32(fg.G)/255, float32(fg.B)/255
 			bgR, bgG, bgB := float32(bg.R)/255, float32(bg.G)/255, float32(bg.B)/255
-			hasBg := float32(0)
+		bgA := float32(0)
 
-			if cell.Attr&screen.AttrReverse != 0 {
-				fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
-			}
-			if cell.Attr&screen.AttrDim != 0 {
-				fgR /= 2
-				fgG /= 2
-				fgB /= 2
-			}
-			if bgR != defBgR || bgG != defBgG || bgB != defBgB {
-				hasBg = 1
-			}
+		if cell.Attr&screen.AttrReverse != 0 {
+			fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
+		}
+		if cell.Attr&screen.AttrDim != 0 {
+			fgR /= 2
+			fgG /= 2
+			fgB /= 2
+		}
+		if bgR != defBgR || bgG != defBgG || bgB != defBgB {
+			bgA = 1.0
+		}
 
-			inst := platform.CellInstance{
-				X:         px,
-				Y:         py,
-				CellW:     cellW,
-				CellH:     cellH,
-				GlyphOffX: 0,
-				GlyphOffY: ascentF,
-				GlyphW:    cellWF,
-				GlyphH:    cellHF,
-				FgR:       fgR,
-				FgG:       fgG,
-				FgB:       fgB,
-				BgR:       bgR,
-				BgG:       bgG,
-				BgB:       bgB,
-				HasBg:     hasBg,
+		inst := platform.CellInstance{
+			X:         px,
+			Y:         py,
+			CellW:     cellW,
+			CellH:     cellH,
+			GlyphOffX: 0,
+			GlyphOffY: ascentF,
+			GlyphW:    cellWF,
+			GlyphH:    cellHF,
+			FgR:       fgR,
+			FgG:       fgG,
+			FgB:       fgB,
+			BgR:       bgR,
+			BgG:       bgG,
+			BgB:       bgB,
+			BgA:       bgA,
 			}
 			if cell.Attr&screen.AttrUnderline != 0 {
 				inst.AttrFlags += 1
@@ -554,7 +603,7 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 						c.instances[i].BgR = cursorR
 						c.instances[i].BgG = cursorG
 						c.instances[i].BgB = cursorB
-						c.instances[i].HasBg = 1
+						c.instances[i].BgA = 1
 						break
 					}
 				}
@@ -563,11 +612,23 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 	}
 
 	bgColor := [3]float32{defBgR, defBgG, defBgB}
-	if c.overlay != nil {
-		c.overlay.RenderGPU(&c.instances, c.backWidth, c.backHeight)
+	for _, o := range c.overlays {
+		o.RenderGPU(&c.instances, c.backWidth, c.backHeight)
 	}
 	if err := c.gpu.DrawInstances(c.instances, c.backWidth, c.backHeight, bgColor); err != nil {
 		return err
+	}
+
+	if len(c.floatingOverlays) > 0 {
+		var floatInstances []platform.CellInstance
+		for _, fo := range c.floatingOverlays {
+			fo.RenderGPU(&floatInstances, c.backWidth, c.backHeight)
+		}
+		if len(floatInstances) > 0 {
+			if err := c.gpu.DrawInstancesBlended(floatInstances, c.backWidth, c.backHeight, bgColor); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

@@ -39,8 +39,12 @@ func (f *fakeCtx) EnablePanel(s string, n int)                     {}
 func (f *fakeCtx) DisablePanel(s string)                           {}
 func (f *fakeCtx) ReloadPlugins() error                            { return nil }
 func (f *fakeCtx) RequestRender()                                  {}
+func (f *fakeCtx) CommitText(string)                                {}
+func (f *fakeCtx) ShowToast(string, int, int)                       {}
+func (f *fakeCtx) ShowDialog(string, string, []string) int          { return -1 }
+func (f *fakeCtx) CloseDialog(int) (int, string, bool)              { return 0, "", false }
 func (f *fakeCtx) Exit()                                           {}
-func (f *fakeCtx) ApplyTheme(term terminal.Theme, osd ui.OSDTheme) {}
+func (f *fakeCtx) ApplyTheme(term terminal.Theme, tb ui.TabBarTheme, sb ui.StatusBarTheme) {}
 
 func TestP2TabAPI(t *testing.T) {
 	src := `

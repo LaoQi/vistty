@@ -255,6 +255,17 @@ func (s *GBMSurface) DrawInstances(instances []platform.CellInstance, screenW, s
 	return nil
 }
 
+func (s *GBMSurface) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
+	if s.gpu == nil {
+		return fmt.Errorf("GBM: GPU renderer not available")
+	}
+	if err := s.gpu.DrawInstancesBlended(instances, screenW, screenH, bgColor); err != nil {
+		return err
+	}
+	s.gpuDrawn = true
+	return nil
+}
+
 func (s *GBMSurface) BeginFrame() error {
 	if !s.glInitDone {
 		if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext); err != nil {

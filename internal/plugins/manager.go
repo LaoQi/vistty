@@ -40,8 +40,9 @@ type PluginManager struct {
 	bindings          []keyBinding
 	pressedKeys       map[uint16]bool
 	active            bool
-	currentTheme      *terminal.Theme
-	currentOSDTheme   *ui.OSDTheme
+	currentTheme          *terminal.Theme
+	currentTabBarTheme    *ui.TabBarTheme
+	currentStatusBarTheme *ui.StatusBarTheme
 	reloadRequested   bool
 }
 
@@ -239,7 +240,15 @@ func (pm *PluginManager) Reload() error {
 
 	if pm.ctx != nil {
 		if cfg != nil && cfg.TermTheme != nil {
-			pm.ctx.ApplyTheme(*cfg.TermTheme, *cfg.OSDTheme)
+			tbTheme := ui.DefaultTabBarTheme
+			sbTheme := ui.DefaultStatusBarTheme
+			if cfg.TabBarTheme != nil {
+				tbTheme = *cfg.TabBarTheme
+			}
+			if cfg.StatusBarTheme != nil {
+				sbTheme = *cfg.StatusBarTheme
+			}
+			pm.ctx.ApplyTheme(*cfg.TermTheme, tbTheme, sbTheme)
 		}
 		pm.Activate(pm.ctx)
 	}
