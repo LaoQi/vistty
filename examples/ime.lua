@@ -114,7 +114,7 @@ end
 
 local function get_focused_width()
 	local oid = vistty.screen.focused_output_id()
-	if oid > 0 and statusbar_ref then
+	if oid >= 0 and statusbar_ref then
 		return statusbar_ref.left_available_width(oid)
 	end
 	return 0
@@ -162,7 +162,82 @@ local function setup_toggle()
 	end)
 end
 
+local key_handlers = nil
+
+local function page_prev()
+	if ime_page > 0 then ime_page = ime_page - 1 end
+	vistty.request_render()
+end
+
+local function page_next()
+	local cands = M.candidates()
+	local pw = get_focused_width()
+	local avail = pw - vistty.display_width(M.preedit() .. "_")
+	local total = M.total_pages(cands, avail)
+	if ime_page + 1 < total then
+		ime_page = ime_page + 1
+	else
+		ime_page = 0
+	end
+	vistty.request_render()
+end
+
+local function build_key_handlers()
+	local h = {
+		[vistty.keys.BACKSPACE] = function()
+			ime_buf = remove_last_char(ime_buf)
+			ime_page = 0
+			vistty.request_render()
+		end,
+		[vistty.keys.ESCAPE] = function()
+			ime_buf = ""
+			ime_page = 0
+			vistty.request_render()
+		end,
+		[vistty.keys.ENTER] = function()
+			vistty.input.commit(ime_buf)
+			ime_buf = ""
+			ime_page = 0
+			vistty.request_render()
+		end,
+		[vistty.keys.SPACE] = function()
+			local cands = M.candidates()
+			if #cands > 0 and cands[1] and cands[1].word then
+				vistty.input.commit(cands[1].word)
+			else
+				vistty.input.commit(ime_buf)
+			end
+			ime_buf = ""
+			ime_page = 0
+			vistty.request_render()
+		end,
+		[vistty.keys.MINUS]  = page_prev,
+		[vistty.keys.LEFT]   = page_prev,
+		[vistty.keys.UP]     = page_prev,
+		[vistty.keys.EQUAL]  = page_next,
+		[vistty.keys.RIGHT]  = page_next,
+		[vistty.keys.DOWN]   = page_next,
+		[vistty.keys.TAB]    = page_next,
+	}
+	for i = 1, 9 do
+		h[vistty.keys["NUM" .. i]] = function()
+			local cands = M.candidates()
+			local pw = get_focused_width()
+			local avail = pw - vistty.display_width(M.preedit() .. "_")
+			local page_cands = M.page_slice(cands, ime_page, avail)
+			if i <= #page_cands and page_cands[i] and page_cands[i].word then
+				vistty.input.commit(page_cands[i].word)
+				ime_buf = ""
+				ime_page = 0
+			end
+			vistty.request_render()
+		end
+	end
+	return h
+end
+
 local function setup_key_handler()
+	key_handlers = build_key_handlers()
 	vistty.input.on_key(function(ev)
 		if ev.state ~= vistty.state.PRESS then return end
 		if not ime_active then return end
@@ -177,75 +252,9 @@ local function setup_key_handler()
 
 		if ime_buf == "" then return end
 
-		if ev.code == vistty.keys.BACKSPACE then
-			ime_buf = remove_last_char(ime_buf)
-			ime_page = 0
-			vistty.request_render()
-			return true
-		end
-
-		if ev.code == vistty.keys.ESCAPE then
-			ime_buf = ""
-			ime_page = 0
-			vistty.request_render()
-			return true
-		end
-
-		if ev.code == vistty.keys.ENTER then
-			vistty.input.commit(ime_buf)
-			ime_buf = ""
-			ime_page = 0
-			vistty.request_render()
-			return true
-		end
-
-		if ev.code == vistty.keys.SPACE then
-			local cands = M.candidates()
-			if #cands > 0 and cands[1] and cands[1].word then
-				vistty.input.commit(cands[1].word)
-			else
-				vistty.input.commit(ime_buf)
-			end
-			ime_buf = ""
-			ime_page = 0
-			vistty.request_render()
-			return true
-		end
-
-		for i = 1, 9 do
-			if ev.code == vistty.keys["NUM" .. i] then
-				local cands = M.candidates()
-				local pw = get_focused_width()
-				local avail = pw - vistty.display_width(M.preedit() .. "_")
-				local page_cands = M.page_slice(cands, ime_page, avail)
-				if i <= #page_cands and page_cands[i] and page_cands[i].word then
-					vistty.input.commit(page_cands[i].word)
-					ime_buf = ""
-					ime_page = 0
-				end
-				vistty.request_render()
-				return true
-			end
-		end
-
-		if ev.code == vistty.keys.MINUS or ev.code == vistty.keys.LEFT
-			or ev.code == vistty.keys.UP then
-			if ime_page > 0 then ime_page = ime_page - 1 end
-			vistty.request_render()
-			return true
-		end
-		if ev.code == vistty.keys.EQUAL or ev.code == vistty.keys.RIGHT
-		   or ev.code == vistty.keys.DOWN or ev.code == vistty.keys.TAB then
-			local cands = M.candidates()
-			local pw = get_focused_width()
-			local avail = pw - vistty.display_width(M.preedit() .. "_")
-			local total = M.total_pages(cands, avail)
-			if ime_page + 1 < total then
-				ime_page = ime_page + 1
-			else
-				ime_page = 0
-			end
-			vistty.request_render()
+		local handler = key_handlers[ev.code]
+		if handler then
+			handler()
 			return true
 		end
 	end)

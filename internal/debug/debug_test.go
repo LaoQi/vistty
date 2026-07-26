@@ -34,7 +34,7 @@ func TestDebugfDisabled(t *testing.T) {
 	writers = []io.Writer{&buf}
 	mu.Unlock()
 
-	Debugf("should not appear %d\n", 42)
+	Debugf("should not appear %d", 42)
 	if buf.Len() > 0 {
 		t.Fatalf("expected no output when disabled, got %q", buf.String())
 	}
@@ -50,7 +50,7 @@ func TestDebugfEnabled(t *testing.T) {
 	writers = []io.Writer{&buf}
 	mu.Unlock()
 
-	Debugf("hello %s %d\n", "world", 7)
+	Debugf("hello %s %d", "world", 7)
 	if got := buf.String(); got != "hello world 7\n" {
 		t.Fatalf("expected %q, got %q", "hello world 7\n", got)
 	}
@@ -69,7 +69,7 @@ func TestConfigureFileOnly(t *testing.T) {
 	on = true
 	mu.Unlock()
 
-	Debugf("file only line\n")
+	Debugf("file only line")
 
 	if file == nil {
 		t.Fatal("expected file to be opened")
@@ -98,7 +98,7 @@ func TestConfigureFileAndStderr(t *testing.T) {
 	writers = []io.Writer{&stderr, file}
 	mu.Unlock()
 
-	Debugf("both sinks\n")
+	Debugf("both sinks")
 
 	if got := stderr.String(); got != "both sinks\n" {
 		t.Fatalf("stderr expected %q, got %q", "both sinks\n", got)
@@ -124,12 +124,12 @@ func TestConfigureAppendOnReopen(t *testing.T) {
 	mu.Lock()
 	on = true
 	mu.Unlock()
-	Debugf("first line\n")
+	Debugf("first line")
 
 	if err := Configure(path, false); err != nil {
 		t.Fatalf("Configure second: %v", err)
 	}
-	Debugf("second line\n")
+	Debugf("second line")
 
 	data, err := os.ReadFile(path)
 	if err != nil {

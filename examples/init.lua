@@ -84,41 +84,41 @@ statusbar.init()
 --
 -- -- on_activate：后端确定后触发（backend_name 已注入），可注册后端专属快捷键。
 -- vistty.on_activate(function(name)
--- 	vistty.log("activated with backend: " .. name)
+-- 	vistty.log.debug("activated with backend: " .. name)
 -- end)
 --
 -- -- on_exit：程序退出前触发，可保存状态或清理资源。
 -- vistty.on_exit(function()
--- 	vistty.log("vistty exiting, bye")
+-- 	vistty.log.debug("vistty exiting, bye")
 -- end)
 --
 -- -- on_tab_new / on_tab_close / on_tab_switch：标签生命周期。
 -- vistty.on_tab_new(function(idx, title)
--- 	vistty.log("tab #" .. idx .. " created: " .. title)
+-- 	vistty.log.debug("tab #" .. idx .. " created: " .. title)
 -- end)
 -- vistty.on_tab_close(function(idx, title)
--- 	vistty.log("tab #" .. idx .. " closed: " .. title)
+-- 	vistty.log.debug("tab #" .. idx .. " closed: " .. title)
 -- end)
 -- vistty.on_tab_switch(function(newIdx, oldIdx)
--- 	vistty.log("tab switch " .. oldIdx .. " -> " .. newIdx)
+-- 	vistty.log.debug("tab switch " .. oldIdx .. " -> " .. newIdx)
 -- end)
 --
 -- -- on_screen_switch：屏幕焦点切换后触发。
 -- vistty.on_screen_switch(function(idx)
--- 	vistty.log("screen switched to " .. idx)
+-- 	vistty.log.debug("screen switched to " .. idx)
 -- end)
 --
 -- -- on_title_change：终端标题变化（经主线程缓冲批量触发）。
 -- vistty.on_title_change(function(title)
--- 	vistty.log("title changed: " .. title)
+-- 	vistty.log.debug("title changed: " .. title)
 -- end)
 --
 -- -- on_resize：窗口/尺寸变化后触发。
 -- vistty.on_resize(function(output_id, w, h, cols, rows)
--- 	vistty.log("resize " .. w .. "x" .. h .. " @" .. cols .. "x" .. rows)
+-- 	vistty.log.debug("resize " .. w .. "x" .. h .. " @" .. cols .. "x" .. rows)
 -- end)
 --
 -- -- on_zoom：字体缩放后触发。
 -- vistty.on_zoom(function(size)
--- 	vistty.log("zoom to " .. size)
+-- 	vistty.log.debug("zoom to " .. size)
 -- end)

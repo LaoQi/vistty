@@ -63,7 +63,7 @@ func Debugf(format string, args ...any) {
 	if !on {
 		return
 	}
-	s := fmt.Sprintf(format, args...)
+	s := fmt.Sprintf(format, args...) + "\n"
 	mu.Lock()
 	defer mu.Unlock()
 	for _, w := range writers {

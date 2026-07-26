@@ -3,7 +3,6 @@ package plugins
 import (
 	"fmt"
 
-	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/panel"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/runeutil"
@@ -130,6 +129,7 @@ func registerAPIs(L *lua.LState, pm *PluginManager) {
 	registerVersion(L, pm)
 	registerInputAPI(L, pm)
 	registerDialogAPI(L, pm)
+	registerLog(L, pm)
 }
 
 // ensureVisttyTable 确保全局 vistty 表存在并返回它。
@@ -143,7 +143,7 @@ func ensureVisttyTable(L *lua.LState) *lua.LTable {
 }
 
 // registerMisc 注册 vistty.keys / vistty.mods 常量表，
-// 以及 vistty.log / vistty.reload / vistty.exit / vistty.on_key 函数。
+// 以及 vistty.reload / vistty.exit / vistty.on_key 函数。
 func registerMisc(L *lua.LState, pm *PluginManager) {
 	vt := ensureVisttyTable(L)
 
@@ -179,8 +179,6 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 		return 1
 	}))
 
-	// vistty.log(msg)
-	vt.RawSetString("log", L.NewFunction(luaVisttyLog))
 	// vistty.reload() — 延迟重载：设置标记，由主循环在 Lua 调用栈清空后执行实际重建。
 	// 直接在 Lua 调用栈内销毁 LState 会导致 UB，故采用延迟模式。
 	vt.RawSetString("reload", L.NewFunction(func(L *lua.LState) int {
@@ -208,13 +206,6 @@ func registerMisc(L *lua.LState, pm *PluginManager) {
 		pm.keyHooks.Append(fn)
 		return 0
 	}))
-}
-
-// luaVisttyLog: vistty.log(msg) — 将消息写入调试日志。
-func luaVisttyLog(L *lua.LState) int {
-	msg := L.CheckString(1)
-	debug.Debugf("plugin: %s", msg)
-	return 0
 }
 
 // formatKeyError 统一格式化按键事件构造错误（P1 暂未使用，预留）。

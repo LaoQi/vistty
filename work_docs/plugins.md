@@ -251,7 +251,9 @@ end)
 ### 3.9 其他
 
 ```lua
-vistty.log("debug message")      -- 写入 vistty 调试日志
+vistty.log.debug("debug message")   -- 写入 vistty 调试日志（需 VISTTY_DEBUG=1）
+vistty.log.error("error message")   -- 写入 vistty 错误日志（始终输出）
+vistty.log.warning("warn message")  -- 写入 vistty 警告日志（始终输出）
 vistty.reload()                  -- 重新加载所有插件（清空钩子 + 重新执行 init.lua + Activate）
 ```
 
@@ -270,7 +272,7 @@ internal/plugins/
 ├── api_tab.go        # vistty.tab.*
 ├── api_screen.go     # vistty.screen.*
 ├── api_zoom.go       # vistty.zoom.*
-├── api_misc.go       # vistty.log/reload/keys/mods 常量
+├── api_log.go        # vistty.log.debug/error/warning
 └── manager_test.go
 ```
 

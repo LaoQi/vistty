@@ -110,7 +110,7 @@ func NewGBMDevice(fd int) (*GBMDevice, error) {
 	gSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_GREEN_SIZE)
 	bSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_BLUE_SIZE)
 	aSize, _ := eglLoader.GetConfigAttrib(eglDisplay, eglConfig, gl.EGL_ALPHA_SIZE)
-	debug.Debugf("GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)\n",
+	debug.Debugf("GBM: config RGBA=%d%d%d%d nativeVisual=0x%x (%s)",
 		rSize, gSize, bSize, aSize, uint32(nativeVisual), visualName(uint32(nativeVisual)))
 
 	glesLoader, err := gl.LoadGLES()
@@ -170,7 +170,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		errCode := d.eglLoader.GetError()
 		return nil, fmt.Errorf("gbm_surface_create failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
-	debug.Debugf("GBM: surface created %dx%d fmt=0x%x (%s)\n", width, height, gbmFormat, visualName(gbmFormat))
+	debug.Debugf("GBM: surface created %dx%d fmt=0x%x (%s)", width, height, gbmFormat, visualName(gbmFormat))
 
 	eglSurface := d.eglLoader.CreateWindowSurface(d.eglDisplay, d.eglConfig, gbmSurface)
 	if eglSurface == 0 || eglSurface == gl.EGL_NO_SURFACE {
@@ -178,7 +178,7 @@ func (d *GBMDevice) CreateSurface(width, height int, crtcID, connectorID uint32,
 		d.gbmLoader.SurfaceDestroy(gbmSurface)
 		return nil, fmt.Errorf("eglCreateWindowSurface failed (eglErr=%s)", gl.EGLErrorString(errCode))
 	}
-	debug.Debugf("GBM: eglCreateWindowSurface succeeded\n")
+	debug.Debugf("GBM: eglCreateWindowSurface succeeded")
 
 	info, err := d.commitor.Register(crtcID, connectorID, width, height, mode)
 	if err != nil {

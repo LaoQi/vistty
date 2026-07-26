@@ -346,7 +346,7 @@ func (s *GBMSurface) Swap() error {
 
 	s.frameCount++
 	if s.frameCount <= 3 || s.frameCount%100 == 0 {
-		debug.Debugf("GBM Swap: crtc=%d frame=%d\n", s.crtcID, s.frameCount)
+		debug.Debugf("GBM Swap: crtc=%d frame=%d", s.crtcID, s.frameCount)
 	}
 
 	if err := s.device.eglLoader.MakeCurrent(s.device.eglDisplay, s.eglSurface, s.eglSurface, s.eglContext); err != nil {
@@ -360,7 +360,7 @@ func (s *GBMSurface) Swap() error {
 		if err := s.initGL(); err != nil {
 			return fmt.Errorf("initGL: %w", err)
 		}
-		debug.Debugf("GBM Swap: crtc=%d GL initialized (hasBGRA=%v)\n", s.crtcID, s.hasBGRA)
+		debug.Debugf("GBM Swap: crtc=%d GL initialized (hasBGRA=%v)", s.crtcID, s.hasBGRA)
 	}
 
 	if !s.gpuDrawn {
@@ -394,7 +394,7 @@ func (s *GBMSurface) Swap() error {
 
 	modeset := !s.info.modesetDone
 	if s.frameCount <= 3 || s.frameCount%100 == 0 {
-		debug.Debugf("GBM Swap: crtc=%d frame=%d bo=0x%x handle=%d stride=%d fbID=%d modeset=%v\n",
+		debug.Debugf("GBM Swap: crtc=%d frame=%d bo=0x%x handle=%d stride=%d fbID=%d modeset=%v",
 			s.crtcID, s.frameCount, bo, handle, stride, fbID, modeset)
 	}
 

@@ -188,16 +188,16 @@ exit:
 	if m.plugins != nil {
 		m.plugins.FireExitHooks()
 	}
-	debug.Debugf("Run: wg.Wait() starting\n")
+	debug.Debugf("Run: wg.Wait() starting")
 	m.wg.Wait()
-	debug.Debugf("Run: wg.Wait() done, calling backend.Stop()\n")
+	debug.Debugf("Run: wg.Wait() done, calling backend.Stop()")
 	m.backend.Stop()
-	debug.Debugf("Run: backend.Stop() done, waiting for backendDone\n")
+	debug.Debugf("Run: backend.Stop() done, waiting for backendDone")
 	<-backendDone
-	debug.Debugf("Run: backendDone, closing input\n")
+	debug.Debugf("Run: backendDone, closing input")
 	m.input.Close()
 	m.cleanup()
-	debug.Debugf("Run: cleanup done\n")
+	debug.Debugf("Run: cleanup done")
 	return nil
 }
 

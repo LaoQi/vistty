@@ -325,7 +325,7 @@ func (t *Terminal) Close() error {
 
 func (t *Terminal) SignalClose() {
 	t.closeOnce.Do(func() {
-		debug.Debugf("SignalClose: closing done and pty\n")
+		debug.Debugf("SignalClose: closing done and pty")
 		close(t.done)
 		if t.pty != nil {
 			t.pty.Close()
@@ -383,7 +383,7 @@ func (t *Terminal) setPtySize(rows, cols int) {
 
 func (t *Terminal) cleanup() {
 	t.cleanupOnce.Do(func() {
-		debug.Debugf("cleanup: starting\n")
+		debug.Debugf("cleanup: starting")
 		if t.syncTimer != nil {
 			t.syncTimer.Stop()
 		}
@@ -402,13 +402,13 @@ func (t *Terminal) cleanup() {
 				<-ch
 			}
 		}
-		debug.Debugf("cleanup: done\n")
+		debug.Debugf("cleanup: done")
 	})
 }
 
 func (t *Terminal) PtyReadLoop() {
 	defer func() {
-		debug.Debugf("PtyReadLoop: exiting\n")
+		debug.Debugf("PtyReadLoop: exiting")
 	}()
 	buf := make([]byte, 4096)
 	for {
@@ -416,10 +416,10 @@ func (t *Terminal) PtyReadLoop() {
 		if err != nil {
 			select {
 			case <-t.done:
-				debug.Debugf("PtyReadLoop: pty closed during shutdown\n")
+				debug.Debugf("PtyReadLoop: pty closed during shutdown")
 			default:
 				if err == io.EOF {
-					debug.Debugf("PtyReadLoop: EOF, child process exited\n")
+					debug.Debugf("PtyReadLoop: EOF, child process exited")
 				} else {
 					debug.Errorf("PtyReadLoop: read error: %v", err)
 				}
@@ -431,7 +431,7 @@ func (t *Terminal) PtyReadLoop() {
 			return
 		}
 		if debug.Enabled() {
-			debug.Debugf("PtyReadLoop: read %d bytes: %q\n", n, string(buf[:n]))
+			debug.Debugf("PtyReadLoop: read %d bytes: %q", n, string(buf[:n]))
 		}
 		if t.opts.RecordWriter != nil {
 			t.opts.RecordWriter.Write(buf[:n])
@@ -439,7 +439,7 @@ func (t *Terminal) PtyReadLoop() {
 		seqs := seqPool.Get().([]vte.Sequence)
 		seqs = t.parser.FeedInto(buf[:n], seqs)
 		if len(seqs) > 0 {
-			debug.Debugf("PtyReadLoop: parsed %d sequences\n", len(seqs))
+			debug.Debugf("PtyReadLoop: parsed %d sequences", len(seqs))
 		}
 		if len(seqs) > 0 {
 			select {

@@ -73,7 +73,7 @@ func run() error {
 
 	resolvedTty := resolveTtyPath(*ttyFlag)
 	if resolvedTty != "" {
-		debug.Debugf("resolved tty path: %s\n", resolvedTty)
+		debug.Debugf("resolved tty path: %s", resolvedTty)
 	}
 
 	opts := terminal.DefaultOptions()
@@ -130,7 +130,7 @@ func run() error {
 			}
 		}
 		if backend == nil && wayland.Probe() {
-			debug.Debugf("auto: Wayland probe succeeded, using wayland backend\n")
+			debug.Debugf("auto: Wayland probe succeeded, using wayland backend")
 			if resolvedTty != "" {
 			debug.Warningf("-tty is ignored by wayland backend")
 			}

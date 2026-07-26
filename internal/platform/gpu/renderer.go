@@ -203,7 +203,7 @@ func (c *Renderer) Init() error {
 
 	c.gpuReady = true
 	major, minor := gl.GetGLVersion()
-	debug.Debugf("GPU: instanced draw ready (GLES %d.%d, atlas %dx%d)\n", major, minor, c.atlasW, c.atlasH)
+	debug.Debugf("GPU: instanced draw ready (GLES %d.%d, atlas %dx%d)", major, minor, c.atlasW, c.atlasH)
 	return nil
 }
 
@@ -294,7 +294,7 @@ func (c *Renderer) UploadGlyph(r rune, italic bool, bitmap []byte, w, h int) (u0
 				maxA = int(b)
 			}
 		}
-		debug.Debugf("UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x\n",
+		debug.Debugf("UploadGlyph: rune=%q atlasTex=%d place=%d,%d w=%d h=%d maxAlpha=%d rgbaLen=%d glErr=0x%x",
 			r, c.atlasTex, placeX, placeY, w, h, maxA, len(c.rgbaBuf), subErr)
 	}
 
@@ -464,7 +464,7 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 		inst := instances[0]
 		px := make([]byte, 4)
 		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, px)
-		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) bgA=%v centerPx=(%d,%d,%d,%d)\n",
+		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) bgA=%v centerPx=(%d,%d,%d,%d)",
 			len(instances), c.atlasUni, c.atlasTex, drawErr,
 			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
 			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,
