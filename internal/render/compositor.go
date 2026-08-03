@@ -34,6 +34,7 @@ type Compositor struct {
 	blinkOn          bool
 	lastBlink        time.Time
 	directRender     bool
+	fullRedraw       bool
 	gpu              platform.GPURenderer
 	gpuDisabled      bool
 	instances        []platform.CellInstance
@@ -171,6 +172,7 @@ func (c *Compositor) RemoveFloatingOverlay(fo FloatingOverlay) {
 	for i := range c.floatingOverlays {
 		if c.floatingOverlays[i] == fo {
 			c.floatingOverlays = append(c.floatingOverlays[:i], c.floatingOverlays[i+1:]...)
+			c.fullRedraw = true
 			return
 		}
 	}
@@ -178,6 +180,25 @@ func (c *Compositor) RemoveFloatingOverlay(fo FloatingOverlay) {
 
 func (c *Compositor) FloatingOverlays() []FloatingOverlay {
 	return c.floatingOverlays
+}
+
+// CleanupFloatingOverlays 移除所有过期的浮层（实现 ExpirableOverlay 且 Expired() 返回 true）。
+// 返回被移除的数量。
+func (c *Compositor) CleanupFloatingOverlays() int {
+	removed := 0
+	kept := c.floatingOverlays[:0]
+	for _, fo := range c.floatingOverlays {
+		if e, ok := fo.(ExpirableOverlay); ok && e.Expired() {
+			removed++
+			continue
+		}
+		kept = append(kept, fo)
+	}
+	c.floatingOverlays = kept
+	if removed > 0 {
+		c.fullRedraw = true
+	}
+	return removed
 }
 
 func (c *Compositor) OverlayGlyph(r rune) *font.Glyph {
@@ -283,8 +304,9 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 	useDirty := !c.directRender
 	scrollChanged := offset != c.prevScrollOffset
 	c.prevScrollOffset = offset
-	if useDirty && scrollChanged {
+	if useDirty && (scrollChanged || c.fullRedraw) {
 		buf.DamageAll()
+		c.fullRedraw = false
 	}
 	cursorRow := -1
 	if cursor != nil && offset == 0 {

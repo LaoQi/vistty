@@ -53,7 +53,7 @@ type PluginContext interface {
 	RequestRender()
 	CommitText(text string)
 	ShowToast(message string, level int, durationMs int)
-	ShowDialog(title string, inputPlaceholder string, buttons []string) int
+	ShowDialog(title, content, inputPlaceholder string, buttons []string, onClose func(result int, text string)) int
 	CloseDialog(id int) (int, string, bool)
 	Screenshot(path string) (string, error)
 	Exit()

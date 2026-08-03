@@ -235,8 +235,8 @@ func TestP1Constants(t *testing.T) {
 	if int(keys.RawGetString("PAUSE").(lua.LNumber)) != 119 {
 		t.Fatal("keys.PAUSE != 119")
 	}
-	if int(keys.RawGetString("PRINT").(lua.LNumber)) != 210 {
-		t.Fatal("keys.PRINT != 210")
+	if int(keys.RawGetString("PRINT").(lua.LNumber)) != 99 {
+		t.Fatal("keys.PRINT != 99")
 	}
 	if int(keys.RawGetString("MENU").(lua.LNumber)) != 139 {
 		t.Fatal("keys.MENU != 139")

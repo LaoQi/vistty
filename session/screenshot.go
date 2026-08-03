@@ -45,9 +45,9 @@ func defaultScreenshotPath(outputName string, multiScreen bool) string {
 // saveScreenshotPNG 将 BGRA32 像素写入 PNG 文件。
 // 内部将 BGRA 转 NRGBA 并强制 alpha=255（Wayland shm buffer alpha
 // 可能为 0，会导致 PNG 全透明）。
-func saveScreenshotPNG(path string, data []byte, stride, width, height int) error {
+func saveScreenshotPNG(path string, data []byte, stride, width, height int) (string, error) {
 	if width <= 0 || height <= 0 {
-		return fmt.Errorf("invalid dimensions %dx%d", width, height)
+		return "", fmt.Errorf("invalid dimensions %dx%d", width, height)
 	}
 	pix := make([]byte, width*height*4)
 	for y := 0; y < height; y++ {
@@ -67,11 +67,14 @@ func saveScreenshotPNG(path string, data []byte, stride, width, height int) erro
 	}
 	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("create file: %w", err)
+		return "", fmt.Errorf("create file: %w", err)
 	}
 	defer f.Close()
 	if err := png.Encode(f, img); err != nil {
-		return fmt.Errorf("png encode: %w", err)
+		return "", fmt.Errorf("png encode: %w", err)
 	}
-	return nil
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs, nil
+	}
+	return path, nil
 }

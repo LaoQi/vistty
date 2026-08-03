@@ -35,3 +35,17 @@ type FloatingOverlay interface {
 	ZOrder() int
 	Close()
 }
+
+// ExpirableOverlay 由需要自动过期的 FloatingOverlay 实现（如 Toast）。
+// 渲染循环每帧检查，返回 true 时自动移除。
+type ExpirableOverlay interface {
+	FloatingOverlay
+	Expired() bool
+}
+
+// ClosableOverlay 由支持按键关闭的 FloatingOverlay 实现（如 Dialog）。
+// 渲染循环每帧检查，返回 true 时自动移除并弹出焦点栈。
+type ClosableOverlay interface {
+	FloatingOverlay
+	Closed() bool
+}

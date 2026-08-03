@@ -74,13 +74,48 @@ vistty.input.bind(vistty.keys.R, function()
 	if super() then vistty.reload(); return true end
 end)
 vistty.input.bind(vistty.keys.Q, function()
-	if super() then vistty.exit(); return true end
+	if super() then
+		vistty.ui.dialog("退出确认", "确定要退出 Vistty 吗？\n\n←/→  切换    Enter  确认    Esc  取消", "", {"确认", "取消"},
+			function(result)
+				if result == 1 then
+					vistty.exit()
+				end
+			end)
+		return true
+	end
 end)
 
 -- Print Screen：截取焦点屏幕并保存为 PNG（路径：$XDG_PICTURES_DIR → ~/Pictures → $HOME → /tmp）
 vistty.input.bind(vistty.keys.PRINT, function()
 	vistty.screenshot()
 	return true
+end)
+
+-- Mod+Shift+/ 显示快捷键帮助
+vistty.input.bind(vistty.keys.SLASH, function()
+	if super() and vistty.input.pressed(vistty.keys.LEFT_SHIFT) then
+		local mod_name = "ALT"
+		if not (vistty.backend_name() == "" or vistty.backend.is_wayland()) then
+			mod_name = "SUPER"
+		end
+		local content = table.concat({
+			mod_name .. "+T       新建标签",
+			mod_name .. "+W       关闭标签",
+			mod_name .. "+Tab     切换标签",
+			mod_name .. "+1~9     跳转标签",
+			mod_name .. "+J/K     滚动终端",
+			mod_name .. "+←/→     切换屏幕",
+			mod_name .. "+=/-/0   缩放字体",
+			mod_name .. "+R       重载插件",
+			mod_name .. "+Q       退出",
+			"PrtSc         截图",
+			mod_name .. "+Shift+/  帮助",
+			"",
+			"Esc / Enter   关闭此窗口",
+		}, "\n")
+		vistty.ui.dialog("快捷键帮助", content)
+		return true
+	end
 end)
 
 local statusbar = require("statusbar")

@@ -2,6 +2,8 @@ package plugins
 
 import (
 	lua "github.com/yuin/gopher-lua"
+
+	"github.com/LaoQi/vistty/internal/debug"
 )
 
 func registerDialogAPI(L *lua.LState, pm *PluginManager) {
@@ -28,8 +30,9 @@ func registerDialogAPI(L *lua.LState, pm *PluginManager) {
 			return 0
 		}
 		title := L.CheckString(1)
-		placeholder := L.OptString(2, "")
-		buttonsT := L.OptTable(3, nil)
+		content := L.OptString(2, "")
+		placeholder := L.OptString(3, "")
+		buttonsT := L.OptTable(4, nil)
 		var buttons []string
 		if buttonsT != nil {
 			n := buttonsT.Len()
@@ -41,7 +44,18 @@ func registerDialogAPI(L *lua.LState, pm *PluginManager) {
 				}
 			}
 		}
-		id := pm.ctx.ShowDialog(title, placeholder, buttons)
+		var onClose func(result int, text string)
+		if cb := L.OptFunction(5, nil); cb != nil {
+			onClose = func(result int, text string) {
+				L.Push(cb)
+				L.Push(lua.LNumber(result))
+				L.Push(lua.LString(text))
+				if err := L.PCall(2, 0, nil); err != nil {
+					debug.Errorf("dialog callback error: %v", err)
+				}
+			}
+		}
+		id := pm.ctx.ShowDialog(title, content, placeholder, buttons, onClose)
 		L.Push(lua.LNumber(id))
 		return 1
 	}))

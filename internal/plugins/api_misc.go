@@ -26,7 +26,7 @@ var keysTable = map[string]int{
 	"LEFT_SUPER": 125, "RIGHT_SUPER": 126,
 	// 系统键
 	"CAPSLOCK": 58, "NUMLOCK": 69, "SCROLLLOCK": 70,
-	"SYSRQ": 99, "PAUSE": 119, "PRINT": 210, "MENU": 139,
+	"SYSRQ": 99, "PAUSE": 119, "PRINT": 99, "MENU": 139,
 	// 转义键（ESCAPE 别名 ESC）
 	"ESCAPE": 1, "ESC": 1,
 	// 数字键（主键盘区）

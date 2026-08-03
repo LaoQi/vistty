@@ -68,7 +68,7 @@ func (f *p6FakeCtx) ReloadPlugins() error                            { return ni
 func (f *p6FakeCtx) RequestRender()                                  {}
 func (f *p6FakeCtx) CommitText(string)                               {}
 func (f *p6FakeCtx) ShowToast(string, int, int)                      {}
-func (f *p6FakeCtx) ShowDialog(string, string, []string) int         { return -1 }
+func (f *p6FakeCtx) ShowDialog(string, string, string, []string, func(int, string)) int { return -1 }
 func (f *p6FakeCtx) CloseDialog(int) (int, string, bool)             { return 0, "", false }
 func (f *p6FakeCtx) Screenshot(string) (string, error)               { return "", nil }
 func (f *p6FakeCtx) Exit()                                           {}

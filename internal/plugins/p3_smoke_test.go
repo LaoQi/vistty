@@ -37,7 +37,7 @@ func (f *p3FakeCtx) ReloadPlugins() error                            { return ni
 func (f *p3FakeCtx) RequestRender()                                  {}
 func (f *p3FakeCtx) CommitText(string)                               {}
 func (f *p3FakeCtx) ShowToast(string, int, int)                      {}
-func (f *p3FakeCtx) ShowDialog(string, string, []string) int         { return -1 }
+func (f *p3FakeCtx) ShowDialog(string, string, string, []string, func(int, string)) int { return -1 }
 func (f *p3FakeCtx) CloseDialog(int) (int, string, bool)             { return 0, "", false }
 func (f *p3FakeCtx) Screenshot(string) (string, error)               { return "", nil }
 func (f *p3FakeCtx) Exit()                                           {}

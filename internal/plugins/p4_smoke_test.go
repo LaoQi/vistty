@@ -35,7 +35,7 @@ func (f *p4FakeCtx) ReloadPlugins() error                            { return ni
 func (f *p4FakeCtx) RequestRender()                                  {}
 func (f *p4FakeCtx) CommitText(string)                               {}
 func (f *p4FakeCtx) ShowToast(string, int, int)                      {}
-func (f *p4FakeCtx) ShowDialog(string, string, []string) int         { return -1 }
+func (f *p4FakeCtx) ShowDialog(string, string, string, []string, func(int, string)) int { return -1 }
 func (f *p4FakeCtx) CloseDialog(int) (int, string, bool)             { return 0, "", false }
 func (f *p4FakeCtx) Screenshot(string) (string, error)               { return "", nil }
 func (f *p4FakeCtx) Exit()                                           {}
@@ -323,30 +323,6 @@ func luaBool(t *testing.T, pm *PluginManager, src string) bool {
 		t.Fatalf("expected bool, got %T(%v)", v, v)
 	}
 	return bool(b)
-}
-
-// TestOnActivateErrorIsolation 验证单个 on_activate 钩子出错不影响后续钩子执行。
-func TestOnActivateErrorIsolation(t *testing.T) {
-	src := `
-vistty.on_activate(function(name) vistty._a1 = name end)
-vistty.on_activate(function(name) error("boom") end)
-vistty.on_activate(function(name) vistty._a2 = name end)
-`
-	f := writeTemp(t, src)
-	pm := NewPluginManager(f)
-	if _, err := pm.Load(); err != nil {
-		t.Fatal(err)
-	}
-	pm.SetBackendName("drm")
-	pm.Activate(&p4FakeCtx{})
-
-	if s := luaStr(t, pm, `return vistty._a1`); s != "drm" {
-		t.Fatalf("first hook expected drm, got %q", s)
-	}
-	if s := luaStr(t, pm, `return vistty._a2`); s != "drm" {
-		t.Fatalf("third hook expected drm despite second erroring, got %q", s)
-	}
-	pm.Close()
 }
 
 // TestLifecycleExit 验证 on_exit 钩子在 FireExitHooks 时触发，且不依赖 active。

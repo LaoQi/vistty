@@ -819,12 +819,13 @@ func (m *Master) handleScreenshot() {
 		return
 	}
 
-	if err := saveScreenshotPNG(req.path, data, stride, w, h); err != nil {
+	if saved, err := saveScreenshotPNG(req.path, data, stride, w, h); err != nil {
 		debug.Errorf("screenshot: %v", err)
 		m.ShowToast("截图失败："+err.Error(), 2, 3000)
 		return
+	} else {
+		m.ShowToast("截图已保存: "+saved, 0, 3000)
 	}
-	m.ShowToast("截图已保存: "+req.path, 0, 3000)
 }
 
 func (m *Master) ShowToast(message string, level int, durationMs int) {
@@ -850,7 +851,32 @@ func (m *Master) ShowToast(message string, level int, durationMs int) {
 	m.dirty = true
 }
 
-func (m *Master) ShowDialog(title string, inputPlaceholder string, buttons []string) int {
+// cleanupOverlays 清理所有 slave 的过期/已关闭浮层。
+// 过期的 Toast 被移除；已关闭的 Dialog 被移除、弹出焦点栈并触发 OnClose 回调。
+func (m *Master) cleanupOverlays() {
+	for _, s := range m.slaves {
+		if s == nil {
+			continue
+		}
+		comp := s.Compositor()
+		var toRemove []*ui.Dialog
+		for _, fo := range comp.FloatingOverlays() {
+			if dlg, ok := fo.(*ui.Dialog); ok && dlg.Closed() {
+				dlg.CloseAndCallback()
+				toRemove = append(toRemove, dlg)
+			}
+		}
+		for _, dlg := range toRemove {
+			comp.RemoveFloatingOverlay(dlg)
+			m.PopFocus(dlg)
+		}
+		if len(toRemove) > 0 || comp.CleanupFloatingOverlays() > 0 {
+			m.dirty = true
+		}
+	}
+}
+
+func (m *Master) ShowDialog(title, content, inputPlaceholder string, buttons []string, onClose func(result int, text string)) int {
 	s := m.slaves[m.focusIdx]
 	if s == nil {
 		return -1
@@ -860,7 +886,12 @@ func (m *Master) ShowDialog(title string, inputPlaceholder string, buttons []str
 	if inputPlaceholder != "" {
 		input = ui.NewInputField(inputPlaceholder)
 	}
-	d := ui.NewDialog(face, title, input, buttons)
+	d := ui.NewDialog(face, title, content, input, buttons)
+	if onClose != nil {
+		d.OnClose = func(result ui.DialogResult, text string) {
+			onClose(int(result), text)
+		}
+	}
 	comp := s.Compositor()
 	comp.AddFloatingOverlay(d)
 	d.SetGlyphProvider(comp)
@@ -878,6 +909,7 @@ func (m *Master) CloseDialog(id int) (int, string, bool) {
 	comp := s.Compositor()
 	for _, fo := range comp.FloatingOverlays() {
 		if dlg, ok := fo.(*ui.Dialog); ok {
+			dlg.CloseAndCallback()
 			result := int(dlg.Result())
 			var text string
 			if dlg.InputField() != nil {

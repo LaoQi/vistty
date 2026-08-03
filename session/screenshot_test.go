@@ -29,7 +29,7 @@ func TestSaveScreenshotPNG(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "shot.png")
-	if err := saveScreenshotPNG(path, data, stride, w, h); err != nil {
+	if _, err := saveScreenshotPNG(path, data, stride, w, h); err != nil {
 		t.Fatalf("saveScreenshotPNG: %v", err)
 	}
 	f, err := os.Open(path)

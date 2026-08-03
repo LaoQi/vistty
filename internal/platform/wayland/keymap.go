@@ -445,6 +445,14 @@ func keyNameToKeycode(name string) uint32 {
 		"LCTL": 37, "RCTL": 105, "LALT": 64, "RALT": 108, "LWIN": 133, "RWIN": 134,
 		"UP": 111, "DOWN": 116, "LEFT": 113, "RGHT": 114, "HOME": 110, "END": 115,
 		"PGUP": 112, "PGDN": 117, "DELE": 119, "INS": 118,
+		"PRSC": 107, "PAUS": 127, "MENU": 147,
+		"CAPS": 66, "NMLK": 77, "SCLK": 78,
+		"FK01": 67, "FK02": 68, "FK03": 69, "FK04": 70, "FK05": 71, "FK06": 72,
+		"FK07": 73, "FK08": 74, "FK09": 75, "FK10": 76, "FK11": 95, "FK12": 96,
+		"KP7": 79, "KP8": 80, "KP9": 81, "KP4": 83, "KP5": 84, "KP6": 85,
+		"KP1": 87, "KP2": 88, "KP3": 89, "KP0": 90, "KPDL": 91,
+		"KPMU": 63, "KPSU": 82, "KPAD": 86, "KPEQ": 125,
+		"KPDV": 106, "KPEN": 104,
 	}
 	if kc, ok := mapping[name]; ok {
 		return kc

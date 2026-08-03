@@ -74,10 +74,14 @@ func (i *WaylandInput) registerKeyboardCallbacks() {
 		km := i.keymap
 		i.mu.Unlock()
 
-		code := uint16(key)
+		evdevCode := key
+		if evdevCode >= 8 {
+			evdevCode -= 8
+		}
+		code := uint16(evdevCode)
 		st := platform.KeyState(state == 1)
 
-		if mod, ok := platform.LookupModifier(key); ok {
+		if mod, ok := platform.LookupModifier(evdevCode); ok {
 			if st {
 				mods |= mod
 			} else {
@@ -102,9 +106,9 @@ func (i *WaylandInput) registerKeyboardCallbacks() {
 
 		var r rune
 		if km != nil {
-			r = km.lookup(key, mods)
+			r = km.lookup(evdevCode, mods)
 		} else {
-			r = platform.FallbackKeyRune(key, mods)
+			r = platform.FallbackKeyRune(evdevCode, mods)
 		}
 
 		select {

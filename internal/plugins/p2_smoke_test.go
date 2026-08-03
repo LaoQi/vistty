@@ -41,7 +41,7 @@ func (f *fakeCtx) ReloadPlugins() error                            { return nil 
 func (f *fakeCtx) RequestRender()                                  {}
 func (f *fakeCtx) CommitText(string)                                {}
 func (f *fakeCtx) ShowToast(string, int, int)                       {}
-func (f *fakeCtx) ShowDialog(string, string, []string) int          { return -1 }
+func (f *fakeCtx) ShowDialog(string, string, string, []string, func(int, string)) int          { return -1 }
 func (f *fakeCtx) CloseDialog(int) (int, string, bool)              { return 0, "", false }
 func (f *fakeCtx) Screenshot(string) (string, error)                { return "", nil }
 func (f *fakeCtx) Exit()                                           {}

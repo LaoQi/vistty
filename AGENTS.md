@@ -175,7 +175,7 @@ github.com/LaoQi/vistty/
 │   ├── vte/                    # 转义序列解析器（xterm-256 兼容）
 │   ├── screen/                 # cell/line/buffer(环形)/history/cursor/selection
 │   ├── panel/                  # PanelPrimitive 公共类型（plugins/ui/session 共享）
-│   ├── render/                 # compositor/draw/cursor/overlay（Overlay+FloatingOverlay+Pass2）
+│   ├── render/                 # compositor/draw/cursor/overlay（Overlay+FloatingOverlay+ExpirableOverlay+ClosableOverlay+Pass2）
 │   ├── ui/                     # tabbar + statusbar + dialog + toast + inputfield（Overlay/FloatingOverlay/CSD）
 │   ├── version/                # ldflags 注入 + ReadBuildInfo VCS fallback
 │   ├── perf/replay/            # 三级归因 benchmark
@@ -307,6 +307,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 多屏 DRM 输出 + 每屏独立 EGLContext + 两阶段渲染 60fps
 - TabBar 顶部标签栏 + StatusBar 底部面板 + 多终端标签 + CSD 自绘 + 水平滚动
 - FloatingOverlay 浮层体系（Dialog/Toast）+ GPU BgA alpha + Pass2 GL_BLEND 渲染
+- Dialog 增强（多行 content + 按钮选择导航 + OnClose 回调 + ExpirableOverlay/ClosableOverlay 自动清理 + fullRedraw）
 - InputTarget 焦点栈 + vistty.input.commit() IME 输出解耦
 - 插件系统（gopher-lua + vistty.* API + 热重载 + 生命周期钩子 + 多屏感知）
 - StatusBar 底部面板宿主 + IME vistty.input.commit() 解耦
@@ -317,3 +318,4 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - BSU 同步更新（DECSET 2026）
 - Damage Tracking 双层 dirty + 环形缓冲区 grid + 渲染调度优化
 - 屏幕截图（vistty.screenshot() Lua API + CPU backBuf/GPU glReadPixels 双路径 + PNG 编码 + XDG 路径 fallback + Toast 提示）
+- 键盘映射修正（Wayland evdev keycode 偏移 + DRM 小键盘/功能键扩展 + PRINT 键码修正）

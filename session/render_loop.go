@@ -114,9 +114,13 @@ func (m *Master) Run() error {
 			if m.plugins != nil && m.plugins.ConsumeReloadRequest() {
 				if err := m.ReloadPlugins(); err != nil {
 					debug.Errorf("Run: plugin reload error: %v", err)
+					m.ShowToast("插件重载失败: "+err.Error(), 2, 3000)
+				} else {
+					m.ShowToast("插件已重载", 0, 2000)
 				}
 				m.dirty = true
 			}
+			m.cleanupOverlays()
 			if m.osdDirty {
 				m.refreshOSD()
 				m.osdDirty = false
@@ -142,14 +146,14 @@ func (m *Master) Run() error {
 					m.signalClose()
 					goto exit
 				}
-		} else {
-			renderErrCount = 0
-			m.dirty = false
-		}
-		if m.pendingShot != nil {
-			m.handleScreenshot()
-		}
-		if m.fpsLogging {
+			} else {
+				renderErrCount = 0
+				m.dirty = false
+			}
+			if m.pendingShot != nil {
+				m.handleScreenshot()
+			}
+			if m.fpsLogging {
 				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
 			}
 		case <-cursorBlinkTicker.C:
