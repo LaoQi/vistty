@@ -143,28 +143,33 @@ func (d *Dialog) CommitText(text string) {
 }
 
 func (d *Dialog) layout(width, height int) (bgX, bgY, bgW, bgH, textX, textY int) {
-	padX := d.metrics.Width
-	padY := d.metrics.Height
-	desiredW := 40 * d.metrics.Width
+	cellW := d.metrics.Width
+	cellH := d.metrics.Height
+	borderW := 2 * cellW // 2-cell horizontal border
+	borderH := cellH
+	padX := 2 * cellW // 2-cell horizontal padding
+	padY := cellH
+	desiredW := 40 * cellW
 	if desiredW > width*3/4 {
 		desiredW = width * 3 / 4
 	}
-	rows := 1
+	rows := 0
 	if d.title != "" {
-		rows++
+		rows++ // title
+		rows++ // separator
 	}
 	rows += len(d.contentRows)
 	if d.input != nil {
 		rows++
 	}
 	if len(d.buttons) > 0 {
-		rows++
+		rows++ // gap row before buttons
+		rows++ // buttons
 	}
-	rows++
 	textW := desiredW
-	textH := rows * d.metrics.Height
-	bgW = textW + padX*2
-	bgH = textH + padY*2
+	textH := rows * cellH
+	bgW = textW + (padX+borderW)*2
+	bgH = textH + (padY+borderH)*2
 	bgX = (width - bgW) / 2
 	bgY = (height - bgH) / 2
 	if bgX < 0 {
@@ -173,8 +178,8 @@ func (d *Dialog) layout(width, height int) (bgX, bgY, bgW, bgH, textX, textY int
 	if bgY < 0 {
 		bgY = 0
 	}
-	textX = bgX + padX
-	textY = bgY + padY
+	textX = bgX + borderW + padX
+	textY = bgY + borderH + padY
 	return
 }
 
@@ -183,12 +188,24 @@ func (d *Dialog) RenderCPU(buf []byte, stride, width, height int) {
 		return
 	}
 	bgX, bgY, bgW, bgH, textX, textY := d.layout(width, height)
+	cellW := d.metrics.Width
+	cellH := d.metrics.Height
 	a := uint8(d.bgAlpha * 255)
-	render.FillRectBlend(buf, stride, bgX, bgY, bgW, bgH, 30, 30, 30, a)
+	borderW := 2 * cellW
+	borderH := cellH
+	innerX := bgX + borderW
+	innerY := bgY + borderH
+	innerW := bgW - 2*borderW
+	innerH := bgH - 2*borderH
+	render.FillRectBlend(buf, stride, bgX, bgY, bgW, borderH, 55, 55, 68, a)
+	render.FillRectBlend(buf, stride, bgX, bgY+bgH-borderH, bgW, borderH, 55, 55, 68, a)
+	render.FillRectBlend(buf, stride, bgX, bgY+borderH, borderW, innerH, 55, 55, 68, a)
+	render.FillRectBlend(buf, stride, bgX+bgW-borderW, bgY+borderH, borderW, innerH, 55, 55, 68, a)
+	render.FillRectBlend(buf, stride, innerX, innerY, innerW, innerH, 30, 30, 30, a)
 	if d.gp == nil {
 		return
 	}
-	d.renderTextCPU(buf, stride, textX, textY, bgW-2*d.metrics.Width, width, height)
+	d.renderTextCPU(buf, stride, textX, textY, innerW-4*cellW, width, height)
 }
 
 func (d *Dialog) renderLineCPU(buf []byte, stride, x, y, w int, text string, fgR, fgG, fgB uint8) {
@@ -218,79 +235,79 @@ func (d *Dialog) renderLineCPU(buf []byte, stride, x, y, w int, text string, fgR
 }
 
 func (d *Dialog) renderTextCPU(buf []byte, stride, x, y, w, frameW, frameH int) {
-	fgR, fgG, fgB := uint8(230), uint8(230), uint8(230)
 	curY := y
 	if d.title != "" {
-		d.renderLineCPU(buf, stride, x, curY, w, d.title, fgR, fgG, fgB)
+		d.renderLineCPU(buf, stride, x, curY, w, d.title, 255, 255, 255)
+		curY += d.metrics.Height
 		curY += d.metrics.Height
 	}
 	for _, line := range d.contentRows {
-		d.renderLineCPU(buf, stride, x, curY, w, line, fgR, fgG, fgB)
+		d.renderLineCPU(buf, stride, x, curY, w, line, 215, 215, 215)
 		curY += d.metrics.Height
 	}
 	if d.input != nil {
 		text := d.input.DisplayText()
 		if text != "" {
-			d.renderLineCPU(buf, stride, x, curY, w, text, fgR, fgG, fgB)
+			d.renderLineCPU(buf, stride, x, curY, w, text, 230, 230, 230)
 		}
 		curY += d.metrics.Height
 	}
 	if len(d.buttons) > 0 {
+		curY += d.metrics.Height
 		d.renderButtonsCPU(buf, stride, x, curY, w)
 	}
 }
 
 func (d *Dialog) renderButtonsCPU(buf []byte, stride, x, y, w int) {
 	cellW := d.metrics.Width
-	indent := 2
-	markerLen := 2 // "▶ " prefix for selected button
+	indent := 3
+	bracketLen := 4
+	gap := 2
 	totalW := 0
-	for i, btn := range d.buttons {
-		bw := runeutil.StringWidth(btn) + indent*2
-		if i == d.selectedBtn {
-			bw += markerLen
-		}
+	for _, btn := range d.buttons {
+		bw := runeutil.StringWidth(btn) + indent*2 + bracketLen
 		totalW += bw * cellW
-		totalW += cellW
+		totalW += gap * cellW
 	}
 	if totalW > 0 {
-		totalW -= cellW
+		totalW -= gap * cellW
 	}
 	btnX := x + (w-totalW)/2
 	if btnX < x {
 		btnX = x
 	}
-	fgR, fgG, fgB := uint8(230), uint8(230), uint8(230)
 	for i, btn := range d.buttons {
-		btnCells := runeutil.StringWidth(btn) + indent*2
-		selected := i == d.selectedBtn
-		if selected {
-			btnCells += markerLen
-		}
+		btnCells := runeutil.StringWidth(btn) + indent*2 + bracketLen
 		btnW := btnCells * cellW
+		selected := i == d.selectedBtn
 		if selected {
 			render.FillRectBlend(buf, stride, btnX, y, btnW, d.metrics.Height, 60, 120, 200, 255)
 		} else {
-			render.FillRectBlend(buf, stride, btnX, y, btnW, d.metrics.Height, 50, 50, 50, 200)
+			render.FillRectBlend(buf, stride, btnX, y, btnW, d.metrics.Height, 45, 45, 52, 200)
 		}
-		label := btn
+		label := "[ " + btn + " ]"
 		if selected {
-			label = "▶ " + btn
+			d.renderLineCPU(buf, stride, btnX+indent*cellW, y, btnW, label, 255, 255, 255)
+		} else {
+			d.renderLineCPU(buf, stride, btnX+indent*cellW, y, btnW, label, 165, 165, 175)
 		}
-		d.renderLineCPU(buf, stride, btnX+indent*cellW, y, btnW, label, fgR, fgG, fgB)
-		btnX += btnW + cellW
+		btnX += btnW + gap*cellW
 	}
 }
 
 func (d *Dialog) renderLineGPU(instances *[]platform.CellInstance, x, y int, w int, text string, fgR, fgG, fgB, bgA float32, cellW, cellH float32) {
 	xpos := 0
 	for _, ch := range text {
+		rw := 1
+		if runeutil.IsWide(ch) {
+			rw = 2
+		}
 		u0, v0, u1, v1, gw, gh, xoff, yoff, ok := d.uploader.OverlayUploadGlyph(ch)
 		if ok {
 			inst := platform.CellInstance{
 				X:         float32(x) + float32(xpos)*cellW,
 				Y:         float32(y),
-				CellW:     cellW,
+				CellW:     float32(rw) * cellW,
 				CellH:     cellH,
 				FgR:       fgR,
 				FgG:       fgG,
@@ -306,10 +323,6 @@ func (d *Dialog) renderLineGPU(instances *[]platform.CellInstance, x, y int, w i
 				GlyphH:    float32(gh),
 			}
 			*instances = append(*instances, inst)
-		}
-		rw := 1
-		if runeutil.IsWide(ch) {
-			rw = 2
 		}
 		xpos += rw
 		if xpos*d.metrics.Width >= w {
@@ -330,16 +343,23 @@ func (d *Dialog) RenderGPU(instances *[]platform.CellInstance, width, height int
 	bgR := 30.0 / 255 * d.bgAlpha
 	bgG := 30.0 / 255 * d.bgAlpha
 	bgB := 30.0 / 255 * d.bgAlpha
+	borderR := 55.0 / 255 * d.bgAlpha
+	borderG := 55.0 / 255 * d.bgAlpha
+	borderB := 68.0 / 255 * d.bgAlpha
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
+			r, g, b := bgR, bgG, bgB
+			if row == 0 || row == rows-1 || col < 2 || col >= cols-2 {
+				r, g, b = borderR, borderG, borderB
+			}
 			inst := platform.CellInstance{
 				X:     float32(bgX) + float32(col)*cellW,
 				Y:     float32(bgY) + float32(row)*cellH,
 				CellW: cellW,
 				CellH: cellH,
-				BgR:   bgR,
-				BgG:   bgG,
-				BgB:   bgB,
+				BgR:   r,
+				BgG:   g,
+				BgB:   b,
 				BgA:   d.bgAlpha,
 			}
 			*instances = append(*instances, inst)
@@ -348,69 +368,66 @@ func (d *Dialog) RenderGPU(instances *[]platform.CellInstance, width, height int
 	if d.uploader == nil {
 		return
 	}
-	fgR := float32(230.0 / 255)
-	fgG := float32(230.0 / 255)
-	fgB := float32(230.0 / 255)
-	textW := bgW - 2*d.metrics.Width
+	textW := bgW - 8*d.metrics.Width
 	curY := textY
 	if d.title != "" {
-		d.renderLineGPU(instances, textX, curY, textW, d.title, fgR, fgG, fgB, d.bgAlpha, cellW, cellH)
+		d.renderLineGPU(instances, textX, curY, textW, d.title, 1.0, 1.0, 1.0, d.bgAlpha, cellW, cellH)
+		curY += d.metrics.Height
 		curY += d.metrics.Height
 	}
 	for _, line := range d.contentRows {
-		d.renderLineGPU(instances, textX, curY, textW, line, fgR, fgG, fgB, d.bgAlpha, cellW, cellH)
+		d.renderLineGPU(instances, textX, curY, textW, line, 215.0/255, 215.0/255, 215.0/255, d.bgAlpha, cellW, cellH)
 		curY += d.metrics.Height
 	}
 	if d.input != nil {
 		text := d.input.DisplayText()
 		if text != "" {
-			d.renderLineGPU(instances, textX, curY, textW, text, fgR, fgG, fgB, d.bgAlpha, cellW, cellH)
+			d.renderLineGPU(instances, textX, curY, textW, text, 230.0/255, 230.0/255, 230.0/255, d.bgAlpha, cellW, cellH)
 		}
 		curY += d.metrics.Height
 	}
 	if len(d.buttons) > 0 {
-		d.renderButtonsGPU(instances, textX, curY, textW, fgR, fgG, fgB, cellW, cellH)
+		curY += d.metrics.Height
+		d.renderButtonsGPU(instances, textX, curY, textW, cellW, cellH)
 	}
 }
 
-func (d *Dialog) renderButtonsGPU(instances *[]platform.CellInstance, x, y, w int, fgR, fgG, fgB, cellW, cellH float32) {
-	indent := 2
-	markerLen := 2 // "▶ " prefix for selected button
+func (d *Dialog) renderButtonsGPU(instances *[]platform.CellInstance, x, y, w int, cellW, cellH float32) {
+	indent := 3
+	bracketLen := 4
+	gap := 2
+	icellW := int(cellW)
 	totalW := 0
-	for i, btn := range d.buttons {
-		bw := runeutil.StringWidth(btn) + indent*2
-		if i == d.selectedBtn {
-			bw += markerLen
-		}
-		totalW += (bw + 1) * int(cellW)
+	for _, btn := range d.buttons {
+		bw := runeutil.StringWidth(btn) + indent*2 + bracketLen
+		totalW += (bw + gap) * icellW
 	}
 	if totalW > 0 {
-		totalW -= int(cellW)
+		totalW -= gap * icellW
 	}
 	btnX := x + (w-totalW)/2
 	if btnX < x {
 		btnX = x
 	}
 	for i, btn := range d.buttons {
-		btnCells := runeutil.StringWidth(btn) + indent*2
+		btnCells := runeutil.StringWidth(btn) + indent*2 + bracketLen
+		btnW := btnCells * icellW
 		selected := i == d.selectedBtn
-		if selected {
-			btnCells += markerLen
-		}
-		btnW := btnCells * int(cellW)
-		var bgR2, bgG2, bgB2, bgA2 float32
+		var bgR2, bgG2, bgB2, bgA2, fgR, fgG, fgB float32
 		if selected {
 			bgR2 = 60.0 / 255
 			bgG2 = 120.0 / 255
 			bgB2 = 200.0 / 255
 			bgA2 = 1.0
+			fgR, fgG, fgB = 1.0, 1.0, 1.0
 		} else {
-			bgR2 = 50.0 / 255
-			bgG2 = 50.0 / 255
-			bgB2 = 50.0 / 255
+			bgR2 = 45.0 / 255
+			bgG2 = 45.0 / 255
+			bgB2 = 52.0 / 255
 			bgA2 = 0.8
+			fgR, fgG, fgB = 165.0/255, 165.0/255, 175.0/255
 		}
-		for col := 0; col < btnW/int(cellW); col++ {
+		for col := 0; col < btnCells; col++ {
 			inst := platform.CellInstance{
 				X:     float32(btnX) + float32(col)*cellW,
 				Y:     float32(y),
@@ -423,11 +440,8 @@ func (d *Dialog) renderButtonsGPU(instances *[]platform.CellInstance, x, y, w in
 			}
 			*instances = append(*instances, inst)
 		}
-		label := btn
-		if selected {
-			label = "▶ " + btn
-		}
-		d.renderLineGPU(instances, btnX+indent*int(cellW), y, btnW, label, fgR, fgG, fgB, bgA2, cellW, cellH)
-		btnX += btnW + int(cellW)
+		label := "[ " + btn + " ]"
+		d.renderLineGPU(instances, btnX+indent*icellW, y, btnW, label, fgR, fgG, fgB, bgA2, cellW, cellH)
+		btnX += btnW + gap*icellW
 	}
 }
