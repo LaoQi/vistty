@@ -87,6 +87,10 @@ type GBMSurface struct {
 
 	gpu      *gpu.Renderer
 	gpuDrawn bool
+
+	shotPending bool
+	shotReady   bool
+	shotBuf     []byte
 }
 
 func (s *GBMSurface) Size() (int, int) {
@@ -368,6 +372,11 @@ func (s *GBMSurface) Swap() error {
 	}
 	s.gpuDrawn = false
 
+	if s.shotPending {
+		s.shotPending = false
+		s.captureFrame()
+	}
+
 	if err := s.device.eglLoader.SwapBuffers(s.device.eglDisplay, s.eglSurface); err != nil {
 		errCode := s.device.eglLoader.GetError()
 		return fmt.Errorf("eglSwapBuffers: %w (eglErr=%s)", err, gl.EGLErrorString(errCode))
@@ -465,6 +474,52 @@ func (s *GBMSurface) waitForFlipComplete() bool {
 		s.commitMu.Unlock()
 		return true
 	}
+}
+
+// RequestScreenshot 实现 platform.Screenshotter。
+// 须在渲染主线程调用（与 Swap 同线程，无锁）。
+func (s *GBMSurface) RequestScreenshot() {
+	s.shotPending = true
+}
+
+// ReadScreenshot 实现 platform.Screenshotter。
+func (s *GBMSurface) ReadScreenshot() (data []byte, stride, width, height int, ok bool) {
+	if !s.shotReady {
+		return nil, 0, 0, 0, false
+	}
+	s.shotReady = false
+	return s.shotBuf, s.width * 4, s.width, s.height, true
+}
+
+// captureFrame 在 Swap 内 eglSwapBuffers 之前调用（EGLContext 已 current），
+// 通过 glReadPixels 回读默认 framebuffer，输出统一为 BGRA32
+// （GL 读回为 bottom-up RGBA，需 Y 翻转 + R/B 交换，alpha 置 255）。
+func (s *GBMSurface) captureFrame() {
+	gles := s.device.glesLoader
+	w, h := s.width, s.height
+	raw := make([]byte, w*h*4)
+	gles.PixelStorei(gl.GL_PACK_ALIGNMENT, 1)
+	gles.ReadPixels(0, 0, int32(w), int32(h), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, raw)
+	if err := gles.GetError(); err != gl.GL_NO_ERROR {
+		debug.Warningf("GBM captureFrame: glReadPixels failed (glErr=0x%x)", err)
+		return
+	}
+	if cap(s.shotBuf) < len(raw) {
+		s.shotBuf = make([]byte, len(raw))
+	}
+	out := s.shotBuf[:len(raw)]
+	rowBytes := w * 4
+	for y := 0; y < h; y++ {
+		src := raw[(h-1-y)*rowBytes:]
+		dst := out[y*rowBytes:]
+		for x := 0; x < w; x++ {
+			dst[x*4+0] = src[x*4+2]
+			dst[x*4+1] = src[x*4+1]
+			dst[x*4+2] = src[x*4+0]
+			dst[x*4+3] = 255
+		}
+	}
+	s.shotReady = true
 }
 
 func (s *GBMSurface) onFlipComplete() {
@@ -604,6 +659,7 @@ func float32ToBytes(vals []float32) []byte {
 }
 
 var (
-	_ platform.Surface     = (*GBMSurface)(nil)
-	_ platform.GPURenderer = (*GBMSurface)(nil)
+	_ platform.Surface       = (*GBMSurface)(nil)
+	_ platform.GPURenderer   = (*GBMSurface)(nil)
+	_ platform.Screenshotter = (*GBMSurface)(nil)
 )

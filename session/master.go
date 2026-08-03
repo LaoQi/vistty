@@ -35,6 +35,10 @@ type tabReq struct {
 	idx    int
 }
 
+type screenshotReq struct {
+	path string
+}
+
 type Master struct {
 	backend    platform.Backend
 	opts       terminal.Options
@@ -59,6 +63,8 @@ type Master struct {
 
 	tabReqCh chan tabReq
 	osdDirty bool
+
+	pendingShot *screenshotReq
 
 	titlePending []string
 
@@ -758,6 +764,67 @@ func (m *Master) ApplyTheme(term terminal.Theme, tbTheme ui.TabBarTheme, sbTheme
 	}
 	m.osdDirty = true
 	m.dirty = true
+}
+
+// Screenshot 请求截取焦点屏幕当前帧并保存为 PNG。
+// path 为空时使用默认路径（$XDG_PICTURES_DIR → ~/Pictures → $HOME → /tmp）。
+// 须在主渲染线程调用（Lua 钩子线程）：仅设置 pendingShot + dirty，
+// 实际抓取与编码在下一帧渲染完成后由 handleScreenshot 执行。
+// 返回解析后的文件路径；抓取/编码失败通过 ShowToast 提示。
+func (m *Master) Screenshot(path string) (string, error) {
+	if m.focusIdx >= len(m.slaves) {
+		return "", fmt.Errorf("no screen available")
+	}
+	s := m.slaves[m.focusIdx]
+	if path == "" {
+		path = defaultScreenshotPath(s.Output().Name(), len(m.slaves) > 1)
+	}
+	if ss, ok := s.Surface().(platform.Screenshotter); ok {
+		ss.RequestScreenshot()
+	}
+	m.pendingShot = &screenshotReq{path: path}
+	m.dirty = true
+	return path, nil
+}
+
+// handleScreenshot 在每帧渲染完成后（Render+Present 之后）调用。
+// 此时 CPU 路径 backBuf 含最新帧；GPU 路径的 Screenshotter 已在
+// Swap 内完成 glReadPixels 回读。PNG 编码同步执行（~几十 ms），
+// 完成后通过 ShowToast 提示结果。
+func (m *Master) handleScreenshot() {
+	req := m.pendingShot
+	if req == nil {
+		return
+	}
+	m.pendingShot = nil
+
+	s := m.slaves[m.focusIdx]
+	if s == nil {
+		return
+	}
+
+	var (
+		data         []byte
+		stride, w, h int
+		ok           bool
+	)
+	if ss, isSS := s.Surface().(platform.Screenshotter); isSS {
+		data, stride, w, h, ok = ss.ReadScreenshot()
+	} else {
+		data, stride, w, h = s.Compositor().BackBuf()
+		ok = len(data) >= stride*h && stride > 0
+	}
+	if !ok {
+		m.ShowToast("截图失败：无法获取帧缓冲", 2, 3000)
+		return
+	}
+
+	if err := saveScreenshotPNG(req.path, data, stride, w, h); err != nil {
+		debug.Errorf("screenshot: %v", err)
+		m.ShowToast("截图失败："+err.Error(), 2, 3000)
+		return
+	}
+	m.ShowToast("截图已保存: "+req.path, 0, 3000)
 }
 
 func (m *Master) ShowToast(message string, level int, durationMs int) {

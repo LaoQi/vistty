@@ -142,11 +142,14 @@ func (m *Master) Run() error {
 					m.signalClose()
 					goto exit
 				}
-			} else {
-				renderErrCount = 0
-				m.dirty = false
-			}
-			if m.fpsLogging {
+		} else {
+			renderErrCount = 0
+			m.dirty = false
+		}
+		if m.pendingShot != nil {
+			m.handleScreenshot()
+		}
+		if m.fpsLogging {
 				fmt.Fprintf(os.Stderr, "frame: %v\n", time.Since(frameStart))
 			}
 		case <-cursorBlinkTicker.C:

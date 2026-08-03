@@ -55,5 +55,6 @@ type PluginContext interface {
 	ShowToast(message string, level int, durationMs int)
 	ShowDialog(title string, inputPlaceholder string, buttons []string) int
 	CloseDialog(id int) (int, string, bool)
+	Screenshot(path string) (string, error)
 	Exit()
 }

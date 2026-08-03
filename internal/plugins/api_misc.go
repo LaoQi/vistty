@@ -129,6 +129,7 @@ func registerAPIs(L *lua.LState, pm *PluginManager) {
 	registerVersion(L, pm)
 	registerInputAPI(L, pm)
 	registerDialogAPI(L, pm)
+	registerScreenshot(L, pm)
 	registerLog(L, pm)
 }
 

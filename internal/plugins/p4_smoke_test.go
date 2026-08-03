@@ -37,6 +37,7 @@ func (f *p4FakeCtx) CommitText(string)                               {}
 func (f *p4FakeCtx) ShowToast(string, int, int)                      {}
 func (f *p4FakeCtx) ShowDialog(string, string, []string) int         { return -1 }
 func (f *p4FakeCtx) CloseDialog(int) (int, string, bool)             { return 0, "", false }
+func (f *p4FakeCtx) Screenshot(string) (string, error)               { return "", nil }
 func (f *p4FakeCtx) Exit()                                           {}
 func (f *p4FakeCtx) ApplyTheme(term terminal.Theme, tb ui.TabBarTheme, sb ui.StatusBarTheme) {}
 

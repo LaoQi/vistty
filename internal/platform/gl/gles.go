@@ -38,6 +38,7 @@ const (
 	GL_TEXTURE_WIDTH      = 0x1000
 	GL_TEXTURE_HEIGHT     = 0x1001
 	GL_UNPACK_ALIGNMENT   = 0x0CF5
+	GL_PACK_ALIGNMENT     = 0x0D05
 
 	GL_BLEND               = 0x0BE2
 	GL_SRC_ALPHA           = 0x0302

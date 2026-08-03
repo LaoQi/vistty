@@ -77,6 +77,12 @@ vistty.input.bind(vistty.keys.Q, function()
 	if super() then vistty.exit(); return true end
 end)
 
+-- Print Screen：截取焦点屏幕并保存为 PNG（路径：$XDG_PICTURES_DIR → ~/Pictures → $HOME → /tmp）
+vistty.input.bind(vistty.keys.PRINT, function()
+	vistty.screenshot()
+	return true
+end)
+
 local statusbar = require("statusbar")
 statusbar.init()
 

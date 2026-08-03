@@ -316,3 +316,4 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - GBM flip 超时兜底 + EventReader + atomic commit modeset 重试
 - BSU 同步更新（DECSET 2026）
 - Damage Tracking 双层 dirty + 环形缓冲区 grid + 渲染调度优化
+- 屏幕截图（vistty.screenshot() Lua API + CPU backBuf/GPU glReadPixels 双路径 + PNG 编码 + XDG 路径 fallback + Toast 提示）
