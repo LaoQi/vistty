@@ -21,51 +21,68 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 	}
 	defer unix.Munmap(data)
 
+	return parseKeymapData(data), nil
+}
+
+// parseKeymapData 解析 XKB keymap 文本（RMLVO 编译后的 keymap 文本格式）。
+// km 按 Linux keycode 索引（已用 xkbToEvdev 将 XKB keycode 转换），
+// 因此 km.lookup 期望传入 Linux keycode（即 Wayland wl_keyboard.key 的 key 参数，
+// 与 /dev/input/event* 的 input_event.code 同构），不再做任何偏移。
+//
+// 段定位采用花括号深度计数：进入 xkb_keycodes/xkb_symbols 段时 depth=1，
+// 每行累加 braceDelta（`{` 数量 - `}` 数量），depth 回到 0 即段结束。
+// 这能正确区分段结束的 `};` 与段内嵌套块（types 段的 `type "X" { ... };`、
+// compat 段的 `interpret X { ... };`）的 `};`，避免误判提前结束 symbols 段。
+func parseKeymapData(data []byte) keymap {
 	km := make(keymap, 256)
 
-	state := kmStateKeycodes
-	var currentKeycode uint32
-	var currentLevel int
+	sec := secNone
+	depth := 0
 
-	lines := splitLines(data)
-	for _, line := range lines {
-		switch state {
-		case kmStateKeycodes:
-			if contains(line, keycodesEnd) {
-				state = kmStateTypes
-			} else if contains(line, keycodesBegin) {
-				state = kmStateKeycodesInner
+	for _, line := range splitLines(data) {
+		delta := braceDelta(line)
+
+		if sec == secNone {
+			switch {
+			case contains(line, keycodesBegin):
+				sec = secKeycodes
+				depth = delta
+			case contains(line, symbolsBegin):
+				sec = secSymbols
+				depth = delta
+			case contains(line, "xkb_types") || contains(line, "xkb_compat") || contains(line, "xkb_geometry"):
+				sec = secOther
+				depth = delta
+			default:
+				continue
 			}
-		case kmStateKeycodesInner:
-			if contains(line, keycodesEnd) {
-				state = kmStateTypes
-			} else {
-				kc, ks := parseKeycodeLine(line)
-				idx := xkbToEvdev(kc)
-				if idx >= 0 && idx < len(km) {
-					km[idx].level0 = xkbKeysymToRune(ks)
-					km[idx].level1 = xkbKeysymToRune(shiftKeysym(ks))
-				}
+			// 单行段（如 `xkb_geometry { ... };`，delta==0）立即结束。
+			if depth <= 0 {
+				sec = secNone
+				depth = 0
+				continue
 			}
-		case kmStateTypes:
-			if contains(line, typesEnd) {
-				state = kmStateCompat
+			// 段声明行本身不含可解析的 key/keycode 条目，跳过内容解析。
+			continue
+		}
+
+		depth += delta
+		if depth <= 0 {
+			// 段结束。
+			sec = secNone
+			depth = 0
+			continue
+		}
+
+		switch sec {
+		case secKeycodes:
+			kc, ks := parseKeycodeLine(line)
+			idx := xkbToEvdev(kc)
+			if idx >= 0 && idx < len(km) {
+				km[idx].level0 = xkbKeysymToRune(ks)
+				km[idx].level1 = xkbKeysymToRune(shiftKeysym(ks))
 			}
-		case kmStateCompat:
-			if contains(line, compatEnd) {
-				state = kmStateSymbols
-			}
-		case kmStateSymbols:
-			if contains(line, symbolsBegin) {
-				state = kmStateSymbolsInner
-			} else if contains(line, symbolsEnd) {
-				state = kmStateGeometry
-			}
-		case kmStateSymbolsInner:
-			if contains(line, symbolsEnd) {
-				state = kmStateGeometry
-				break
-			}
+		case secSymbols:
 			kc, l0, l1 := parseSymbolLine(line)
 			idx := xkbToEvdev(kc)
 			if idx >= 0 && idx < len(km) {
@@ -76,12 +93,24 @@ func parseKeymap(fd int, size uint32) (keymap, error) {
 					km[idx].level1 = xkbKeysymToRune(l1)
 				}
 			}
-			_ = currentKeycode
-			_ = currentLevel
 		}
 	}
 
-	return km, nil
+	return km
+}
+
+// braceDelta 统计一行内 `{` 与 `}` 的数量差（`{` 为 +1，`}` 为 -1）。
+// 用于跟踪 XKB keymap 段的花括号深度以判定段结束。
+func braceDelta(line []byte) int {
+	n := 0
+	for _, b := range line {
+		if b == '{' {
+			n++
+		} else if b == '}' {
+			n--
+		}
+	}
+	return n
 }
 
 func xkbToEvdev(kc uint32) int {
@@ -111,25 +140,18 @@ func (km keymap) lookup(key uint32, mods platform.Modifiers) rune {
 	return r
 }
 
-type kmParseState int
+type kmSection int
 
 const (
-	kmStateKeycodes kmParseState = iota
-	kmStateKeycodesInner
-	kmStateTypes
-	kmStateCompat
-	kmStateSymbols
-	kmStateSymbolsInner
-	kmStateGeometry
+	secNone kmSection = iota
+	secKeycodes
+	secSymbols
+	secOther // types/compat/geometry 等，内容不解析，仅按花括号深度跳过
 )
 
 const (
 	keycodesBegin = "xkb_keycodes"
-	keycodesEnd   = "};"
-	typesEnd      = "};"
-	compatEnd     = "};"
 	symbolsBegin  = "xkb_symbols"
-	symbolsEnd    = "};"
 )
 
 func splitLines(data []byte) [][]byte {

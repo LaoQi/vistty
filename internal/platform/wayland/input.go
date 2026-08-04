@@ -75,9 +75,6 @@ func (i *WaylandInput) registerKeyboardCallbacks() {
 		i.mu.Unlock()
 
 		evdevCode := key
-		if evdevCode >= 8 {
-			evdevCode -= 8
-		}
 		code := uint16(evdevCode)
 		st := platform.KeyState(state == 1)
 

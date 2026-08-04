@@ -1362,9 +1362,9 @@ func (t *Terminal) WriteKeyEscape(code uint16, mods platform.Modifiers) {
 		seq = "\x1b[3~"
 	case 14:
 		seq = "\x7f"
-	case 9:
+	case 15:
 		seq = "\t"
-	case 36:
+	case 28:
 		seq = "\r"
 	default:
 		return
