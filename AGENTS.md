@@ -190,7 +190,7 @@ github.com/LaoQi/vistty/
 ├── scripts/                    # build.sh + quick-update.sh + gen-dict-*.sh + gen-font-subset.sh + gbm-bench.sh + gbm-check.sh + htop-init.lua
 ├── .github/workflows/release.yml # CI Release（v* tag 触发）
 ├── reference/                  # 参考项目源码（foot 终端克隆，已 gitignore）
-└── work_docs/                  # 开发过程文档（implementation-changelog.md 等）
+└── work_docs/                  # 开发过程文档（按 design/implementation/analysis/archive/test-data 分类，见 README.md）
 ```
 
 ### 依赖方向
@@ -234,7 +234,7 @@ debug → 无内部依赖
 |--------|------|------|
 | 硬件光标 | `platform/drm/` | DRM Plane ioctl |
 | 文本整形 | `font/shaper.go` | 集成 go-text/typesetting/harfbuzz |
-| Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理（技术评估见 `work_docs/sixel-evaluation.md`） |
+| Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理（技术评估见 `work_docs/analysis/sixel-evaluation.md`） |
 | X11 窗口后端 | `platform/x11/` | 新增 Backend 实现 |
 | 完整 XKB 支持 | `platform/wayland/keymap.go` | 可选 purego dlopen libxkbcommon.so |
 | Emoji VS16/ZWJ 序列 | `terminal/terminal.go` + `screen/cell.go` | VS16/VS15 感知（Cell.Attr 标记 emoji presentation）+ ZWJ 序列组合（EmojiID 引用全局序列池） |
@@ -291,7 +291,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 
 ## 已实现功能概要
 
-> 完整实现细节见 `work_docs/implementation-changelog.md`
+> 完整实现细节见 `work_docs/implementation/changelog.md`
 
 - DRM/KMS dumb buffer CPU 渲染 + GBM/EGL/GLES GPU instanced draw
 - Wayland wl_shm CPU 渲染后端（自研 wl.go + zxdg_decoration + 两阶段 resize + wl_buffer.release 跳帧）

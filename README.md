@@ -6,61 +6,27 @@
 
 Vistty is a virtual terminal emulator that runs directly on the Linux DRM/KMS
 subsystem, with no X11 or Wayland display server required. It is similar in
-spirit to [kmscon](https://www.freedesktop.org/wiki/Software/KMScon/). A
-Wayland window backend is also included for development and debugging inside a
-desktop session.
+spirit to [kmscon](https://www.freedesktop.org/wiki/Software/KMScon/).
 
-## Features
+It renders through DRM/KMS either with a dumb buffer (CPU path) or with
+GBM/EGL/GLES GPU acceleration via Atomic Modesetting, and supports multiple
+monitors with independent modes. A pure-Go Wayland window backend is also
+included for development and debugging inside a desktop session. The whole
+project is pure Go with `CGO_ENABLED=0` — every native interface (DRM, GBM, EGL,
+GLES, evdev, Wayland) is reached via `syscall`/`ioctl` or `purego` dlopen.
 
-- DRM/KMS direct rendering: dumb buffer + page flip (`drm`), or GBM/EGL/GLES
-  GPU acceleration via Atomic Modesetting (`drm-gbm`). Auto-detect tries
-  `drm-gbm` first, then `drm`, then `wayland`.
-- Wayland window backend: in-tree pure-Go Wayland wire protocol layer
-  (no external Wayland bindings), using `wl_shm` for zero-CGO shared memory,
-  with `zxdg_decoration_manager_v1` SSD/CSD negotiation and self-drawn CSD
-  buttons.
-- Multi-monitor support: enumerates every connected connector; independent
-  display mode per output; primary output selection by name or index.
-- Built-in font: Sarasa Fixed SC subset (monospace + CJK) as primary, with a
-  NerdFont PUA subset as fallback (Powerline/Nerd icons). Rasterized via
-  `golang.org/x/image/font/opentype` with a glyph atlas cache. Block Elements
-  (U+2580-259F) are synthesized when missing. Live font scaling
-  (Super + `=` / `-` / `0`).
-- Color emoji rendering: an in-tree `font/emoji.go` embeds a 1353-glyph
-  subset extracted from NotoColorEmoji.ttf (direct SFNT/cmap/CBLC/CBDT
-  parsing in `cmd/gen-emoji`). CPU blending (BGRA premultiplied) and a GPU shader
-  `isColor` branch with a separate `UploadColorGlyph` path.
-- xterm-256 compatible VT: a hand-written 9-state escape sequence parser with
-  CSI/OSC/ESC/DCS handling, alternate screen, scroll regions, DEC line drawing,
-  bracketed paste, focus reporting, dynamic cursor styles, OSC 10/11/12 color
-  query/set, and CJK double-width rendering.
-- Plugin system: a `gopher-lua` Lua 5.1 VM driven by `init.lua`, exposing a
-  layered `vistty.*` API (input bind/bind_keys/pressed, term, tab, screen, zoom,
-  ui, pinyin, keybind, theme, lifecycle hooks `on_exit`/`on_tab_new`/
-  `on_tab_close`/`on_tab_switch`/`on_screen_switch`/`on_title_change`/`on_resize`/
-  `on_zoom`/`on_activate`, plus runtime environment queries
-  `backend_name`/`is_wayland`/`is_drm`). Hot reload with Super + `R`.
-- Theming: terminal `Theme` (DefFg/DefBg/CursorColor/Palette[16]) and OSD
-  `OSDTheme` are both configured from Lua (`vistty.config.theme` static declaration
-  + `vistty.theme.apply/get/default` dynamic API). Seven built-in presets:
-  dracula, solarized_dark, solarized_light, gruvbox, monokai, nord, one_dark.
-  Runtime OSC color changes are overridden by theme switching.
-- OSD tab bar + multi-terminal tabs: top tab bar with CJK double-width rendering,
-  horizontal scrolling (active tab always visible), single-title truncation, and
-  per-tab close. Tab bar drag moves the window (Wayland).
-- Chinese Pinyin input method: a top-level `pinyin` package with package-level
-  query functions (`Lookup`/`FormatPreedit`/`Split`/`SplitFuzzy`) over an embedded
-  rime-ice dictionary, with prefix inference + tail completion fuzzy splitting and
-  a single-line candidate panel driven from Lua.
-- Italic rendering: glyphs are pre-sheared (slope 0.1) in the font layer via
-  bilinear interpolation and served through the normal blend/atlas path; the CPU
-  and GPU renderers share a single italic atlas keyed by `(rune, italic)`.
-- Pure Go, CGO disabled (`CGO_ENABLED=0`): every native interface (DRM, GBM,
-  EGL, GLES, evdev, Wayland, opentype) is reached via `syscall`/`ioctl` or
-  `purego` dlopen. No C toolchain is needed to build.
-- TTY binding, VT switching (SIGUSR1/2), graceful two-phase shutdown,
-  pprof/trace profiling hooks, PTY session recording for offline replay
-  benchmarking, and version info via `-version` (git `describe --tags`).
+On top of a hand-written xterm-256-compatible escape-sequence parser, Vistty
+provides CJK double-width rendering, a bundled Sarasa CJK font with a NerdFont
+fallback and synthesized block elements, color emoji, a Chinese Pinyin input
+method, a Lua plugin system driven by `init.lua`, theming with several presets,
+and an OSD tab bar with multi-tab support.
+
+## Documentation
+
+Design docs, per-feature implementation records, performance/memory analyses,
+and archived (superseded) design notes live under
+[`work_docs/`](./work_docs/README.md), organized into `design/`,
+`implementation/`, `analysis/`, `archive/`, and `test-data/`.
 
 ## Build
 

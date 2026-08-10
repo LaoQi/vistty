@@ -145,7 +145,7 @@ void term_disable_app_sync_updates(struct terminal *term) {
 | 多线程渲染 | workers + sem | 单线程（LockOSThread） | Go goroutine 受限 |
 | GPU 渲染 | **无**（pixman CPU） | instanced draw（已有优势） | vistty 优势项 |
 
-**vistty 已知痛点**（来自 `work_docs/gbm_perf_analysis.md`、`work_docs/optimize.md`）：
+**vistty 已知痛点**（来自 `work_docs/analysis/gbm_perf_analysis.md`、`work_docs/analysis/optimize.md`）：
 - `BlendGlyphAlpha` 占 CPU 62%、`FillRect` 29%（全量重绘导致）
 - `terminal.mu` RWMutex 锁竞争：PTY 写锁阻塞渲染
 - nvim 询问 `?2026$p` 无响应

@@ -4,6 +4,8 @@
 > 环境：linux/amd64, CGO_ENABLED=0
 > 评估方式：`runtime.ReadMemStats` 实测 + `unsafe.Sizeof` 理论计算 + 源码静态分析
 > 场景：双屏 DRM-GBM（1080p + 2K 2560×1440），实测 RSS > 330 MB
+>
+> **更新说明（2026-08-10）**：本文档为基线分析报告。其中**词库（pinyin）部分的数据已过时**--词库已从 94.2MB 优化至 23.7MB（见 `implementation/pinyin-memory.md`）。优化后 RSS 显著下降。本文档保留词库优化前的基线数据供回溯参考，优化后数据见下方标注。其余组件（字体/帧缓冲/GPU 显存/Cell/Lua VM）分析仍有效。
 
 ## 一、测量方法
 
@@ -36,7 +38,9 @@ runtime.ReadMemStats(&withoutDict)
 
 ## 二、各组件内存详解
 
-### 1. 词库 (pinyin) — 106 MB，最大常驻消费者
+### 1. 词库 (pinyin) — ~~106 MB~~ 已优化至 23.7 MB，最大常驻消费者
+
+> **已优化（2026-07-03）**：词库从 `map[string][]dictEntry` 展开重构为紧凑索引（`dictIndex`：解压 buf 常驻 + keyOffsets/keyRanges 二分查找 + unsafe.String 零复制），HeapAlloc 从 94.2MB 降至 23.7MB，加载峰值从 170MB 降至 30MB。详见 `implementation/pinyin-memory.md`。以下为优化前基线数据，供回溯参考。
 
 实测数据（`withDict - withoutDict`）：
 
@@ -280,11 +284,13 @@ debug.SetMemoryLimit(180 << 20)  // 180 MB 软上限，触发 scavenger 归还
 - 复杂度：低（移动分配时机）
 - 风险：低（需确保 fallback 路径正确触发）
 
-### P2: 词库数据结构重构 — 省 40-60 MB heap
+### P2: 词库数据结构重构 — 省 40-60 MB heap - **已实施**
 
-当前 `map[string][]dictEntry` 的 string/slice header 占 43 MB，map bucket 占 31.6 MB。
+> **已实施（2026-07-03）**：采用方案 A 的紧凑索引变体（`dictIndex`：解压 buf 常驻 + keyOffsets/keyRanges 二分查找 + unsafe.String 零复制 word）。HeapAlloc 从 94.2MB 降至 23.7MB（省 70.5MB），加载峰值从 170MB 降至 30MB。Lookup 改值类型数组消除 `*seen` 指针逃逸。详见 `implementation/pinyin-memory.md`。
 
-**方案 A：offset 索引替代 string/slice**
+~~当前 `map[string][]dictEntry` 的 string/slice header 占 43 MB，map bucket 占 31.6 MB。~~（已消除）
+
+**方案 A：offset 索引替代 string/slice**（已采用变体实施）
 - key 和 word 用连续 byte pool 存储，用 uint32 offset 引用
 - 消除全部 string header (25.6 MB) 和 slice header (18 MB)
 - 预期省 ~40 MB

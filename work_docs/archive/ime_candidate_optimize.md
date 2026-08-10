@@ -1,5 +1,10 @@
 # IME 候选词自适应显示优化
 
+> **状态：已过时（基于旧 IME 架构，已被取代）**
+> 本文基于 `ime/pinyin` 的 `ProcessKey`/`Candidates` 状态机架构。
+> 实际实施中 IME 已重构：`pinyin` 升为顶层包，Go 层无状态（纯查询引擎 `Lookup`/`FormatPreedit`），交互状态全在 Lua 层。候选词自适应分页逻辑已由 `examples/ime.lua` 的 `page_slice`/`total_pages` 实现（基于 `vistty.display_width` 精确计算 CJK 宽度）。
+> 本文档保留供优化思路参考，勿据此实施。
+
 ## 背景
 
 当前中文输入法候选词显示存在以下问题：

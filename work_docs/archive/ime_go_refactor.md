@@ -1,5 +1,10 @@
 # IME Go 层职能精简 — 纯查询引擎
 
+> **状态：已过时（重构已完成且更进一步）**
+> 本文描述从 `ime.InputMethod` 接口重构为 `Lookup`/`FormatPreedit` 无状态方法的过程。
+> 实际实施在此基础更进一步：移除整个 `ime/` 包，`pinyin` 升为**顶层包**，`Registry`/`LuaIMM`/`InputMethod` 接口均不存在。Go 层仅暴露包级查询函数 `Lookup`/`FormatPreedit`/`Split`/`SplitFuzzy`，交互状态全在 Lua 层。
+> 本文档保留供重构演进参考。当前架构见 AGENTS.md "模块与选型 #13"。
+
 ## 背景
 
 上一轮优化将翻页/选择移到 Lua 层，但 Go 层仍持有交互状态（`buf`/`active`/`cands`）和按键处理逻辑（`ProcessKey`）。Go 层职责应仅为词库查询 + 拼音格式化，交互状态和按键决策全部由 Lua 管理。

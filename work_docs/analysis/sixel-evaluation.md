@@ -14,7 +14,7 @@ AGENTS.md 已预留扩展点：
 | Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理 |
 ```
 
-`work_docs/implementation-foot-optimization.md` 阶段 7 也有初步规划。
+`work_docs/implementation/foot-optimization.md` 阶段 7 也有初步规划。
 
 ## 二、现有架构分析
 
@@ -425,4 +425,4 @@ if (v_imageTexID > 0.5) {
 - **mintty `sixel.c`** — Sixel 解码 + 缩放
 - **wezterm `term/sixel.rs`** — Rust 实现，纯内存安全
 - **Sixel 规范** — DEC STD 070 ReGIS/Sixel（文档散射在各终端实现中）
-- **本项目** `work_docs/implementation-foot-optimization.md:295-308` — 阶段 7 初步规划
+- **本项目** `work_docs/implementation/foot-optimization.md:295-308` — 阶段 7 初步规划

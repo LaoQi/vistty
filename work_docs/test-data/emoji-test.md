@@ -1,7 +1,7 @@
 # Emoji 渲染测试
 
 > 用于在 vistty 终端中验证 emoji 彩色渲染效果。范围 P0+P1：单 rune emoji。
-> 用法：`cat work_docs/emoji-test.md` 或在 vistty 中打开此文件查看。
+> 用法：`cat work_docs/test-data/emoji-test.md` 或在 vistty 中打开此文件查看。
 
 ## 一、表情与情感 (Smileys & Emotion, U+1F600-1F64F)
 
@@ -65,4 +65,4 @@
 
 - **完整支持**：第一至十一节的单 rune emoji（含默认 emoji presentation 字符）
 - **不完整支持**：第九节组合旗帜、第十二节键帽（多码点序列，需 VS16/ZWJ 感知，P2/P3 范围）
-- **验证方式**：在 vistty 中 `cat work_docs/emoji-test.md`，彩色 emoji 应正确渲染，多码点序列显示为分离字符或空白属预期
+- **验证方式**：在 vistty 中 `cat work_docs/test-data/emoji-test.md`，彩色 emoji 应正确渲染，多码点序列显示为分离字符或空白属预期

@@ -1,5 +1,10 @@
 # Emoji 支持方案
 
+> **状态：已过时（早期方案，已被取代）**
+> 本文为早期 emoji 方案探索，提出引入 `go-text/typesetting` 依赖。
+> 实际实施选用了**零新依赖**的自研 CBDT 解析方案（构建期纯 Go 解析 NotoColorEmoji.ttf 提取单 rune emoji PNG，gzip 内嵌），详见 `implementation/emoji.md`。
+> 本文档保留供方案选型对比参考，勿据此实施。
+
 ## 当前问题
 
 1. **内嵌 Sarasa Fixed SC 字体不含 emoji 字形** → emoji 显示为空白

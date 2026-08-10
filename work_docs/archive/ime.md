@@ -1,5 +1,10 @@
 # Vistty 中文输入法（IME）实现方案
 
+> **状态：已过时（早期方案，架构已变）**
+> 本文提出 `ime/` 包结构 + `InputMethod` 接口 + `Registry` + `ProcessKey` 状态机，词库在 `ime/pinyin/` 子包。
+> 实际实施中 `pinyin` 升为**顶层包**（无 `ime/` 包），API 改为包级查询函数 `Lookup`/`FormatPreedit`/`Split`/`SplitFuzzy`，交互状态全部由 Lua 层管理（Go 层无状态）。
+> 本文档保留供架构演进参考，勿据此实施。当前架构见 AGENTS.md "模块与选型 #13" 及 `examples/ime.lua`。
+
 ## 目标
 
 在现有插件系统基础上，实现一个可用的中文拼音输入法，并预留多输入法扩展能力。
