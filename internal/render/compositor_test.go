@@ -187,7 +187,8 @@ func TestRenderGPUASCIICell(t *testing.T) {
 	c, surf := newGPUCompositor()
 	buf := screen.NewBuffer(10, 2, 0)
 	clearBuffer(buf)
-	// 光标默认在 (0,0) 且 Blinking=true → 首帧不可见，不干扰断言
+	// 光标默认在 (0,0) 且 Blinking=true → 相位取决于墙钟，为保证断言确定性，禁用光标
+	buf.Cursor().Visible = false
 	buf.Cell(0, 0).Rune = 'A'
 
 	if err := c.Render(buf, 0); err != nil {

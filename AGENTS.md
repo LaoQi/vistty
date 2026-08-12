@@ -313,6 +313,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - StatusBar 底部面板宿主 + IME vistty.input.commit() 解耦
 - 中文拼音输入法（Lookup/FormatPreedit/Split/SplitFuzzy + rime-ice 词库 + 自适应分页）
 - 动态缩放 + dirty 跳帧 + 光标闪烁 + 插件/IME 主动请求渲染（vistty.request_render + PluginContext.RequestRender）
+- 光标闪烁相位重构（cursorVisible 改为绝对时间纯函数，消除累积状态导致的双周期/~1s 保持抖动）
 - VT 管理 + 输入热插拔 + 两阶段关闭 + Close 幂等
 - GBM flip 超时兜底 + EventReader + atomic commit modeset 重试
 - BSU 同步更新（DECSET 2026）

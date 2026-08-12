@@ -31,8 +31,6 @@ type Compositor struct {
 	backStride       int
 	backWidth        int
 	backHeight       int
-	blinkOn          bool
-	lastBlink        time.Time
 	directRender     bool
 	fullRedraw       bool
 	gpu              platform.GPURenderer
@@ -71,7 +69,6 @@ func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 			fg:     screen.Color{R: 255, G: 255, B: 255},
 			cursor: screen.Color{R: 255, G: 255, B: 255},
 		},
-		blinkOn: true,
 	}
 	c.directRender = surface.DirectRender()
 	if !c.directRender {
@@ -225,20 +222,19 @@ func (c *Compositor) OverlayUploadGlyph(r rune) (u0, v0, u1, v1 float32, gw, gh,
 	return u0, v0, u1, v1, g.Width, g.Height, g.XOffset, g.YOffset, true
 }
 
-// cursorVisible 返回光标是否应当绘制。闪烁基于真实时间戳，
-// 与渲染帧率解耦，使 dirty 跳帧时光标仍能正确闪烁。
+// cursorVisible 返回光标是否应当绘制。闪烁相位是绝对时间的纯函数
+// （与渲染频率/调度解耦），因此即使 dirty 跳帧或渲染被延迟，光标在任意
+// 渲染时刻的相位都正确，不会因累积状态产生双周期（~1s 保持）抖动。
+// 500ms 一个相位，偶数相位显示。
 func (c *Compositor) cursorVisible(cursor *screen.Cursor) bool {
-	visible := cursor.Visible
-	if cursor.Blinking {
-		if time.Since(c.lastBlink) >= 500*time.Millisecond {
-			c.blinkOn = !c.blinkOn
-			c.lastBlink = time.Now()
-		}
-		if !c.blinkOn {
-			visible = false
-		}
+	if !cursor.Visible {
+		return false
 	}
-	return visible
+	if !cursor.Blinking {
+		return true
+	}
+	phase := time.Now().UnixNano() / int64(500*time.Millisecond)
+	return phase%2 == 0
 }
 
 // Render 将终端缓冲区合成到 surface 帧缓冲。
