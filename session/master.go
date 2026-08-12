@@ -49,6 +49,7 @@ type Master struct {
 
 	fontData         []byte
 	fallbackFontData []byte
+	patchFontData    []byte
 	initialFontSize  float64
 
 	terms    []*terminal.Terminal
@@ -144,6 +145,11 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		slaves = append(slaves, NewSlave(out, surf))
 	}
 
+	patchFontData, perr := font.EmbeddedPatchFontData()
+	if perr != nil {
+		debug.Errorf("embedded font patch: %v", perr)
+	}
+
 	m := &Master{
 		backend:          backend,
 		opts:             opts,
@@ -152,6 +158,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		slaves:           slaves,
 		fontData:         fontData,
 		fallbackFontData: fallbackFontData,
+		patchFontData:    patchFontData,
 		initialFontSize:  opts.FontSize,
 		focusIdx:         0,
 		scaleReqCh:       make(chan scaleReq, 8),
@@ -189,7 +196,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 
 func (m *Master) initIndependent() error {
 	for _, s := range m.slaves {
-		if err := s.InitIndependent(m.fontData, m.fallbackFontData, m.opts.FontSize); err != nil {
+		if err := s.InitIndependent(m.fontData, m.fallbackFontData, m.patchFontData, m.opts.FontSize); err != nil {
 			return fmt.Errorf("init independent slave %s: %w", s.Output().Name(), err)
 		}
 		met := s.Face().Metrics()

@@ -103,66 +103,86 @@ func (f *OpenTypeFace) Close() error {
 	return nil
 }
 
-// FallbackFace composes a primary face with an optional fallback face. It
-// implements Face so it can be used wherever a single Face is expected. When
-// the primary face lacks a glyph the fallback is consulted; fallback glyphs
-// have their YOffset adjusted so they align to the primary baseline.
-type FallbackFace struct {
-	primary        *OpenTypeFace
-	fallback       *OpenTypeFace
-	primaryMetrics Metrics
-	fallbackAscent int
-	hasFallback    bool
+// glyphFace is the subset of OpenTypeFace needed by ChainFace. It is an
+// interface so tests can inject counting/stub faces, but in production it is
+// always satisfied by *OpenTypeFace.
+type glyphFace interface {
+	Metrics() Metrics
+	Glyph(r rune) (*Glyph, error)
+	Close() error
 }
 
-// NewFallbackFace returns a FallbackFace serving primary, with fallback used
-// for glyphs missing from primary. If fallback is nil the result behaves as
-// primary-only.
-func NewFallbackFace(primary, fallback *OpenTypeFace) *FallbackFace {
-	f := &FallbackFace{
-		primary:        primary,
-		primaryMetrics: primary.Metrics(),
+// ChainFace composes an ordered chain of faces (primary, then any number of
+// fallbacks such as font patches and the Nerd fallback). It implements Face so
+// it can be used wherever a single Face is expected. Glyph lookup walks the
+// chain in order and returns the first hit; glyphs from level i>0 have their
+// YOffset adjusted by (levelAscent - primaryAscent) so they align to the
+// primary baseline.
+type ChainFace struct {
+	faces   []glyphFace // ordered: primary, then fallbacks (may be 1..N)
+	metrics Metrics     // primary's metrics
+	ascents []int       // per-level ascent, cached to avoid hot-path queries
+}
+
+// NewChainFace returns a ChainFace serving primary, with fallbacks consulted
+// in order for glyphs missing from earlier levels. Nil fallbacks are skipped.
+// With no fallbacks the result behaves as primary-only.
+func NewChainFace(primary *OpenTypeFace, fallbacks ...*OpenTypeFace) *ChainFace {
+	faces := make([]glyphFace, 0, 1+len(fallbacks))
+	faces = append(faces, primary)
+	for _, f := range fallbacks {
+		if f != nil {
+			faces = append(faces, f)
+		}
 	}
-	if fallback != nil {
-		f.fallback = fallback
-		f.fallbackAscent = fallback.Metrics().Ascent
-		f.hasFallback = true
+	ascents := make([]int, len(faces))
+	for i, f := range faces {
+		ascents[i] = f.Metrics().Ascent
 	}
-	return f
+	return &ChainFace{
+		faces:   faces,
+		metrics: primary.Metrics(),
+		ascents: ascents,
+	}
 }
 
-func (f *FallbackFace) Metrics() Metrics {
-	return f.primaryMetrics
+// NewFallbackFace is a thin two-level wrapper around NewChainFace, kept for
+// backward compatibility with existing call sites.
+func NewFallbackFace(primary, fallback *OpenTypeFace) *ChainFace {
+	return NewChainFace(primary, fallback)
 }
 
-// Glyph returns the glyph for r from primary, falling back to the secondary
-// face when primary lacks r. Fallback glyphs are YOffset-shifted so they
-// render on the primary baseline: compositor draws gy = py + primaryAscent +
-// glyph.YOffset, so the original fallback YOffset (relative to the fallback
-// baseline) is offset by (fallbackAscent - primaryAscent).
-func (f *FallbackFace) Glyph(r rune) (*Glyph, error) {
-	if g, err := f.primary.Glyph(r); err == nil && g != nil {
+func (f *ChainFace) Metrics() Metrics {
+	return f.metrics
+}
+
+// Glyph returns the glyph for r from the first chain level that provides it.
+// Glyphs from level i>0 are YOffset-shifted so they render on the primary
+// baseline: compositor draws gy = py + primaryAscent + glyph.YOffset, so the
+// original level YOffset (relative to that level's baseline) is offset by
+// (levelAscent - primaryAscent).
+func (f *ChainFace) Glyph(r rune) (*Glyph, error) {
+	base := f.ascents[0]
+	for i, face := range f.faces {
+		g, err := face.Glyph(r)
+		if err != nil || g == nil {
+			continue
+		}
+		if i > 0 {
+			g.YOffset += f.ascents[i] - base
+		}
 		return g, nil
 	}
-	if !f.hasFallback {
-		return nil, nil
-	}
-	g2, err := f.fallback.Glyph(r)
-	if err != nil || g2 == nil {
-		return nil, nil
-	}
-	g2.YOffset += f.fallbackAscent - f.primaryMetrics.Ascent
-	return g2, nil
+	return nil, nil
 }
 
-func (f *FallbackFace) Close() error {
+func (f *ChainFace) Close() error {
 	var err error
-	if f.primary != nil {
-		err = f.primary.Close()
-	}
-	if f.hasFallback {
-		if e := f.fallback.Close(); e != nil && err == nil {
-			err = e
+	for _, face := range f.faces {
+		if face != nil {
+			if e := face.Close(); e != nil && err == nil {
+				err = e
+			}
 		}
 	}
 	return err

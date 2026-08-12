@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/LaoQi/vistty/font"
+	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/screen"
@@ -43,10 +44,19 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, e
 	}
 
 	var faceCache font.FaceCacheProvider
+	extraDatas := make([][]byte, 0, 2)
+	if patchData, perr := font.EmbeddedPatchFontData(); perr != nil {
+		debug.Errorf("embedded font patch: %v", perr)
+	} else if len(patchData) > 0 {
+		extraDatas = append(extraDatas, patchData)
+	}
 	if len(fallbackFontData) > 0 {
-		fc, err := font.NewFallbackFaceCache(fontData, fallbackFontData, 72)
+		extraDatas = append(extraDatas, fallbackFontData)
+	}
+	if len(extraDatas) > 0 {
+		fc, err := font.NewChainFaceCache(fontData, extraDatas, 72)
 		if err != nil {
-			return nil, fmt.Errorf("load fallback font: %w", err)
+			return nil, fmt.Errorf("load font chain: %w", err)
 		}
 		faceCache = fc
 	} else {

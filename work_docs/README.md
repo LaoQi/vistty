@@ -21,6 +21,7 @@
 | `bugfix-2026-07.md` | 缺陷修复实施方案（P0/P1/P2，7 阶段） | 已完成 |
 | `emoji.md` | Emoji 彩色渲染（自研 CBDT 解析，零依赖） | 已完成 |
 | `fallback-font.md` | 双字体 Fallback 链（Sarasa + NerdFont） | 已完成 |
+| `font-patch.md` | 字体补丁系统（vfp 自定义格式 + append-only + TTF 重组装 + ChainFace） | 已完成 |
 | `foot-optimization.md` | foot 终端优化（BSU / damage / 环形 grid） | 阶段1-4 完成，5-7 待实施 |
 | `italic-fix.md` | 斜体渲染修复（font 层 ShearGlyph） | 已完成 |
 | `pinyin-memory.md` | 拼音字典内存优化（94.2MB→23.7MB） | 已完成 |

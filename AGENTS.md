@@ -19,6 +19,7 @@
 | 5 | 转义序列解析 | 自研 | 参考 go-vte 状态机 + darktile termutil |
 | 6 | 终端缓冲区 | 自研 | 参考 darktile termutil Cell/Line/Buffer |
 | 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | 内置 Sarasa Fixed SC 子集（等宽+CJK）+ NerdFont PUA fallback 子集（Powerline/Nerd图标）+ Block Elements 合成 |
+| 7a | 字体补丁系统 | 自研 vfp 格式 + `cmd/gen-fontpatch` | append-only `.vfp` 补丁入库（assets/NNN-name.vfp，文件名升序=合并顺序），启动时合并重组装为内存 TTF，ChainFace N 级 fallback（primary→patch→nerd） |
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 go-text/typesetting/harfbuzz |
 | 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer + GPU instanced draw |
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
@@ -160,6 +161,7 @@ github.com/LaoQi/vistty/
 ├── cmd/vistty/main.go          # 入口
 ├── cmd/gen-dict/main.go        # 词库预处理工具（rime yaml -> dict.bin）
 ├── cmd/gen-emoji/main.go       # Emoji 字形提取工具（NotoColorEmoji.ttf -> emoji.bin.gz）
+├── cmd/gen-fontpatch/main.go   # 字体补丁生成工具（源 TTF + rune 区间 -> assets/NNN-name.vfp）
 ├── pinyin/                     # 拼音输入法（顶层包，非 internal）
 │   ├── pinyin.go               # 查询引擎 Lookup/FormatPreedit + Candidate + 模糊权重降级
 │   ├── syllable.go             # 音节表 + DP 切分 Split/SplitFuzzy
@@ -167,7 +169,7 @@ github.com/LaoQi/vistty/
 │   └── data/dict.bin.gz        # rime-ice 预处理词库
 ├── session/                    # 协调层（master/slave/render_loop + master_test）
 ├── terminal/                   # 纯逻辑会话（terminal/theme/charset/options/render_harness）
-├── font/                       # face/atlas/metrics/embedded/cache/shear + emoji.go + assets/ + data/emoji.bin.gz
+├── font/                       # face/atlas/metrics/embedded/cache/shear + emoji.go + vfp/patch/assemble/genpatch（字体补丁）+ assets/ + data/emoji.bin.gz
 ├── internal/
 │   ├── runeutil/               # RuneWidth/IsWide/StringWidth + emoji.go（IsEmojiRune）
 │   ├── debug/                  # Debugf/Errorf/Warningf + 环境变量/文件配置
@@ -199,6 +201,7 @@ github.com/LaoQi/vistty/
 cmd/vistty → terminal, plugins, debug, platform/gbm (GBM 组装注入), ui, version
 cmd/gen-dict → 无内部依赖（独立词库预处理工具）
 cmd/gen-emoji → internal/runeutil（共享 IsEmojiRune）
+cmd/gen-fontpatch → font（GenPatch 核心逻辑）
 pinyin → 无内部依赖（顶层包，go:embed 词库）
 terminal → screen, vte, render, platform, font, debug, runeutil
 session → render, font, platform, terminal, ui, plugins (PluginContext 接口), debug
@@ -302,6 +305,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 可配置 scrollback（Lua scrollback 配置项 + NewBuffer 签名 + term.history_len() API + Shift+PageUp/Down 半页滚动）
 - Emoji 彩色渲染（CBDT format17 + 紧凑索引 + CPU/GPU 双路径，仅单 rune，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC + NerdFont PUA fallback + Block Elements 合成 + FaceCache
+- 字体补丁系统（自研 vfp 格式 + append-only assets/NNN-name.vfp + 运行时合并重组装内存 TTF + ChainFace N 级 fallback：primary→patch→nerd）
 - 终端配色主题系统（Lua 配置 + 7 预设 + OSC 10/11/12 + 字段级 fallback）
 - GPU glyph atlas + instanced draw（GLES 3.00）
 - 多屏 DRM 输出 + 每屏独立 EGLContext + 两阶段渲染 60fps
