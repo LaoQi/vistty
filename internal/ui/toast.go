@@ -133,9 +133,9 @@ func (t *Toast) RenderGPU(instances *[]platform.CellInstance, width, height int)
 			Y:     yOff,
 			CellW: cellW,
 			CellH: cellH,
-			BgR:   bgR * t.bgAlpha,
-			BgG:   bgG * t.bgAlpha,
-			BgB:   bgB * t.bgAlpha,
+			BgR:   bgR,
+			BgG:   bgG,
+			BgB:   bgB,
 			BgA:   t.bgAlpha,
 		}
 		*instances = append(*instances, inst)
@@ -163,7 +163,7 @@ func (t *Toast) RenderGPU(instances *[]platform.CellInstance, width, height int)
 				FgR:       230.0 / 255,
 				FgG:       230.0 / 255,
 				FgB:       230.0 / 255,
-				BgA:       t.bgAlpha,
+				BgA:       0,
 				GlyphU0:   u0,
 				V0:        v0,
 				GlyphU1:   u1,

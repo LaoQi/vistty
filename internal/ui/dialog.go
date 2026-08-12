@@ -340,12 +340,12 @@ func (d *Dialog) RenderGPU(instances *[]platform.CellInstance, width, height int
 	cellH := float32(d.metrics.Height)
 	cols := bgW / d.metrics.Width
 	rows := bgH / d.metrics.Height
-	bgR := 30.0 / 255 * d.bgAlpha
-	bgG := 30.0 / 255 * d.bgAlpha
-	bgB := 30.0 / 255 * d.bgAlpha
-	borderR := 55.0 / 255 * d.bgAlpha
-	borderG := 55.0 / 255 * d.bgAlpha
-	borderB := 68.0 / 255 * d.bgAlpha
+	bgR := float32(30.0 / 255)
+	bgG := float32(30.0 / 255)
+	bgB := float32(30.0 / 255)
+	borderR := float32(55.0 / 255)
+	borderG := float32(55.0 / 255)
+	borderB := float32(68.0 / 255)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			r, g, b := bgR, bgG, bgB
@@ -371,18 +371,18 @@ func (d *Dialog) RenderGPU(instances *[]platform.CellInstance, width, height int
 	textW := bgW - 8*d.metrics.Width
 	curY := textY
 	if d.title != "" {
-		d.renderLineGPU(instances, textX, curY, textW, d.title, 1.0, 1.0, 1.0, d.bgAlpha, cellW, cellH)
+		d.renderLineGPU(instances, textX, curY, textW, d.title, 1.0, 1.0, 1.0, 0, cellW, cellH)
 		curY += d.metrics.Height
 		curY += d.metrics.Height
 	}
 	for _, line := range d.contentRows {
-		d.renderLineGPU(instances, textX, curY, textW, line, 215.0/255, 215.0/255, 215.0/255, d.bgAlpha, cellW, cellH)
+		d.renderLineGPU(instances, textX, curY, textW, line, 215.0/255, 215.0/255, 215.0/255, 0, cellW, cellH)
 		curY += d.metrics.Height
 	}
 	if d.input != nil {
 		text := d.input.DisplayText()
 		if text != "" {
-			d.renderLineGPU(instances, textX, curY, textW, text, 230.0/255, 230.0/255, 230.0/255, d.bgAlpha, cellW, cellH)
+			d.renderLineGPU(instances, textX, curY, textW, text, 230.0/255, 230.0/255, 230.0/255, 0, cellW, cellH)
 		}
 		curY += d.metrics.Height
 	}
@@ -441,7 +441,7 @@ func (d *Dialog) renderButtonsGPU(instances *[]platform.CellInstance, x, y, w in
 			*instances = append(*instances, inst)
 		}
 		label := "[ " + btn + " ]"
-		d.renderLineGPU(instances, btnX+indent*icellW, y, btnW, label, fgR, fgG, fgB, bgA2, cellW, cellH)
+		d.renderLineGPU(instances, btnX+indent*icellW, y, btnW, label, fgR, fgG, fgB, 0, cellW, cellH)
 		btnX += btnW + gap*icellW
 	}
 }

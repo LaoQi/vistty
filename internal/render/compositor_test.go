@@ -101,6 +101,9 @@ type fakeGPUSurface struct {
 	uv            [4]float32
 	drawnInst     []platform.CellInstance
 	drawCount     int
+	// Pass 2 (DrawInstancesBlended) 记录
+	blendedInst   []platform.CellInstance
+	blendedCount  int
 	beginFrameErr error
 }
 
@@ -139,8 +142,8 @@ func (f *fakeGPUSurface) DrawInstances(instances []platform.CellInstance, screen
 }
 
 func (f *fakeGPUSurface) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
-	f.drawnInst = append(f.drawnInst[:0], instances...)
-	f.drawCount++
+	f.blendedInst = append(f.blendedInst[:0], instances...)
+	f.blendedCount++
 	return nil
 }
 
@@ -791,5 +794,131 @@ func TestCompositorZeroMetricsWidth(t *testing.T) {
 	buf := screen.NewBuffer(10, 5, 0)
 	if err := c.Render(buf, 0); err != nil {
 		t.Fatalf("Render with zero metrics failed: %v", err)
+	}
+}
+
+// ============================================================
+// Pass2 FloatingOverlay 测试：验证 GPU 两 pass 独立性
+// Pass 1 (DrawInstances) 绘制终端内容，Pass 2 (DrawInstancesBlended)
+// 绘制 floating overlay。修复前 DrawInstancesBlended 内部调用
+// DrawInstances 会 Clear framebuffer 销毁 Pass 1 内容。
+// ============================================================
+
+// fakeFloatingOverlay 是最小化的 FloatingOverlay 实现，
+// RenderGPU 产生指定数量的背景 cell instance。
+type fakeFloatingOverlay struct {
+	cells int
+	bgA   float32
+}
+
+func (f *fakeFloatingOverlay) SetGlyphProvider(GlyphProvider)              {}
+func (f *fakeFloatingOverlay) SetGPUGlyphUploader(GPUGlyphUploader)        {}
+func (f *fakeFloatingOverlay) RenderCPU([]byte, int, int, int)             {}
+func (f *fakeFloatingOverlay) RenderGPU(instances *[]platform.CellInstance, width, height int) {
+	for i := 0; i < f.cells; i++ {
+		*instances = append(*instances, platform.CellInstance{
+			X:     float32(i * 8),
+			Y:     0,
+			CellW: 8,
+			CellH: 16,
+			BgR:   0.1,
+			BgG:   0.1,
+			BgB:   0.1,
+			BgA:   f.bgA,
+		})
+	}
+}
+func (f *fakeFloatingOverlay) ZOrder() int { return 100 }
+func (f *fakeFloatingOverlay) Close()      {}
+
+// TestGPUPass2DoesNotClearPass1 验证有 floating overlay 时，
+// compositor 分别调用 DrawInstances (Pass1) 和 DrawInstancesBlended (Pass2)，
+// 两者各收到独立的 instances，Pass 2 不影响 Pass 1 的 drawCount。
+func TestGPUPass2DoesNotClearPass1(t *testing.T) {
+	c, surf := newGPUCompositor()
+	buf := screen.NewBuffer(10, 2, 0)
+	clearBuffer(buf)
+	buf.Cell(0, 0).Rune = 'A'
+
+	fo := &fakeFloatingOverlay{cells: 3, bgA: 0.92}
+	c.AddFloatingOverlay(fo)
+
+	if err := c.Render(buf, 0); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	// Pass 1 应被调用一次，包含终端 cell instances
+	if surf.drawCount != 1 {
+		t.Fatalf("Pass1 drawCount=%d want 1", surf.drawCount)
+	}
+	if len(surf.drawnInst) == 0 {
+		t.Fatal("Pass1 drawnInst should not be empty")
+	}
+
+	// Pass 2 应被调用一次，包含 overlay instances
+	if surf.blendedCount != 1 {
+		t.Fatalf("Pass2 blendedCount=%d want 1", surf.blendedCount)
+	}
+	if len(surf.blendedInst) != 3 {
+		t.Fatalf("Pass2 blendedInst len=%d want 3", len(surf.blendedInst))
+	}
+
+	// Pass 2 instances 的 BgA 应为 overlay 指定的值
+	for i, inst := range surf.blendedInst {
+		if inst.BgA != 0.92 {
+			t.Errorf("blendedInst[%d].BgA=%v want 0.92", i, inst.BgA)
+		}
+	}
+}
+
+// TestGPUNoFloatingOverlayNoPass2 验证没有 floating overlay 时，
+// DrawInstancesBlended 不被调用。
+func TestGPUNoFloatingOverlayNoPass2(t *testing.T) {
+	c, surf := newGPUCompositor()
+	buf := screen.NewBuffer(10, 2, 0)
+	clearBuffer(buf)
+	buf.Cell(0, 0).Rune = 'A'
+
+	if err := c.Render(buf, 0); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if surf.drawCount != 1 {
+		t.Errorf("Pass1 drawCount=%d want 1", surf.drawCount)
+	}
+	if surf.blendedCount != 0 {
+		t.Errorf("Pass2 blendedCount=%d want 0 (no floating overlays)", surf.blendedCount)
+	}
+}
+
+// TestGPUPass2InstancesSeparateFromPass1 验证 Pass 2 的 instances
+// 不与 Pass 1 混在一起——Pass 1 只包含终端 cells，Pass 2 只包含 overlay cells。
+func TestGPUPass2InstancesSeparateFromPass1(t *testing.T) {
+	c, surf := newGPUCompositor()
+	buf := screen.NewBuffer(10, 2, 0)
+	clearBuffer(buf)
+	buf.Cell(0, 0).Rune = 'A'
+
+	fo := &fakeFloatingOverlay{cells: 2, bgA: 0.5}
+	c.AddFloatingOverlay(fo)
+
+	if err := c.Render(buf, 0); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	// Pass 1 应包含终端 cell（含 'A' 的 upload），但不含 BgA=0.5 的 overlay cell
+	for _, inst := range surf.drawnInst {
+		if inst.BgA == 0.5 {
+			t.Error("Pass1 drawnInst should not contain overlay cells (BgA=0.5)")
+			break
+		}
+	}
+
+	// Pass 2 应只包含 overlay cells
+	for _, inst := range surf.blendedInst {
+		if inst.BgA != 0.5 {
+			t.Error("Pass2 blendedInst should only contain overlay cells (BgA=0.5)")
+			break
+		}
 	}
 }

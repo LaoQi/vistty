@@ -319,3 +319,4 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - Damage Tracking 双层 dirty + 环形缓冲区 grid + 渲染调度优化
 - 屏幕截图（vistty.screenshot() Lua API + CPU backBuf/GPU glReadPixels 双路径 + PNG 编码 + XDG 路径 fallback + Toast 提示）
 - 键盘映射修正（Wayland keycode 偏移根因修复：删除 input.go 错误的 -8，key 已是 Linux keycode + keymap symbols 段解析改用花括号深度计数，修复 types/compat 嵌套块 }; 误判导致 symbols 段从未解析 + WriteKeyEscape Tab/Enter 改用 Linux keycode 15/28 + 新增 keymap_test.go 覆盖 parseKeymapData/lookup/braceDelta + DRM 小键盘/功能键扩展 + PRINT 键码修正）
+- GPU Pass2 透明混合修复（DrawInstancesBlended 不再 Clear framebuffer 销毁 Pass1 终端内容 + Overlay 颜色去预乘 + 文字 cell BgA 归零）

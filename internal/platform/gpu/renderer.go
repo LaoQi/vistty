@@ -358,7 +358,8 @@ func (c *Renderer) UploadColorGlyph(r rune, rgba []byte, w, h int) (u0, v0, u1, 
 	return gu0, gv0, gu1, gv1, true
 }
 
-// DrawInstances implements platform.GPURenderer
+// DrawInstances implements platform.GPURenderer.
+// 每帧 Pass 1 调用：先 Clear framebuffer 为 bgColor，再 instanced draw。
 func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
 	if !c.gpuReady {
 		return nil
@@ -372,6 +373,46 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 	if len(instances) == 0 {
 		return nil
 	}
+
+	c.drawInstancesImpl(instances, screenW, screenH, bgColor)
+
+	c.frameCount++
+
+	if debug.Enabled() && c.frameCount <= 3 && len(instances) > 0 {
+		inst := instances[0]
+		px := make([]byte, 4)
+		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, px)
+		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) bgA=%v centerPx=(%d,%d,%d,%d)",
+			len(instances), c.atlasUni, c.atlasTex, gl.GetError(),
+			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
+			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,
+			inst.FgR, inst.FgG, inst.FgB, inst.BgA, px[0], px[1], px[2], px[3])
+	}
+	return nil
+}
+
+// DrawInstancesBlended implements platform.GPURenderer.
+// 每帧 Pass 2 调用：启用 GL_BLEND 绘制 floating overlay，不 Clear framebuffer，
+// 保留 Pass 1 的终端内容。
+func (c *Renderer) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
+	if !c.gpuReady {
+		return fmt.Errorf("gpu: renderer not initialized")
+	}
+	if len(instances) == 0 {
+		return nil
+	}
+	gl := c.gles
+	gl.Viewport(0, 0, int32(screenW), int32(screenH))
+	gl.Enable(glLib.GL_BLEND)
+	gl.BlendFunc(glLib.GL_SRC_ALPHA, glLib.GL_ONE_MINUS_SRC_ALPHA)
+	c.drawInstancesImpl(instances, screenW, screenH, bgColor)
+	gl.Disable(glLib.GL_BLEND)
+	return nil
+}
+
+// drawInstancesImpl 执行 instanced draw 的公共逻辑（不含 Clear/Blend 状态管理）。
+func (c *Renderer) drawInstancesImpl(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) {
+	gl := c.gles
 
 	const maxInstances = 65536
 	if len(instances) > maxInstances {
@@ -448,7 +489,6 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 	}
 
 	gl.DrawArraysInstanced(glLib.GL_TRIANGLE_STRIP, 0, 4, int32(len(instances)))
-	drawErr := gl.GetError()
 
 	if c.vaoReady {
 		gl.BindVertexArray(0)
@@ -457,31 +497,6 @@ func (c *Renderer) DrawInstances(instances []platform.CellInstance, screenW, scr
 			gl.VertexAttribDivisor(i, 0)
 		}
 	}
-
-	c.frameCount++
-
-	if debug.Enabled() && c.frameCount <= 3 && len(instances) > 0 {
-		inst := instances[0]
-		px := make([]byte, 4)
-		gl.ReadPixels(int32(screenW/2), int32(screenH/2), 1, 1, glLib.GL_RGBA, glLib.GL_UNSIGNED_BYTE, px)
-		debug.Debugf("DrawInstances: count=%d atlasUni=%d atlasTex=%d glErr=0x%x inst[0]: X=%v Y=%v CW=%v CH=%v OffX=%v OffY=%v GW=%v GH=%v UV=(%v,%v,%v,%v) fg=(%v,%v,%v) bgA=%v centerPx=(%d,%d,%d,%d)",
-			len(instances), c.atlasUni, c.atlasTex, drawErr,
-			inst.X, inst.Y, inst.CellW, inst.CellH, inst.GlyphOffX, inst.GlyphOffY,
-			inst.GlyphW, inst.GlyphH, inst.GlyphU0, inst.V0, inst.GlyphU1, inst.V1,
-			inst.FgR, inst.FgG, inst.FgB, inst.BgA, px[0], px[1], px[2], px[3])
-	}
-	return nil
-}
-
-func (c *Renderer) DrawInstancesBlended(instances []platform.CellInstance, screenW, screenH int, bgColor [3]float32) error {
-	if !c.gpuReady {
-		return fmt.Errorf("gpu: renderer not initialized")
-	}
-	c.gles.Enable(glLib.GL_BLEND)
-	c.gles.BlendFunc(glLib.GL_SRC_ALPHA, glLib.GL_ONE_MINUS_SRC_ALPHA)
-	err := c.DrawInstances(instances, screenW, screenH, bgColor)
-	c.gles.Disable(glLib.GL_BLEND)
-	return err
 }
 
 // Close 释放 GPU 资源（program/atlas/VBO）。调用方需保证 EGL context 已 current。
