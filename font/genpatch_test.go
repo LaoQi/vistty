@@ -220,3 +220,62 @@ func normalizeCoord(v fixed.Int26_6, srcUpem, dstUpem int) int16 {
 	scaled := v * fixed.Int26_6(dstUpem) / fixed.Int26_6(srcUpem)
 	return int16(scaled.Round())
 }
+
+func TestGenPatchFitForcesAdvance(t *testing.T) {
+	const fit = 2048
+	vfp, missing, _, err := GenPatchFit(EmbeddedFontData(), []rune{'A'}, fit)
+	if err != nil {
+		t.Fatalf("GenPatchFit: %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing = %v", missing)
+	}
+	f, err := ParseVFP(vfp)
+	if err != nil {
+		t.Fatalf("ParseVFP: %v", err)
+	}
+	off, ln, adv, lsb, ok := f.Find('A')
+	if !ok {
+		t.Fatal("Find('A') miss")
+	}
+	if adv != fit {
+		t.Errorf("fit advance = %d, want %d", adv, fit)
+	}
+	if lsb != 0 {
+		t.Errorf("fit lsb = %d, want 0 (outline should start at x=0)", lsb)
+	}
+	if ln == 0 {
+		t.Fatal("fit glyph has no outline")
+	}
+	g := f.GlyphData(off, ln)
+	xMin := int16(binary.BigEndian.Uint16(g[2:4]))
+	xMax := int16(binary.BigEndian.Uint16(g[6:8]))
+	if xMin != 0 {
+		t.Errorf("fit xMin = %d, want 0", xMin)
+	}
+	if xMax != fit {
+		t.Errorf("fit xMax = %d, want %d (outline fills [0,fit])", xMax, fit)
+	}
+}
+
+func TestGenPatchFitEmptyOutline(t *testing.T) {
+	// Space (empty outline) must not crash and must still get the forced advance.
+	vfp, missing, _, err := GenPatchFit(EmbeddedFontData(), []rune{' '}, 1024)
+	if err != nil {
+		t.Fatalf("GenPatchFit(space): %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing = %v", missing)
+	}
+	f, err := ParseVFP(vfp)
+	if err != nil {
+		t.Fatalf("ParseVFP: %v", err)
+	}
+	_, _, adv, _, ok := f.Find(' ')
+	if !ok {
+		t.Fatal("Find(' ') miss")
+	}
+	if adv != 1024 {
+		t.Errorf("space advance = %d, want 1024", adv)
+	}
+}

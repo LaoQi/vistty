@@ -16,6 +16,7 @@ import (
 func main() {
 	fontPath := flag.String("font", "", "input .ttf")
 	unicodes := flag.String("unicodes", "", "unicode ranges, e.g. U+3040-30FF,U+31F0-31FF")
+	fitWidth := flag.Uint("fit-width", 0, "force advance width and horizontally fit outlines to this many 2048-upem units (e.g. 1024 = Sarasa cell width)")
 	out := flag.String("o", "", "output .vfp path (default: auto-assign font/assets/NNN-name.vfp)")
 	name := flag.String("name", "", "patch semantic name (used for auto output path)")
 	assets := flag.String("assets", "font/assets", "assets directory root for auto numbering")
@@ -42,7 +43,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	vfpData, missing, skipped, err := font.GenPatch(data, runes)
+	var vfpData []byte
+	var missing, skipped []rune
+	if *fitWidth > 0 {
+		vfpData, missing, skipped, err = font.GenPatchFit(data, runes, uint16(*fitWidth))
+	} else {
+		vfpData, missing, skipped, err = font.GenPatch(data, runes)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "genpatch: %v\n", err)
 		os.Exit(1)

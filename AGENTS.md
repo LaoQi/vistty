@@ -19,7 +19,7 @@
 | 5 | 转义序列解析 | 自研 | 参考 go-vte 状态机 + darktile termutil |
 | 6 | 终端缓冲区 | 自研 | 参考 darktile termutil Cell/Line/Buffer |
 | 7 | 字体解析+光栅化 | `golang.org/x/image/font/opentype` | 内置 Sarasa Fixed SC 子集（等宽+CJK）+ NerdFont PUA fallback 子集（Powerline/Nerd图标）+ Block Elements 合成 |
-| 7a | 字体补丁系统 | 自研 vfp 格式 + `cmd/gen-fontpatch` | append-only `.vfp` 补丁入库（assets/NNN-name.vfp，文件名升序=合并顺序），启动时合并重组装为内存 TTF，ChainFace N 级 fallback（primary→patch→nerd）；`font.ResolveFontChain` 统一解析——指定自定义 `font` 后默认 patch+nerd 链整体禁用（规避 Sarasa 校准补丁的基线对齐问题），显式 `fallback_font` 恒生效 |
+| 7a | 字体补丁系统 | 自研 vfp 格式 + `cmd/gen-fontpatch` | append-only `.vfp` 补丁入库（assets/NNN-name.vfp，文件名升序=合并顺序），启动时合并重组装为内存 TTF，ChainFace N 级 fallback（primary→patch→nerd）；`font.ResolveFontChain` 统一解析——指定自定义 `font` 后默认 patch+nerd 链整体禁用（规避 Sarasa 校准补丁的基线对齐问题），显式 `fallback_font` 恒生效；首个补丁 `000-braille.vfp`（Braille U+2800-28FF，源 NotoMonoNerdFontMono），`gen-fontpatch -fit-width N` 做全局水平适配（源 advance/轮廓 ≠ Sarasa cell 1024 时） |
 | 8 | 文本整形 | 初期不引入 | 后续按需引入 go-text/typesetting/harfbuzz |
 | 9 | 渲染合成 | 自研渲染管线 | glyph cache + double buffer + GPU instanced draw |
 | 10 | Wayland 窗口后端 | 自研纯 Go 协议层 | wl.go 实现 Wayland wire 协议最小子集，零 CGO |
@@ -305,7 +305,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 可配置 scrollback（Lua scrollback 配置项 + NewBuffer 签名 + term.history_len() API + Shift+PageUp/Down 半页滚动）
 - Emoji 彩色渲染（CBDT format17 + 紧凑索引 + CPU/GPU 双路径，仅单 rune，VS16/ZWJ 未实现）
 - 内置 Sarasa Fixed SC + NerdFont PUA fallback + Block Elements 合成 + FaceCache
-- 字体补丁系统（自研 vfp 格式 + append-only assets/NNN-name.vfp + 运行时合并重组装内存 TTF + ChainFace N 级 fallback：primary→patch→nerd；`font.ResolveFontChain` 统一解析，指定自定义 font 时禁用默认 patch+nerd 链）
+- 字体补丁系统（自研 vfp 格式 + append-only assets/NNN-name.vfp + 运行时合并重组装内存 TTF + ChainFace N 级 fallback：primary→patch→nerd；`font.ResolveFontChain` 统一解析，指定自定义 font 时禁用默认 patch+nerd 链；首个补丁 000-braille.vfp 补齐 Braille U+2800-28FF，gen-fontpatch `-fit-width` 水平适配）
 - 终端配色主题系统（Lua 配置 + 7 预设 + OSC 10/11/12 + 字段级 fallback）
 - GPU glyph atlas + instanced draw（GLES 3.00）
 - 多屏 DRM 输出 + 每屏独立 EGLContext + 两阶段渲染 60fps

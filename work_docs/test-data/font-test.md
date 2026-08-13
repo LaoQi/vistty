@@ -9,8 +9,9 @@
 | 主字体 | Sarasa Fixed SC subset | 6.7MB | CJK（20992字全）、Box Drawing、箭头、数学、几何、CJK 标点、半宽全角 |
 | Fallback | NerdFont PUA + Dingbats/Greek/Misc Symbols subset | 1.17MB | Powerline（U+E0A0-E0D4）+ Nerd Font 图标（PUA 3500个）+ Dingbats（U+2700-27BF，144 字形，含 ✕）+ Greek（U+0370-03FF，116 字形，含 π）+ Misc Symbols（U+2600-26FF，149 字形） |
 | 合成 | synthBlockElement | - | Block Elements（U+2580-259F，硬边几何） |
+| 补丁 | assets/NNN-*.vfp 合并重组 TTF | 33.8KB（Braille） | Braille（U+2800-28FF，256 字形，源 NotoMonoNerdFontMono，`-fit-width 1024` 适配 Sarasa cell） |
 
-查找顺序：`primary.Glyph(r)` → miss → `fallback.Glyph(r)` → miss → `synthBlockElement(r)`（仅块字符）→ nil
+查找顺序：`primary.Glyph(r)` → miss → `patch.Glyph(r)`（多补丁按文件名升序合并）→ miss → `fallback.Glyph(r)` → miss → `synthBlockElement(r)`（仅块字符）→ nil
 
 > 字形补充由 `scripts/gen-font-subset.sh` 生成：pyftsubset 从 NotoMonoNerdFontMono 提取 PUA + 从 DejaVuSansMono 提取 Dingbats/Greek/Misc Symbols，fonttools 合并。
 
@@ -35,6 +36,7 @@
 | Half/Fullwidth | U+FF00-FFEF | Sarasa | 225/240 |
 | Powerline | U+E0A0-E0D4 | NerdFont | 全（38） |
 | Nerd Font PUA | U+E000-F8FF | NerdFont | 3500 |
+| Braille | U+2800-28FF | 补丁（000-braille.vfp） | 全（256/256，源 NotoMonoNerdFontMono） |
 
 ## 测试字符表
 
@@ -134,6 +136,42 @@ printf '%b' "$(python3 -c "print(''.join(chr(c) for c in range(0xE000,0xF900)))"
 ```
 **验证**：大部分 PUA 字符应显示为图标（非 tofu）。少量 NerdFont 自身未含的码位会缺失（正常）。
 
+### 10a. Braille 盲文（补丁 000-braille.vfp）
+单点: ⠁ ⠂ ⠄ ⠈ ⠐ ⠠ ⡀
+竖列: ⠁⠃⠇⠏⠟⠿
+点阵: ⠉⠙⠛⠝⠟ ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+满点: ⣿ ⠿ ⡿ ⣷
+```bash
+# line-dots spinner 常用帧（opencode 等 TUI 动画）
+printf '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+```
+**验证**：2×4 点阵结构正确（单点 6px、双列点铺满 cell 16px）、等宽对齐、无溢出、无 tofu。盲文点实心无锯齿。
+
+#### line-dots 动画帧完整测试集（TUI spinner 常用 Braille 帧）
+以下均为 U+2800-28FF 内字符（opencode 等 TUI thinking/loading 动画的 line-dots 帧来源）。逐帧验证点阵动画轮廓连续、每帧字形完整、单宽不溢出：
+
+```
+dots:   ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+dots2:  ⣾⣽⣻⢿⡿⣟⣯⣷
+dots3:  ⠋⠙⠚⠞⠖⠦⠴⠲⠳⠓
+dots4:  ⠄⠆⠇⠋⠙⠸⠰⠠⠰⠸⠙⠋⠇⠆
+dots5:  ⠋⠙⠚⠒⠂⠂⠒⠲⠴⠦⠖⠒⠐⠐⠒⠓⠋
+dots6:  ⠁⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠴⠲⠒⠂⠂⠒⠚⠙⠉⠁
+dots7:  ⠈⠉⠋⠓⠒⠐⠐⠒⠖⠦⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠈
+dots8:  ⠁⠁⠁⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠈⠈
+dots9:  ⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠉
+dots10: ⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠉
+dots11: ⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠉
+dots12: ⠁⠂⠄⡀⢀⠠⠐⠈
+dots13: ⠁⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠠⠠⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠈
+dots14: ⠋⠙⠚⠒⠂⠂⠒⠲⠴⠦⠖⠒⠐⠐⠒⠓⠋⠉⠈
+dots15: ⠋⠙⠚⠒⠂⠂⠒⠲⠴⠤⠦⠖⠒⠐⠐⠒⠓⠋⠉⠈
+dots16: ⠁⠂⠄⡀⢀⠠⠐⠈
+```
+码位示例（对应码位均在 U+2800-28FF）：`⠋`=U+280B `⠙`=U+2819 `⠹`=U+2839 `⠸`=U+2838 `⠼`=U+283C `⠴`=U+2834 `⠦`=U+2826 `⠧`=U+2827 `⠇`=U+2807 `⠏`=U+280F `⣾`=U+28FE `⣽`=U+28FD `⢿`=U+28BF `⡿`=U+287F `⣟`=U+28DF `⣯`=U+28EF `⣷`=U+28F7
+
+**验证**：任意帧字符不显示为空格/tofu；相邻帧逐帧点阵变化连续；动画循环播放无跳变。
+
 ### 11. 半宽全角形式（Sarasa 原生）
 ```
 ０１２３４５６７８９
@@ -208,11 +246,12 @@ TESTEOF
 | CJK Ext A/B | U+3400-4DBF, U+20000+ | 子集不含罕见字 | 生僻字不显示 |
 | 日文假名 | U+3040-30FF | Sarasa SC 是简中版 | 日文不显示 |
 | 韩文 | U+AC00-D7AF | 子集不含 | 韩文不显示 |
-| Braille | U+2800-28FF | 子集不含 | 盲文不显示 |
 | 部分Misc Symbols | U+2600-26FF | Sarasa 108 + NerdFont 补 70 = 178/256 | 剩余 78 个符号缺失 |
 | Control Pictures | U+2400-243F | 仅 AdwaitaMono 覆盖，upem=1000 与 DejaVu/NerdFont(2048) 不兼容无法合并 | DEC 画线模式 b/c/d/e/h/i（␉␊␋␌␍␤）不显示，实际几乎不触发 |
 | 部分Greek | U+0370-03FF | NerdFont 补 116/144 | 剩余 28 个希腊字母变体缺失 |
 | 部分Dingbats | U+2700-27BF | NerdFont 补 144/192 | 剩余 48 个 Dingbats 缺失 |
+
+> 已解决：Braille（U+2800-28FF）已由补丁 `000-braille.vfp` 补齐（见覆盖概览 + 测试段 10a）。
 
 ## 排查指南
 

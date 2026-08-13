@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"math"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/sfnt"
@@ -19,6 +20,20 @@ const targetUpem = 2048
 // Runes whose glyph is a colored (bitmap) glyph that cannot be represented as
 // a simple outline are returned in skipped.
 func GenPatch(fontData []byte, runes []rune) (vfpData []byte, missing []rune, skipped []rune, err error) {
+	return genPatch(fontData, runes, 0)
+}
+
+// GenPatchFit is GenPatch with horizontal fitting: every glyph outline is
+// scaled (preserving aspect ratio) and translated so its x range fills
+// [0, fitAdvance], and the recorded advance width is forced to fitAdvance.
+// This is used when the source font's advance/outline width differ from the
+// primary font's cell width (e.g. Braille glyphs from a Nerd font into the
+// Sarasa cell). fitAdvance is in 2048-upem units; 0 disables fitting.
+func GenPatchFit(fontData []byte, runes []rune, fitAdvance uint16) (vfpData []byte, missing []rune, skipped []rune, err error) {
+	return genPatch(fontData, runes, fitAdvance)
+}
+
+func genPatch(fontData []byte, runes []rune, fitAdvance uint16) (vfpData []byte, missing []rune, skipped []rune, err error) {
 	f, err := sfnt.Parse(fontData)
 	if err != nil {
 		return nil, nil, nil, err
@@ -26,15 +41,35 @@ func GenPatch(fontData []byte, runes []rune) (vfpData []byte, missing []rune, sk
 	ppem := fixed.Int26_6(targetUpem) << 6
 	b := &sfnt.Buffer{}
 
-	var entries []VfpEntry
-	var glyphs [][]byte
 	seen := make(map[rune]bool)
+	var ordered []rune
 	for _, r := range runes {
 		if seen[r] {
 			continue
 		}
 		seen[r] = true
+		ordered = append(ordered, r)
+	}
 
+	// Horizontal fitting uses a single global transform shared by all glyphs,
+	// so relative glyph sizes are preserved: the union of all outlines spans
+	// [0, fitAdvance] and each glyph keeps its own width.
+	var fitScale, fitOffset float64
+	fitEnabled := fitAdvance > 0
+	if fitEnabled {
+		lo, hi, have := glyphXRange(f, b, ordered, ppem)
+		if have {
+			span := hi - lo
+			if span > 0 {
+				fitScale = float64(fitAdvance) * 64 / span
+				fitOffset = -lo * fitScale
+			}
+		}
+	}
+
+	var entries []VfpEntry
+	var glyphs [][]byte
+	for _, r := range ordered {
 		gi, err := f.GlyphIndex(b, r)
 		if err != nil {
 			return nil, nil, nil, err
@@ -53,16 +88,25 @@ func GenPatch(fontData []byte, runes []rune) (vfpData []byte, missing []rune, sk
 			return nil, nil, nil, err
 		}
 
+		if fitEnabled && fitScale > 0 {
+			segs = fitSegmentsHoriz(segs, fitScale, fitOffset)
+		}
+
 		glyf, err := encodeGlyfSimple(segs)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		adv, err := f.GlyphAdvance(b, gi, ppem, font.HintingNone)
-		if err != nil {
-			return nil, nil, nil, err
+		var a int
+		if fitEnabled {
+			a = int(fitAdvance)
+		} else {
+			adv, err := f.GlyphAdvance(b, gi, ppem, font.HintingNone)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			a = adv.Round()
 		}
-		a := adv.Round()
 		if a < 0 {
 			a = 0
 		}
@@ -70,11 +114,16 @@ func GenPatch(fontData []byte, runes []rune) (vfpData []byte, missing []rune, sk
 			a = 0xFFFF
 		}
 
-		bounds, _, err := f.GlyphBounds(b, gi, ppem, font.HintingNone)
-		if err != nil {
-			return nil, nil, nil, err
+		var lsb int
+		if fitEnabled {
+			lsb = segsXMin(segs)
+		} else {
+			bounds, _, err := f.GlyphBounds(b, gi, ppem, font.HintingNone)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			lsb = bounds.Min.X.Round()
 		}
-		lsb := bounds.Min.X.Round()
 		if lsb < -0x8000 {
 			lsb = -0x8000
 		}
@@ -91,6 +140,95 @@ func GenPatch(fontData []byte, runes []rune) (vfpData []byte, missing []rune, sk
 		return nil, nil, nil, err
 	}
 	return vfpData, missing, skipped, nil
+}
+
+// glyphXRange scans the outlines of the given runes (ignoring missing/colored
+// glyphs) and returns the global min/max X coordinates in 26.6 fixed units.
+// The bool result is false when no usable outline was found.
+func glyphXRange(f *sfnt.Font, b *sfnt.Buffer, runes []rune, ppem fixed.Int26_6) (lo, hi float64, ok bool) {
+	var loF, hiF float64
+	for _, r := range runes {
+		gi, err := f.GlyphIndex(b, r)
+		if err != nil || gi == 0 {
+			continue
+		}
+		segs, err := f.LoadGlyph(b, gi, ppem, nil)
+		if err != nil || len(segs) == 0 {
+			continue
+		}
+		segEach(segs, func(a fixed.Point26_6) {
+			x := float64(a.X)
+			if !ok || x < loF {
+				loF = x
+			}
+			if !ok || x > hiF {
+				hiF = x
+			}
+			ok = true
+		})
+	}
+	return loF, hiF, ok
+}
+
+// fitSegmentsHoriz applies a shared horizontal affine transform to a glyph
+// outline: x' = x*scale + offset (scale/offset computed over the union of all
+// patch glyphs). The Y axis is untouched. Empty outlines are unchanged.
+func fitSegmentsHoriz(segs sfnt.Segments, scale, offset float64) sfnt.Segments {
+	if len(segs) == 0 {
+		return segs
+	}
+	out := make(sfnt.Segments, len(segs))
+	for i, s := range segs {
+		out[i] = s
+		switch s.Op {
+		case sfnt.SegmentOpMoveTo, sfnt.SegmentOpLineTo:
+			out[i].Args[0].X = fixed.Int26_6(math.Round(float64(s.Args[0].X)*scale + offset))
+		case sfnt.SegmentOpQuadTo:
+			out[i].Args[0].X = fixed.Int26_6(math.Round(float64(s.Args[0].X)*scale + offset))
+			out[i].Args[1].X = fixed.Int26_6(math.Round(float64(s.Args[1].X)*scale + offset))
+		case sfnt.SegmentOpCubeTo:
+			for j := 0; j < 3; j++ {
+				out[i].Args[j].X = fixed.Int26_6(math.Round(float64(s.Args[j].X)*scale + offset))
+			}
+		}
+	}
+	return out
+}
+
+// segEach visits each actually-used coordinate of every segment in segs,
+// skipping the unused trailing slots of the fixed-size [3]Point26_6 array.
+func segEach(segs sfnt.Segments, fn func(fixed.Point26_6)) {
+	for _, s := range segs {
+		switch s.Op {
+		case sfnt.SegmentOpMoveTo, sfnt.SegmentOpLineTo:
+			fn(s.Args[0])
+		case sfnt.SegmentOpQuadTo:
+			fn(s.Args[0])
+			fn(s.Args[1])
+		case sfnt.SegmentOpCubeTo:
+			fn(s.Args[0])
+			fn(s.Args[1])
+			fn(s.Args[2])
+		}
+	}
+}
+
+// segsXMin returns the minimum X coordinate of a glyph outline in font units
+// (2048 upem). It returns 0 for an empty outline.
+func segsXMin(segs sfnt.Segments) int {
+	min := int64(1<<62) - 1
+	first := true
+	segEach(segs, func(a fixed.Point26_6) {
+		v := int64(a.X.Round())
+		if first || v < min {
+			min = v
+		}
+		first = false
+	})
+	if first {
+		return 0
+	}
+	return int(min)
 }
 
 // encodeGlyfSimple encodes a vector path as a simple (non-compound) TrueType
