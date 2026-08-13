@@ -4,9 +4,10 @@ import (
 	"testing"
 )
 
-// newFallbackTestFace builds a FallbackFace pairing the embedded Sarasa
-// primary with the embedded NerdFont fallback at a fixed size/dpi.
-func newFallbackTestFace(t *testing.T) (*FallbackFace, *OpenTypeFace, *OpenTypeFace) {
+// newFallbackTestFace builds a ChainFace pairing the embedded Sarasa primary
+// with the embedded NerdFont fallback at a fixed size/dpi, exercising the
+// two-level NewFallbackFace compatibility wrapper.
+func newFallbackTestFace(t *testing.T) (*ChainFace, *OpenTypeFace, *OpenTypeFace) {
 	t.Helper()
 	primary, err := NewEmbeddedFace(14, 96)
 	if err != nil {
@@ -94,7 +95,7 @@ func TestFallbackFaceMetricsMatchesPrimary(t *testing.T) {
 	pm := primary.Metrics()
 	fm := f.Metrics()
 	if fm != pm {
-		t.Fatalf("FallbackFace Metrics = %+v, want primary %+v", fm, pm)
+		t.Fatalf("ChainFace Metrics = %+v, want primary %+v", fm, pm)
 	}
 }
 
@@ -114,13 +115,13 @@ func TestFallbackFaceBaselineAlignment(t *testing.T) {
 		t.Fatal("fallback lacks U+E0B0; cannot verify baseline alignment")
 	}
 
-	// Glyph routed through FallbackFace must be baseline-aligned to primary.
+	// Glyph routed through the chain must be baseline-aligned to primary.
 	g, err := f.Glyph(r)
 	if err != nil {
-		t.Fatalf("FallbackFace.Glyph err: %v", err)
+		t.Fatalf("ChainFace.Glyph err: %v", err)
 	}
 	if g == nil {
-		t.Fatal("expected non-nil glyph through FallbackFace")
+		t.Fatal("expected non-nil glyph through chain")
 	}
 
 	primaryAscent := primary.Metrics().Ascent
@@ -160,7 +161,7 @@ func TestFallbackFaceCacheGetFace(t *testing.T) {
 		t.Fatal("GetFace should return a new instance for a different size")
 	}
 
-	// Cached face behaves as a FallbackFace: primary hit + fallback hit.
+	// Cached face behaves as a chain: primary hit + fallback hit.
 	if g, _ := f1.Glyph('o'); g == nil {
 		t.Error("cached face missing primary glyph 'o'")
 	}
@@ -194,7 +195,8 @@ func TestFaceCacheImplementsProvider(t *testing.T) {
 	_ = p
 }
 
-// Verify *FallbackFaceCache satisfies FaceCacheProvider.
+// Verify *ChainFaceCache (as returned by NewFallbackFaceCache) satisfies
+// FaceCacheProvider.
 func TestFallbackFaceCacheImplementsProvider(t *testing.T) {
 	cache, err := NewFallbackFaceCache(EmbeddedFontData(), EmbeddedFallbackFontData(), 96)
 	if err != nil {

@@ -64,11 +64,14 @@ func (s *Slave) Output() platform.Output {
 	return s.output
 }
 
-func (s *Slave) InitIndependent(fontData, fallbackFontData []byte, fontSize float64) error {
+func (s *Slave) InitIndependent(fontData []byte, extraDatas [][]byte, fontSize float64) error {
 	var fc font.FaceCacheProvider
 	var err error
-	if len(fallbackFontData) > 0 {
-		fc, err = font.NewFallbackFaceCache(fontData, fallbackFontData, 72)
+	// extraDatas are the ordered fallback layers after primary (e.g.
+	// patch -> Nerd fallback, or a user-supplied fallback). Empty extras
+	// degrade to a primary-only face.
+	if len(extraDatas) > 0 {
+		fc, err = font.NewChainFaceCache(fontData, extraDatas, 72)
 	} else {
 		fc, err = font.NewFaceCache(fontData, 72)
 	}

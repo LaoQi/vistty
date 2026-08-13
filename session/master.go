@@ -2,7 +2,6 @@ package session
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -47,8 +46,8 @@ type Master struct {
 	slaves     []*Slave
 	input      platform.InputSource
 
-	fontData         []byte
-	fallbackFontData []byte
+	fontData []byte
+	fontExtras [][]byte
 	initialFontSize  float64
 
 	terms    []*terminal.Terminal
@@ -112,24 +111,9 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		}
 	}
 
-	var fontData []byte
-	if opts.FontPath != "" {
-		fontData, err = os.ReadFile(opts.FontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read font file: %w", err)
-		}
-	} else {
-		fontData = font.EmbeddedFontData()
-	}
-
-	var fallbackFontData []byte
-	if opts.FallbackFontPath != "" {
-		fallbackFontData, err = os.ReadFile(opts.FallbackFontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read fallback font file: %w", err)
-		}
-	} else {
-		fallbackFontData = font.EmbeddedFallbackFontData()
+	fontData, fontExtras, err := font.ResolveFontChain(opts.FontPath, opts.FallbackFontPath)
+	if err != nil {
+		return nil, err
 	}
 
 	var slaves []*Slave
@@ -151,7 +135,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 		primaryIdx:       primaryIdx,
 		slaves:           slaves,
 		fontData:         fontData,
-		fallbackFontData: fallbackFontData,
+		fontExtras:       fontExtras,
 		initialFontSize:  opts.FontSize,
 		focusIdx:         0,
 		scaleReqCh:       make(chan scaleReq, 8),
@@ -189,7 +173,7 @@ func NewMaster(backend platform.Backend, opts terminal.Options) (*Master, error)
 
 func (m *Master) initIndependent() error {
 	for _, s := range m.slaves {
-		if err := s.InitIndependent(m.fontData, m.fallbackFontData, m.opts.FontSize); err != nil {
+		if err := s.InitIndependent(m.fontData, m.fontExtras, m.opts.FontSize); err != nil {
 			return fmt.Errorf("init independent slave %s: %w", s.Output().Name(), err)
 		}
 		met := s.Face().Metrics()

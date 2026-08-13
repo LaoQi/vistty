@@ -76,8 +76,8 @@ func (c *FaceCache) GetFace(size float64) (Face, error) {
 }
 
 // FaceCacheProvider abstracts font caches that serve Face instances by size.
-// It is implemented by both FaceCache (single font) and FallbackFaceCache
-// (primary + optional fallback). Consumers such as the compositor depend on
+// It is implemented by both FaceCache (single font) and ChainFaceCache
+// (primary + ordered fallbacks). Consumers such as the compositor depend on
 // this interface rather than a concrete cache, so enabling fallback is a
 // drop-in change at the call site.
 type FaceCacheProvider interface {
@@ -85,44 +85,62 @@ type FaceCacheProvider interface {
 	Close() error
 }
 
-// FallbackFaceCache caches FallbackFace instances built from a primary font
-// and an optional fallback font. The fallback covers glyphs missing from
-// primary. When fallbackData is empty the cache degrades to primary-only
-// (each FallbackFace carries a nil fallback).
-type FallbackFaceCache struct {
-	mu       sync.Mutex
-	primary  *opentype.Font
-	fallback *opentype.Font
-	dpi      float64
-	faces    map[float64]*FallbackFace
+// ChainFaceCache caches ChainFace instances built from a primary font and an
+// ordered list of extra fonts (e.g. merged font patches followed by a Nerd
+// fallback). Extras cover glyphs missing from earlier levels. Zero-length
+// entries in extraDatas are skipped (not an error), so the chain degrades to a
+// shorter one; with no extras each ChainFace is primary-only.
+type ChainFaceCache struct {
+	mu      sync.Mutex
+	primary *opentype.Font
+	extras  []*opentype.Font // ordered extras (patches before Nerd), may be empty
+	dpi     float64
+	faces   map[float64]*ChainFace
 }
 
-// NewFallbackFaceCache parses primaryData (required) and fallbackData
-// (optional). When fallbackData is empty the returned cache serves
-// primary-only FallbackFace instances.
-func NewFallbackFaceCache(primaryData, fallbackData []byte, dpi float64) (*FallbackFaceCache, error) {
+// NewChainFaceCache parses primaryData (required) and each non-empty
+// extraData entry (optional). Empty extraDatas entries are skipped rather than
+// treated as errors.
+func NewChainFaceCache(primaryData []byte, extraDatas [][]byte, dpi float64) (*ChainFaceCache, error) {
 	primary, err := opentype.Parse(primaryData)
 	if err != nil {
 		return nil, err
 	}
-	var fallback *opentype.Font
-	if len(fallbackData) > 0 {
-		fallback, err = opentype.Parse(fallbackData)
+	var extras []*opentype.Font
+	for _, d := range extraDatas {
+		if len(d) == 0 {
+			continue
+		}
+		e, err := opentype.Parse(d)
 		if err != nil {
 			return nil, err
 		}
+		extras = append(extras, e)
 	}
-	return &FallbackFaceCache{
-		primary:  primary,
-		fallback: fallback,
-		dpi:      dpi,
-		faces:    make(map[float64]*FallbackFace),
+	return &ChainFaceCache{
+		primary: primary,
+		extras:  extras,
+		dpi:     dpi,
+		faces:   make(map[float64]*ChainFace),
 	}, nil
 }
 
-// GetFace returns a cached FallbackFace for the given size, creating one on
+// NewFallbackFaceCache is a thin two-font wrapper around NewChainFaceCache,
+// kept for backward compatibility with existing call sites. When fallbackData
+// is empty the returned cache serves primary-only ChainFace instances.
+func NewFallbackFaceCache(primaryData, fallbackData []byte, dpi float64) (*ChainFaceCache, error) {
+	var extras [][]byte
+	if len(fallbackData) > 0 {
+		extras = [][]byte{fallbackData}
+	}
+	return NewChainFaceCache(primaryData, extras, dpi)
+}
+
+// GetFace returns a cached ChainFace for the given size, creating one on
 // first request. Repeated calls for the same size return the same instance.
-func (c *FallbackFaceCache) GetFace(size float64) (Face, error) {
+// If an extra face fails to create, the already-created faces are closed and
+// an error is returned.
+func (c *ChainFaceCache) GetFace(size float64) (Face, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -133,22 +151,26 @@ func (c *FallbackFaceCache) GetFace(size float64) (Face, error) {
 	if err != nil {
 		return nil, err
 	}
-	var fallback *OpenTypeFace
-	if c.fallback != nil {
-		fallback, err = newFaceFromParsed(c.fallback, size, c.dpi)
+	extras := make([]*OpenTypeFace, 0, len(c.extras))
+	for _, e := range c.extras {
+		ef, err := newFaceFromParsed(e, size, c.dpi)
 		if err != nil {
 			primary.Close()
+			for _, x := range extras {
+				x.Close()
+			}
 			return nil, err
 		}
+		extras = append(extras, ef)
 	}
-	f := NewFallbackFace(primary, fallback)
+	f := NewChainFace(primary, extras...)
 	c.faces[size] = f
 	return f, nil
 }
 
-// Close releases all cached FallbackFace instances. After Close the cache
-// must not be used.
-func (c *FallbackFaceCache) Close() error {
+// Close releases all cached ChainFace instances. After Close the cache must
+// not be used.
+func (c *ChainFaceCache) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

@@ -3,7 +3,6 @@ package terminal
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -20,33 +19,16 @@ type RenderHarness struct {
 }
 
 func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, error) {
-	var fontData []byte
-	if opts.FontPath != "" {
-		data, err := os.ReadFile(opts.FontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read font file: %w", err)
-		}
-		fontData = data
-	} else {
-		fontData = font.EmbeddedFontData()
-	}
-
-	var fallbackFontData []byte
-	if opts.FallbackFontPath != "" {
-		data, err := os.ReadFile(opts.FallbackFontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read fallback font file: %w", err)
-		}
-		fallbackFontData = data
-	} else {
-		fallbackFontData = font.EmbeddedFallbackFontData()
+	fontData, extraDatas, err := font.ResolveFontChain(opts.FontPath, opts.FallbackFontPath)
+	if err != nil {
+		return nil, err
 	}
 
 	var faceCache font.FaceCacheProvider
-	if len(fallbackFontData) > 0 {
-		fc, err := font.NewFallbackFaceCache(fontData, fallbackFontData, 72)
+	if len(extraDatas) > 0 {
+		fc, err := font.NewChainFaceCache(fontData, extraDatas, 72)
 		if err != nil {
-			return nil, fmt.Errorf("load fallback font: %w", err)
+			return nil, fmt.Errorf("load font chain: %w", err)
 		}
 		faceCache = fc
 	} else {

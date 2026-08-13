@@ -1,6 +1,7 @@
 package font
 
 import (
+	"io/fs"
 	"testing"
 )
 
@@ -97,5 +98,24 @@ func TestEmbeddedFaceMetricsPositive(t *testing.T) {
 	m := face.Metrics()
 	if m.Width <= 0 || m.Height <= 0 || m.Ascent <= 0 {
 		t.Errorf("metrics invalid: %+v", m)
+	}
+}
+
+// TestEmbeddedPatchesValid guards against a bad patch being committed: every
+// assets/*.vfp must parse as a valid vfp file. With no patches the loop is a
+// vacuous pass.
+func TestEmbeddedPatchesValid(t *testing.T) {
+	names, err := fs.Glob(assetsFS, "assets/*.vfp")
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	for _, name := range names {
+		data, err := fs.ReadFile(assetsFS, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if _, err := ParseVFP(data); err != nil {
+			t.Fatalf("ParseVFP(%s): %v", name, err)
+		}
 	}
 }
