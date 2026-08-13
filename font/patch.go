@@ -3,6 +3,7 @@ package font
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"sort"
 	"sync"
 )
@@ -108,4 +109,50 @@ func EmbeddedPatchFontData() ([]byte, error) {
 		patchData, patchErr = merged.FontData()
 	})
 	return patchData, patchErr
+}
+
+// ResolveFontChain resolves the font layers for a terminal from optional user
+// font paths plus the embedded assets. It returns the primary font bytes and
+// the ordered fallback layers (extras) after it.
+//
+// The default chain is Sarasa -> patch -> Nerd fallback. When a custom primary
+// font is configured (fontPath != ""), the default patch and Nerd fallback
+// layers — which are calibrated to the embedded Sarasa font — are disabled, so
+// the user has full control over the chain and avoids the baseline-alignment
+// mismatch between Sarasa-calibrated patches and a foreign primary. A
+// user-supplied fallback font (fallbackPath) is always honored.
+func ResolveFontChain(fontPath, fallbackPath string) (primary []byte, extras [][]byte, err error) {
+	customFont := fontPath != ""
+
+	if customFont {
+		primary, err = os.ReadFile(fontPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read font file: %w", err)
+		}
+	} else {
+		primary = EmbeddedFontData()
+	}
+
+	// The patch layer only applies to the default (Sarasa) primary chain.
+	if !customFont {
+		patch, perr := EmbeddedPatchFontData()
+		if perr != nil {
+			return nil, nil, fmt.Errorf("embedded font patch: %w", perr)
+		}
+		if len(patch) > 0 {
+			extras = append(extras, patch)
+		}
+	}
+
+	if fallbackPath != "" {
+		fallback, err := os.ReadFile(fallbackPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read fallback font file: %w", err)
+		}
+		extras = append(extras, fallback)
+	} else if !customFont {
+		// Default tail: embedded Nerd fallback.
+		extras = append(extras, EmbeddedFallbackFontData())
+	}
+	return primary, extras, nil
 }

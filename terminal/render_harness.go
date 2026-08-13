@@ -3,10 +3,8 @@ package terminal
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/LaoQi/vistty/font"
-	"github.com/LaoQi/vistty/internal/debug"
 	"github.com/LaoQi/vistty/internal/platform"
 	"github.com/LaoQi/vistty/internal/render"
 	"github.com/LaoQi/vistty/internal/screen"
@@ -21,38 +19,12 @@ type RenderHarness struct {
 }
 
 func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, error) {
-	var fontData []byte
-	if opts.FontPath != "" {
-		data, err := os.ReadFile(opts.FontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read font file: %w", err)
-		}
-		fontData = data
-	} else {
-		fontData = font.EmbeddedFontData()
-	}
-
-	var fallbackFontData []byte
-	if opts.FallbackFontPath != "" {
-		data, err := os.ReadFile(opts.FallbackFontPath)
-		if err != nil {
-			return nil, fmt.Errorf("read fallback font file: %w", err)
-		}
-		fallbackFontData = data
-	} else {
-		fallbackFontData = font.EmbeddedFallbackFontData()
+	fontData, extraDatas, err := font.ResolveFontChain(opts.FontPath, opts.FallbackFontPath)
+	if err != nil {
+		return nil, err
 	}
 
 	var faceCache font.FaceCacheProvider
-	extraDatas := make([][]byte, 0, 2)
-	if patchData, perr := font.EmbeddedPatchFontData(); perr != nil {
-		debug.Errorf("embedded font patch: %v", perr)
-	} else if len(patchData) > 0 {
-		extraDatas = append(extraDatas, patchData)
-	}
-	if len(fallbackFontData) > 0 {
-		extraDatas = append(extraDatas, fallbackFontData)
-	}
 	if len(extraDatas) > 0 {
 		fc, err := font.NewChainFaceCache(fontData, extraDatas, 72)
 		if err != nil {

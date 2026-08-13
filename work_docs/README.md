@@ -36,6 +36,7 @@
 | `plugins.md` | 插件系统设计方案（gopher-lua + vistty.* API） | 已实施 |
 | `input.md` | 输入设备热插拔设计（inotify + capabilities） | 已实施 |
 | `plan.md` | GBMSurface 异步 Mailbox 提交架构（三缓冲） | 已实施 |
+| `font-chain-custom-font.md` | 自定义主字体时禁用默认字体查找链（patch+nerd） | 已实施 |
 
 ## analysis/ — 分析报告
 

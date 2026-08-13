@@ -258,3 +258,4 @@ ChainFace.Glyph(r):
 | 2026-08-13 | 阶段3 | 审计通过 | glyphFace 接口注入 fake；薄封装向后兼容；patch 恒在 nerd 前且不受 fallback_font 配置影响；CLI 真实 .vfp 端到端验证；24 包回归通过 |
 | 2026-08-13 | 整体 | 已完成 | 3 阶段全部审计通过，最终回归全绿 |
 | 2026-08-13 | 阶段3 | 实施完成 | ChainFace（N 级 fallback，faces 存 glyphFace 接口便于 Close 计数测试）+ ChainFaceCache（extraDatas 跳过空条目）；NewFallbackFace/NewFallbackFaceCache 薄封装保持兼容；session 链序 primary→patch→nerd，patch 不受自定义 fallback_font 影响（patchFontData 独立字段+embedded 注入）；TestEmbeddedPatchesValid 兜底；11 新链测试 + GenPatch/LoadPatches 真实管线 + fallback 用例迁移；全量 24 包回归通过 |
+| 2026-08-13 | 追加 | 实施完成 | **自定义主字体禁用默认链**：font.ResolveFontChain(fontPath, fallbackPath) 统一解析（font/patch.go）；指定 font 后 patch+内嵌 nerd 默认链整体禁用，规避 Sarasa 校准补丁与异体主字体的基线对齐问题；显式 fallback_font 恒生效；master/slave/render_harness 改用 (primary, extras) 二元注入（InitIndependent 签名简化为 fontData+extraDatas）；新增 font/resolve_test.go 5 用例；坏 patch 由 debug 降级改为硬错误。方案见 design/font-chain-custom-font.md |

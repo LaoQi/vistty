@@ -10,6 +10,10 @@ local theme = require("themes.xterm")
 vistty.config = {
 	backend    = "auto",
 	shell      = "/bin/bash",
+	-- 指定 font 即完整接管字体查找链：默认的 Sarasa 校准补丁与内嵌 Nerd 图标
+	-- fallback 均不再装配（规避基线对齐/风格混搭问题）。此时缺字形渲染为空白，
+	-- 需要 Nerd 图标或补充字形时用 fallback_font 指向磁盘上的字体文件（如系统
+	-- 安装的 Nerd Font），该 fallback 恒生效。
 	font       = "",
 	fontsize   = 24,
 	scrollback = 10000,

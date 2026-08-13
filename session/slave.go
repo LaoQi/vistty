@@ -64,19 +64,12 @@ func (s *Slave) Output() platform.Output {
 	return s.output
 }
 
-func (s *Slave) InitIndependent(fontData, fallbackFontData, patchFontData []byte, fontSize float64) error {
+func (s *Slave) InitIndependent(fontData []byte, extraDatas [][]byte, fontSize float64) error {
 	var fc font.FaceCacheProvider
 	var err error
-	// Chain order: primary -> patch(es) -> Nerd fallback. The patch layer is
-	// present regardless of the fallback_font config; the fallback stays the
-	// tail. Empty patch/fallback degrade to a shorter chain.
-	extraDatas := make([][]byte, 0, 2)
-	if len(patchFontData) > 0 {
-		extraDatas = append(extraDatas, patchFontData)
-	}
-	if len(fallbackFontData) > 0 {
-		extraDatas = append(extraDatas, fallbackFontData)
-	}
+	// extraDatas are the ordered fallback layers after primary (e.g.
+	// patch -> Nerd fallback, or a user-supplied fallback). Empty extras
+	// degrade to a primary-only face.
 	if len(extraDatas) > 0 {
 		fc, err = font.NewChainFaceCache(fontData, extraDatas, 72)
 	} else {
