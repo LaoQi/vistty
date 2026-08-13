@@ -69,6 +69,11 @@ func (f *OpenTypeFace) Metrics() Metrics {
 }
 
 func (f *OpenTypeFace) Glyph(r rune) (*Glyph, error) {
+	if isCsdRune(r) {
+		if g := synthCsdGlyph(r, f.metrics); g != nil {
+			return g, nil
+		}
+	}
 	adv, ok := f.face.GlyphAdvance(r)
 	if !ok {
 		if g := synthBlockElement(r, f.metrics); g != nil {

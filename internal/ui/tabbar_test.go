@@ -186,3 +186,68 @@ func TestLayoutTabsScrollKeepWhenVisible(t *testing.T) {
 		t.Fatalf("scroll should keep 60 when active visible, got %d", sc)
 	}
 }
+
+func TestCsdButtonsWidth(t *testing.T) {
+	tb := NewTabBar(&fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}, TabBarTheme{})
+	if w := tb.csdButtonsWidth(); w != 0 {
+		t.Fatalf("non-CSD mode: width want 0 got %d", w)
+	}
+	tb.SetCSDMode(true)
+	if w := tb.csdButtonsWidth(); w != 3*csdBtnCellSpan*10 {
+		t.Fatalf("CSD width want %d got %d", 3*csdBtnCellSpan*10, w)
+	}
+}
+
+func TestLayoutCsdButtons(t *testing.T) {
+	tb := NewTabBar(&fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}, TabBarTheme{})
+	cells := tb.layoutCsdButtons(10, 200)
+	if len(cells) != csdBtnCount {
+		t.Fatalf("want %d buttons got %d", csdBtnCount, len(cells))
+	}
+	want := []struct {
+		x    int
+		rune rune
+	}{
+		{200 - 3*csdBtnCellSpan*10, font.CsdBtnMinRune},
+		{200 - 2*csdBtnCellSpan*10, font.CsdBtnMaxRune},
+		{200 - 1*csdBtnCellSpan*10, font.CsdBtnCloseRune},
+	}
+	for i, w := range want {
+		c := cells[i]
+		if c.x != w.x {
+			t.Errorf("btn %d: x want %d got %d", i, w.x, c.x)
+		}
+		if c.w != csdBtnCellSpan {
+			t.Errorf("btn %d: w want %d got %d", i, csdBtnCellSpan, c.w)
+		}
+		if c.r != w.rune {
+			t.Errorf("btn %d: rune want %U got %U", i, w.rune, c.r)
+		}
+	}
+}
+
+func TestCsdButtonRectsAndHit(t *testing.T) {
+	tb := NewTabBar(&fakeFace{m: font.Metrics{Width: 10, Height: 20, Ascent: 16}}, TabBarTheme{})
+	tb.SetCSDMode(true)
+	btnW := csdBtnCellSpan * 10
+	width := 200
+	rects := tb.CsdButtonRects(width)
+	wantX := []int{200 - 3*btnW, 200 - 2*btnW, 200 - 1*btnW}
+	for i, x := range wantX {
+		if rects[i].Min.X != x || rects[i].Dx() != btnW || rects[i].Dy() != 20 {
+			t.Errorf("rect %d: want x=%d w=%d h=20 got %+v", i, x, btnW, rects[i])
+		}
+	}
+	if hit := tb.HitTestTabBar(wantX[0]+btnW/2, 10, width); hit != TabBarCsdMin {
+		t.Errorf("min hit want TabBarCsdMin got %v", hit)
+	}
+	if hit := tb.HitTestTabBar(wantX[1]+btnW/2, 10, width); hit != TabBarCsdMax {
+		t.Errorf("max hit want TabBarCsdMax got %v", hit)
+	}
+	if hit := tb.HitTestTabBar(wantX[2]+btnW/2, 10, width); hit != TabBarCsdClose {
+		t.Errorf("close hit want TabBarCsdClose got %v", hit)
+	}
+	if hit := tb.HitTestTabBar(50, 10, width); hit != TabBarArea {
+		t.Errorf("plain area want TabBarArea got %v", hit)
+	}
+}

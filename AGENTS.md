@@ -169,7 +169,7 @@ github.com/LaoQi/vistty/
 │   └── data/dict.bin.gz        # rime-ice 预处理词库
 ├── session/                    # 协调层（master/slave/render_loop + master_test）
 ├── terminal/                   # 纯逻辑会话（terminal/theme/charset/options/render_harness）
-├── font/                       # face/atlas/metrics/embedded/cache/shear + emoji.go + vfp/patch/assemble/genpatch（字体补丁）+ assets/ + data/emoji.bin.gz
+├── font/                       # face/atlas/metrics/embedded/cache/shear + emoji.go + csd.go（CSD 按钮几何合成）+ vfp/patch/assemble/genpatch（字体补丁）+ assets/ + data/emoji.bin.gz
 ├── internal/
 │   ├── runeutil/               # RuneWidth/IsWide/StringWidth + emoji.go（IsEmojiRune）
 │   ├── debug/                  # Debugf/Errorf/Warningf + 环境变量/文件配置
@@ -310,6 +310,7 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - GPU glyph atlas + instanced draw（GLES 3.00）
 - 多屏 DRM 输出 + 每屏独立 EGLContext + 两阶段渲染 60fps
 - TabBar 顶部标签栏 + StatusBar 底部面板 + 多终端标签 + CSD 自绘 + 水平滚动
+- CSD 窗口按钮改进（几何合成符号：最小化=横线/最大化=方框/关闭=✕；专用 PUA rune U+F8000-F8002 由 font.OpenTypeFace.Glyph 优先合成，规避等宽字体符号过小/缺失；每按钮 4 cell 宽随字号缩放 + 按钮内水平居中；含小字号 lw=1 边框回归修复）
 - FloatingOverlay 浮层体系（Dialog/Toast）+ GPU BgA alpha + Pass2 GL_BLEND 渲染
 - Dialog 增强（多行 content + 按钮选择导航 + OnClose 回调 + ExpirableOverlay/ClosableOverlay 自动清理 + fullRedraw）
 - InputTarget 焦点栈 + vistty.input.commit() IME 输出解耦

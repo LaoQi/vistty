@@ -24,6 +24,10 @@ const (
 
 const csdBtnCount = 3
 
+// csdBtnCellSpan 是每个 CSD 按钮占用的 cell 宽度（4 cell @14pt ≈ 40px），
+// 随字号缩放自适应，避免 1 cell 过窄导致点击目标小、符号拥挤。
+const csdBtnCellSpan = 4
+
 type TabBarHit int
 
 const (
@@ -128,21 +132,22 @@ func (t *TabBar) csdButtonsWidth() int {
 	if !t.csdMode || t.metrics.Width <= 0 {
 		return 0
 	}
-	return csdBtnCount * t.metrics.Width
+	return csdBtnCount * csdBtnCellSpan * t.metrics.Width
 }
 
 func (t *TabBar) layoutCsdButtons(cellW, width int) []osdCell {
 	if cellW <= 0 || width <= 0 {
 		return nil
 	}
-	syms := []rune{'─', '□', '✕'}
+	syms := []rune{font.CsdBtnMinRune, font.CsdBtnMaxRune, font.CsdBtnCloseRune}
+	btnW := csdBtnCellSpan * cellW
 	bgs := [3][3]uint8{t.theme.CsdBtnBg, t.theme.CsdBtnBg, t.theme.CsdCloseBg}
 	fgs := [3][3]uint8{t.theme.CsdBtnFg, t.theme.CsdBtnFg, t.theme.CsdBtnFg}
 	var cells []osdCell
 	for i := 0; i < csdBtnCount; i++ {
-		x := width - (csdBtnCount-i)*cellW
+		x := width - (csdBtnCount-i)*btnW
 		cells = append(cells, osdCell{
-			x: x, w: 1, r: syms[i],
+			x: x, w: csdBtnCellSpan, r: syms[i],
 			bgR: bgs[i][0], bgG: bgs[i][1], bgB: bgs[i][2],
 			fgR: fgs[i][0], fgG: fgs[i][1], fgB: fgs[i][2],
 		})
@@ -155,9 +160,10 @@ func (t *TabBar) CsdButtonRects(width int) [csdBtnCount]image.Rectangle {
 	if !t.csdMode || t.metrics.Width <= 0 || t.metrics.Height <= 0 {
 		return rects
 	}
+	btnW := csdBtnCellSpan * t.metrics.Width
 	for i := 0; i < csdBtnCount; i++ {
-		x := width - (csdBtnCount-i)*t.metrics.Width
-		rects[i] = image.Rect(x, 0, x+t.metrics.Width, t.metrics.Height)
+		x := width - (csdBtnCount-i)*btnW
+		rects[i] = image.Rect(x, 0, x+btnW, t.metrics.Height)
 	}
 	return rects
 }
@@ -339,7 +345,7 @@ func (t *TabBar) RenderCPU(buf []byte, stride, width, height int) {
 				if g == nil {
 					continue
 				}
-				gx := c.x + g.XOffset
+				gx := c.x + (c.w*t.metrics.Width-g.Width)/2
 				gy := 0 + t.metrics.Ascent + g.YOffset
 				render.BlendGlyph(buf, stride, gx, gy, g.Bitmap, g.Width, g.Height, c.fgR, c.fgG, c.fgB)
 			}
@@ -404,13 +410,13 @@ func (t *TabBar) RenderGPU(instances *[]platform.CellInstance, width, height int
 				GlyphOffY: 0,
 			}
 			if c.r != 0 && t.uploader != nil {
-				u0, v0, u1, v1, gw, gh, xoff, yoff, ok := t.uploader.OverlayUploadGlyph(c.r)
+				u0, v0, u1, v1, gw, gh, _, yoff, ok := t.uploader.OverlayUploadGlyph(c.r)
 				if ok {
 					inst.GlyphU0 = u0
 					inst.V0 = v0
 					inst.GlyphU1 = u1
 					inst.V1 = v1
-					inst.GlyphOffX = float32(xoff)
+					inst.GlyphOffX = (float32(c.w)*cellW - float32(gw)) / 2
 					inst.GlyphOffY = float32(t.metrics.Ascent + yoff)
 					inst.GlyphW = float32(gw)
 					inst.GlyphH = float32(gh)
