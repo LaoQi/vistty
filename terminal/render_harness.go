@@ -89,6 +89,18 @@ func NewRenderHarness(surface platform.Surface, opts Options) (*RenderHarness, e
 		cols:       cols,
 		rows:       rows,
 	}
+	// 与 NewTerminal 保持一致的 theme 初始化，
+	// 否则 SGR 38/48 等触发 ansiColor 时 nil 解引用（benchmark sgr_cursor panic）。
+	if opts.Theme != nil {
+		th := *opts.Theme
+		t.theme = &th
+	} else {
+		th := DefaultTheme
+		t.theme = &th
+	}
+	t.defFg = t.theme.DefFg
+	t.defBg = t.theme.DefBg
+	t.cursorColor = t.theme.CursorColor
 	t.initTabStops()
 
 	return &RenderHarness{

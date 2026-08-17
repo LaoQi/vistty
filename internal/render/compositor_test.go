@@ -812,9 +812,9 @@ type fakeFloatingOverlay struct {
 	bgA   float32
 }
 
-func (f *fakeFloatingOverlay) SetGlyphProvider(GlyphProvider)              {}
-func (f *fakeFloatingOverlay) SetGPUGlyphUploader(GPUGlyphUploader)        {}
-func (f *fakeFloatingOverlay) RenderCPU([]byte, int, int, int)             {}
+func (f *fakeFloatingOverlay) SetGlyphProvider(GlyphProvider)       {}
+func (f *fakeFloatingOverlay) SetGPUGlyphUploader(GPUGlyphUploader) {}
+func (f *fakeFloatingOverlay) RenderCPU([]byte, int, int, int)      {}
 func (f *fakeFloatingOverlay) RenderGPU(instances *[]platform.CellInstance, width, height int) {
 	for i := 0; i < f.cells; i++ {
 		*instances = append(*instances, platform.CellInstance{

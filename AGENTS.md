@@ -326,3 +326,4 @@ go run ./cmd/vistty -version                # 查看版本信息（go run 显示
 - 屏幕截图（vistty.screenshot() Lua API + CPU backBuf/GPU glReadPixels 双路径 + PNG 编码 + XDG 路径 fallback + Toast 提示）
 - 键盘映射修正（Wayland keycode 偏移根因修复：删除 input.go 错误的 -8，key 已是 Linux keycode + keymap symbols 段解析改用花括号深度计数，修复 types/compat 嵌套块 }; 误判导致 symbols 段从未解析 + WriteKeyEscape Tab/Enter 改用 Linux keycode 15/28 + 新增 keymap_test.go 覆盖 parseKeymapData/lookup/braceDelta + DRM 小键盘/功能键扩展 + PRINT 键码修正）
 - GPU Pass2 透明混合修复（DrawInstancesBlended 不再 Clear framebuffer 销毁 Pass1 终端内容 + Overlay 颜色去预乘 + 文字 cell BgA 归零）
+- CPU 渲染混合函数优化（见 work_docs/implementation/render-blend-optimize.md）：draw.go 四原语行级裁剪（逐像素边界检查→每行一次连续区间，内层切片化）+ BlendGlyph ca=255 特化（combined≡alpha）+ fullRows 优化（同进程 A/B FullScreen 2x）+ underline/crossedout 循环钳制 + 水平 bleed 修复；配套像素级测试体系（ref* 参考实现 + 表驱动边缘 + 300 种子随机对拍 + 舍入穷举 + compositor 黄金帧/幂等性逐字节断言）与 perf/replay 渲染路径矩阵（BenchmarkRenderPaths：direct/backbuf_full/backbuf_steady × 80x24/240x67）

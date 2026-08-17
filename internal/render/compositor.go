@@ -383,24 +383,30 @@ func (c *Compositor) Render(buf *screen.Buffer, scrollOffset int) error {
 
 				if cell.Attr&screen.AttrUnderline != 0 {
 					underlineY := py + c.metrics.Ascent + 1
-					if underlineY < py+c.metrics.Height {
-						for x := px; x < px+cellW; x++ {
+					if underlineY < py+c.metrics.Height && underlineY*c.backStride+3 < len(c.backBuf) {
+						xEnd := px + cellW
+						if xEnd > c.backStride/4 {
+							xEnd = c.backStride / 4
+						}
+						for x := px; x < xEnd; x++ {
 							off := underlineY*c.backStride + x*4
-							if off+3 < len(c.backBuf) {
-								c.backBuf[off] = fgB
-								c.backBuf[off+1] = fgG
-								c.backBuf[off+2] = fgR
-								c.backBuf[off+3] = 255
-							}
+							c.backBuf[off] = fgB
+							c.backBuf[off+1] = fgG
+							c.backBuf[off+2] = fgR
+							c.backBuf[off+3] = 255
 						}
 					}
 				}
 
 				if cell.Attr&screen.AttrCrossedOut != 0 {
 					midY := py + c.metrics.Height/2
-					for x := px; x < px+cellW; x++ {
-						off := midY*c.backStride + x*4
-						if off+3 < len(c.backBuf) {
+					if midY*c.backStride+3 < len(c.backBuf) {
+						xEnd := px + cellW
+						if xEnd > c.backStride/4 {
+							xEnd = c.backStride / 4
+						}
+						for x := px; x < xEnd; x++ {
+							off := midY*c.backStride + x*4
 							c.backBuf[off] = fgB
 							c.backBuf[off+1] = fgG
 							c.backBuf[off+2] = fgR
@@ -536,36 +542,36 @@ func (c *Compositor) renderGPU(buf *screen.Buffer, scrollOffset int) error {
 			bg := resolveBg(cell.Bg, dc)
 			fgR, fgG, fgB := float32(fg.R)/255, float32(fg.G)/255, float32(fg.B)/255
 			bgR, bgG, bgB := float32(bg.R)/255, float32(bg.G)/255, float32(bg.B)/255
-		bgA := float32(0)
+			bgA := float32(0)
 
-		if cell.Attr&screen.AttrReverse != 0 {
-			fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
-		}
-		if cell.Attr&screen.AttrDim != 0 {
-			fgR /= 2
-			fgG /= 2
-			fgB /= 2
-		}
-		if bgR != defBgR || bgG != defBgG || bgB != defBgB {
-			bgA = 1.0
-		}
+			if cell.Attr&screen.AttrReverse != 0 {
+				fgR, fgG, fgB, bgR, bgG, bgB = bgR, bgG, bgB, fgR, fgG, fgB
+			}
+			if cell.Attr&screen.AttrDim != 0 {
+				fgR /= 2
+				fgG /= 2
+				fgB /= 2
+			}
+			if bgR != defBgR || bgG != defBgG || bgB != defBgB {
+				bgA = 1.0
+			}
 
-		inst := platform.CellInstance{
-			X:         px,
-			Y:         py,
-			CellW:     cellW,
-			CellH:     cellH,
-			GlyphOffX: 0,
-			GlyphOffY: ascentF,
-			GlyphW:    cellWF,
-			GlyphH:    cellHF,
-			FgR:       fgR,
-			FgG:       fgG,
-			FgB:       fgB,
-			BgR:       bgR,
-			BgG:       bgG,
-			BgB:       bgB,
-			BgA:       bgA,
+			inst := platform.CellInstance{
+				X:         px,
+				Y:         py,
+				CellW:     cellW,
+				CellH:     cellH,
+				GlyphOffX: 0,
+				GlyphOffY: ascentF,
+				GlyphW:    cellWF,
+				GlyphH:    cellHF,
+				FgR:       fgR,
+				FgG:       fgG,
+				FgB:       fgB,
+				BgR:       bgR,
+				BgG:       bgG,
+				BgB:       bgB,
+				BgA:       bgA,
 			}
 			if cell.Attr&screen.AttrUnderline != 0 {
 				inst.AttrFlags += 1

@@ -25,6 +25,7 @@
 | `foot-optimization.md` | foot 终端优化（BSU / damage / 环形 grid） | 阶段1-4 完成，5-7 待实施 |
 | `italic-fix.md` | 斜体渲染修复（font 层 ShearGlyph） | 已完成 |
 | `pinyin-memory.md` | 拼音字典内存优化（94.2MB→23.7MB） | 已完成 |
+| `render-blend-optimize.md` | CPU 渲染混合函数优化（行级裁剪 + ca=255 特化 + 像素级测试体系） | 已完成 |
 | `theme.md` | 终端配色主题系统 | 已完成 |
 | `ui-refactor.md` | UI 层重构（TabBar/StatusBar/FloatingOverlay/InputTarget） | 已完成 |
 | `wayland-csd.md` | Wayland CSD 自绘装饰 | 已完成 |

@@ -14,6 +14,7 @@ type fakeSurface struct {
 	w, h   int
 	data   []byte
 	stride int
+	direct bool
 }
 
 func newFakeSurface(w, h int) *fakeSurface {
@@ -22,7 +23,19 @@ func newFakeSurface(w, h int) *fakeSurface {
 		h:      h,
 		stride: w * 4,
 		data:   make([]byte, w*4*h),
+		direct: true,
 	}
+}
+
+// newFakeSurfaceMode 创建可指定渲染模式的 fake surface。
+// direct=true  → 堆内存直写（Wayland wl_shm 路径），每帧全量重绘；
+// direct=false → 设备内存（DRM dumb buffer 路径），Compositor 走
+//
+//	backBuf + dirty 逐 cell 重绘 + copyAllToSurface。
+func newFakeSurfaceMode(w, h int, direct bool) *fakeSurface {
+	s := newFakeSurface(w, h)
+	s.direct = direct
+	return s
 }
 
 func (s *fakeSurface) Size() (int, int) { return s.w, s.h }
@@ -34,7 +47,7 @@ func (s *fakeSurface) ResizeEvents() <-chan platform.ResizeEvent {
 	return nil
 }
 func (s *fakeSurface) OutputID() uint32   { return 0 }
-func (s *fakeSurface) DirectRender() bool { return true }
+func (s *fakeSurface) DirectRender() bool { return s.direct }
 func (s *fakeSurface) DecoMode() uint32   { return 0 }
 
 var _ platform.Surface = (*fakeSurface)(nil)
@@ -96,6 +109,12 @@ type Config struct {
 	Rows       int
 	FontSize   float64
 	Workload   string
+	// FullRedraw：render 层每帧渲染前 DamageAll()，模拟滚动场景的全量重绘。
+	// 仅对 backBuf 模式（DirectRender=false）有意义——direct 模式本就逐帧全量。
+	FullRedraw bool
+	// DirectRender：fake surface 渲染模式，默认 true 保持既有行为。
+	// false 走 backBuf + copyAllToSurface（DRM dumb buffer CPU 路径）。
+	DirectRender *bool
 }
 
 func Bench(cfg Config) Result {
@@ -194,7 +213,11 @@ func benchRender(cfg Config) Result {
 	data := cfg.Data
 	iters := cfg.Iterations
 
-	surf := newFakeSurface(cfg.Cols*8, cfg.Rows*16)
+	direct := true
+	if cfg.DirectRender != nil {
+		direct = *cfg.DirectRender
+	}
+	surf := newFakeSurfaceMode(cfg.Cols*8, cfg.Rows*16, direct)
 	opts := terminal.DefaultOptions()
 	opts.FontSize = cfg.FontSize
 
@@ -218,6 +241,9 @@ func benchRender(cfg Config) Result {
 	start := time.Now()
 
 	for i := 0; i < iters; i++ {
+		if cfg.FullRedraw {
+			term.Screen().DamageAll()
+		}
 		frameStart := time.Now()
 		term.RenderFrame()
 		frameTimes = append(frameTimes, time.Since(frameStart))
