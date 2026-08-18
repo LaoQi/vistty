@@ -41,7 +41,14 @@ type Compositor struct {
 	originX          int
 	originY          int
 	prevScrollOffset int
+
+	// lastActivity 记录最近一次用户交互时间。期间光标保持常显不闪烁。
+	lastActivity time.Time
 }
+
+// cursorActivityHold 用户交互后光标保持常显的时长。
+// 取 500ms 闪烁半周期的整数倍，到期后自然接续闪烁相位。
+const cursorActivityHold = 2 * time.Second
 
 func NewCompositor(surface platform.Surface, face font.Face) *Compositor {
 	m := face.Metrics()
@@ -222,6 +229,11 @@ func (c *Compositor) OverlayUploadGlyph(r rune) (u0, v0, u1, v1 float32, gw, gh,
 	return u0, v0, u1, v1, g.Width, g.Height, g.XOffset, g.YOffset, true
 }
 
+// NoteActivity 记录一次用户交互，此后一段时间内光标保持常显不闪烁。
+func (c *Compositor) NoteActivity() {
+	c.lastActivity = time.Now()
+}
+
 // cursorVisible 返回光标是否应当绘制。闪烁相位是绝对时间的纯函数
 // （与渲染频率/调度解耦），因此即使 dirty 跳帧或渲染被延迟，光标在任意
 // 渲染时刻的相位都正确，不会因累积状态产生双周期（~1s 保持）抖动。
@@ -231,6 +243,9 @@ func (c *Compositor) cursorVisible(cursor *screen.Cursor) bool {
 		return false
 	}
 	if !cursor.Blinking {
+		return true
+	}
+	if !c.lastActivity.IsZero() && time.Since(c.lastActivity) < cursorActivityHold {
 		return true
 	}
 	phase := time.Now().UnixNano() / int64(500*time.Millisecond)

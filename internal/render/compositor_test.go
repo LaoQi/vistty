@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LaoQi/vistty/font"
 	"github.com/LaoQi/vistty/internal/platform"
@@ -51,6 +52,58 @@ func (f *testFace) Metrics() font.Metrics {
 	return font.Metrics{Width: 8, Height: 16, Ascent: 12, Descent: 4}
 }
 func (f *testFace) Close() error { return nil }
+
+// TestCursorVisibleActivityHold 验证用户交互后保持期内光标常显不闪烁，
+// 活动过期后回退到墙钟闪烁相位。
+func TestCursorVisibleActivityHold(t *testing.T) {
+	surf := &testSurface{
+		data:   make([]byte, 800*600*4),
+		stride: 800 * 4,
+		width:  800,
+		height: 600,
+	}
+	face := &testFace{}
+	c := NewCompositor(surf, face)
+	cur := screen.NewCursor()
+
+	wallPhase := func() bool {
+		return time.Now().UnixNano()/int64(500*time.Millisecond)%2 == 0
+	}
+
+	cur.Blinking = false
+	if !c.cursorVisible(cur) {
+		t.Error("non-blinking cursor should always be visible")
+	}
+	cur.Visible = false
+	if c.cursorVisible(cur) {
+		t.Error("hidden cursor should never be visible")
+	}
+	cur.Visible = true
+	cur.Blinking = true
+
+	if got := c.cursorVisible(cur); got != wallPhase() {
+		t.Error("no activity: expected wall-clock blink phase")
+	}
+
+	c.NoteActivity()
+	if !c.cursorVisible(cur) {
+		t.Error("recent activity: cursor should stay visible during hold window")
+	}
+
+	c.lastActivity = time.Now().Add(-3 * time.Second)
+	if got := c.cursorVisible(cur); got != wallPhase() {
+		t.Error("expired activity: expected wall-clock blink phase")
+	}
+
+	c.lastActivity = time.Now().Add(-(cursorActivityHold - 100*time.Millisecond))
+	if !c.cursorVisible(cur) {
+		t.Error("activity within hold window: cursor should be visible")
+	}
+	c.lastActivity = time.Now().Add(-(cursorActivityHold + 100*time.Millisecond))
+	if got := c.cursorVisible(cur); got != wallPhase() {
+		t.Error("activity past hold window: expected wall-clock blink phase")
+	}
+}
 
 func TestCompositorRenderNoDirty(t *testing.T) {
 	surf := &testSurface{

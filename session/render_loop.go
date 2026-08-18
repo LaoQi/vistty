@@ -164,11 +164,13 @@ func (m *Master) Run() error {
 			if m.plugins != nil {
 				consumed, out := m.plugins.OnKey(ev)
 				if consumed {
+					m.noteActivity()
 					continue
 				}
 				ev = out
 			}
 			m.handleKey(ev)
+			m.noteActivity()
 			m.dirty = true
 		case req := <-m.scaleReqCh:
 			m.handleScale(req)
@@ -178,6 +180,7 @@ func (m *Master) Run() error {
 			m.handleTabRequest(req)
 		case ev := <-m.mouseEvCh:
 			m.handleMouse(ev)
+			m.noteActivity()
 		case exited := <-tec:
 			m.handleTermExit(exited)
 		case <-sigCh:
@@ -534,6 +537,15 @@ func (m *Master) handleKey(ev platform.KeyEvent) {
 	target := m.CurrentInputTarget()
 	if target != nil {
 		target.HandleKey(ev)
+	}
+}
+
+// noteActivity 记录一次用户交互，使焦点终端的活动光标在保持期内常显。
+// 仅作用于焦点 slave 的光标；其他屏幕的光标仍独立闪烁。
+func (m *Master) noteActivity() {
+	s := m.slaves[m.focusIdx]
+	if s != nil {
+		s.Compositor().NoteActivity()
 	}
 }
 
