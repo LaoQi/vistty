@@ -238,6 +238,7 @@ debug → 无内部依赖
 | 硬件光标 | `platform/drm/` | DRM Plane ioctl |
 | 文本整形 | `font/shaper.go` | 集成 go-text/typesetting/harfbuzz |
 | Sixel 图形 | `vte/sixel.go` | 扩展 Parser DCS 处理（技术评估见 `work_docs/analysis/sixel-evaluation.md`） |
+| Bell 响铃 | `terminal/terminal.go`（`execControl` 的 `case vte.ControlBEL`）+ `session/master.go` | OnBell 回调 + tab 标记/闪屏 + `vistty.on_bell` Lua 钩子（技术评估见 `work_docs/analysis/bell-evaluation.md`） |
 | X11 窗口后端 | `platform/x11/` | 新增 Backend 实现 |
 | 完整 XKB 支持 | `platform/wayland/keymap.go` | 可选 purego dlopen libxkbcommon.so |
 | Emoji VS16/ZWJ 序列 | `terminal/terminal.go` + `screen/cell.go` | VS16/VS15 感知（Cell.Attr 标记 emoji presentation）+ ZWJ 序列组合（EmojiID 引用全局序列池） |

@@ -49,6 +49,7 @@
 | `nvidia-gbm-feasibility.md` | nvidia-drm GBM 可行性评估（结论：不可行，方向停止） |
 | `optimize.md` | 渲染热点分析与优化（多轮优化记录） |
 | `sixel-evaluation.md` | Sixel 图形支持技术评估（仅探索，不实施） |
+| `bell-evaluation.md` | Bell（终端响铃）支持技术评估（仅探索，不实施） |
 
 ## archive/ — 已过时文档
 
